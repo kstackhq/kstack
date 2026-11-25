@@ -13,22 +13,21 @@
 // limitations under the License.
 
 import { createRootRoute, createRoute, Outlet } from '@tanstack/react-router';
-import { act, screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { startsWindowDrag } from '@/lib/window-drag';
 import { renderWithRouter } from '@/test-utils';
 
-import { ModeNav } from './mode-nav';
+import { ModeTabs } from './mode-tabs';
 
-// A minimal tree: the nav plus two destination pages, so navigation can be
+// A minimal tree: the tabs plus two destination pages, so navigation can be
 // observed by which page renders.
 function buildTree() {
   const root = createRootRoute({
     component: () => (
       <>
-        <ModeNav />
+        <ModeTabs />
         <Outlet />
       </>
     ),
@@ -46,20 +45,22 @@ function buildTree() {
   return root.addChildren([chat, dashboard]);
 }
 
-describe('ModeNav', () => {
+describe('ModeTabs', () => {
   it('links to the chat and dashboard routes', async () => {
     await renderWithRouter(buildTree(), '/chat');
     expect(screen.getByRole('link', { name: 'Chat' })).toHaveAttribute('href', '/chat');
     expect(screen.getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/dashboard');
   });
 
-  it('draws each mode as an icon alone, named by its label', async () => {
+  it('draws each mode as an icon and its label, named by the label', async () => {
     await renderWithRouter(buildTree(), '/chat');
     ['Chat', 'Dashboard'].forEach((name) => {
       const link = screen.getByRole('link', { name });
       expect(link).toHaveAttribute('aria-label', name);
-      expect(link).toHaveTextContent('');
+      expect(link).toHaveTextContent(name);
       expect(link.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
+      // Equal widths, 28px tall, the label 13px medium.
+      expect(link).toHaveClass('flex-1', 'h-7', 'rounded-full', 'text-[13px]', 'font-medium');
     });
   });
 
@@ -70,29 +71,51 @@ describe('ModeNav', () => {
     expect(nav.contains(screen.getByRole('link', { name: 'Dashboard' }))).toBe(true);
   });
 
-  it('opts its whole track out of the app bar’s drag region', async () => {
+  it('is a 32px muted track', async () => {
     await renderWithRouter(buildTree(), '/chat');
-    const nav = screen.getByRole('navigation', { name: 'View' });
-    // A press on the track's padding, inside the app bar's deep region.
-    const bar = document.createElement('div');
-    bar.setAttribute('data-tauri-drag-region', 'deep');
-    expect(startsWindowDrag([nav, bar])).toBe(false);
+    expect(screen.getByRole('navigation', { name: 'View' })).toHaveClass('h-8', 'rounded-full', 'bg-muted', 'p-0.5');
   });
 
-  it('is as tall as the omnibox, 30px', async () => {
+  // jsdom has no container queries, so the class stands in for the hiding.
+  it('hides the labels under 20rem of omnibox, each tab keeping its name', async () => {
     await renderWithRouter(buildTree(), '/chat');
-    expect(screen.getByRole('navigation', { name: 'View' })).toHaveClass('h-7.5');
+    for (const name of ['Chat', 'Dashboard']) {
+      const tab = screen.getByRole('link', { name });
+      expect(tab).toHaveAttribute('aria-label', name);
+      expect(within(tab).getByText(name)).toHaveClass('@max-xs:hidden');
+    }
   });
 
-  it('names a mode in a tooltip on hover', async () => {
+  // jsdom draws nothing, so every label reads as hidden, as under 20rem of omnibox.
+  it('names a mode in a tooltip on hover while its label is hidden', async () => {
     await renderWithRouter(buildTree(), '/chat');
     await userEvent.hover(screen.getByRole('link', { name: 'Dashboard' }));
     await waitFor(() => expect(document.querySelector('[data-slot=tooltip-content]')).toHaveTextContent('Dashboard'));
   });
 
-  it('marks only the current route active', async () => {
+  it('says nothing on hover while its label is drawn', async () => {
+    await renderWithRouter(buildTree(), '/chat');
+    const link = screen.getByRole('link', { name: 'Dashboard' });
+    const label = within(link).getByText('Dashboard');
+    const drawn = vi
+      .spyOn(label, 'getClientRects')
+      .mockReturnValue([new DOMRect(0, 0, 60, 16)] as unknown as DOMRectList);
+    await userEvent.hover(link);
+    // The tooltip asks the label once it would open.
+    await waitFor(() => expect(drawn).toHaveBeenCalled());
+    expect(document.querySelector('[data-slot=tooltip-content]')).toBeNull();
+  });
+
+  it('marks only the current route active, white on the track', async () => {
     await renderWithRouter(buildTree(), '/chat');
     expect(screen.getByRole('link', { name: 'Chat' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: 'Chat' })).toHaveAttribute('data-status', 'active');
+    expect(screen.getByRole('link', { name: 'Chat' })).toHaveClass(
+      'data-[status=active]:bg-background',
+      'data-[status=active]:text-foreground',
+      'data-[status=active]:shadow-pill',
+    );
+    expect(screen.getByRole('link', { name: 'Dashboard' })).not.toHaveAttribute('data-status', 'active');
     expect(screen.getByRole('link', { name: 'Dashboard' })).not.toHaveAttribute('aria-current');
   });
 

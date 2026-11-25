@@ -15,7 +15,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
-import { AppBarButton, AppBarDivider } from './button';
+import { AppBarButton } from './button';
 
 describe('AppBarButton', () => {
   it('is a 28px ghost square with the bar’s hover wash', () => {
@@ -30,13 +30,5 @@ describe('AppBarButton', () => {
     render(<AppBarButton aria-label="Back" className="size-7.5 rounded-full" />);
     expect(screen.getByRole('button', { name: 'Back' })).toHaveClass('size-7.5', 'rounded-full');
     expect(screen.getByRole('button', { name: 'Back' })).not.toHaveClass('size-7');
-  });
-});
-
-describe('AppBarDivider', () => {
-  it('is an 18px rule hidden from assistive tech', () => {
-    const { container } = render(<AppBarDivider />);
-    expect(container.firstChild).toHaveClass('h-4.5', 'w-px', 'bg-sidebar-border');
-    expect(container.firstChild).toHaveAttribute('aria-hidden', 'true');
   });
 });

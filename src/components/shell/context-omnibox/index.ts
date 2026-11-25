@@ -11,5 +11,5 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-// The app bar's centre box: cluster status, the cluster picker's trigger and memory.
+// The app bar's centre pill: cluster status, the cluster picker's trigger and the Chat/Dashboard tabs.
 export { ContextOmnibox } from './omnibox';

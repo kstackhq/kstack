@@ -143,13 +143,7 @@
         "node": "9:92",
         "name": "ModeNav",
         "hash": "7437d5b85db6cb46"
-      },
-      "code": [
-        {
-          "path": "src/components/shell/mode-nav.tsx",
-          "blob": "979578f200f85525136212e5f653bc77d9691ad5"
-        }
-      ]
+      }
     },
     {
       "id": "shell/app-bar",
@@ -707,7 +701,7 @@
       ],
       "notes": [
         "Figma only: the code has no Segment component. It is one option of the menu's provider tabs and of its effort control.",
-        "Drawn like ModeNav: the active one bg-background shadow-sm on a bg-muted track."
+        "The active one bg-background shadow-sm on a bg-muted track."
       ]
     },
     {

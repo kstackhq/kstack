@@ -34,9 +34,6 @@ vi.mock('@tauri-apps/api/window', () => factory());
 vi.mock('@/components/shell/app-bar/menu', () => ({
   AppMenu: () => <div data-testid="app-menu" />,
 }));
-vi.mock('@/components/shell/mode-nav', () => ({
-  ModeNav: () => <div data-testid="mode-nav" />,
-}));
 // The omnibox in the app bar needs the router search + kubeconfig providers; this
 // test is about placement, so stub it.
 vi.mock('@/components/shell/context-omnibox/omnibox', () => ({
@@ -163,17 +160,17 @@ beforeEach(() => {
 });
 
 describe('AppLayout', () => {
-  it('puts the mode switch and both sidebar toggles in the app bar', async () => {
+  it('puts the omnibox and both sidebar toggles in the app bar', async () => {
     const { container } = await renderWithRouter(buildTree(), '/');
     const bar = screen.getByTestId('app-bar');
     for (const control of [
-      screen.getByTestId('mode-nav'),
+      screen.getByTestId('context-omnibox'),
       screen.getByRole('button', { name: 'Toggle sidebar' }),
       screen.getByRole('button', { name: /toggle right sidebar/i }),
     ]) {
       expect(bar.contains(control)).toBe(true);
     }
-    expect(sidebarOf(container).contains(screen.getByTestId('mode-nav'))).toBe(false);
+    expect(sidebarOf(container).contains(screen.getByTestId('context-omnibox'))).toBe(false);
   });
 
   it('places the app menu in the app bar, not the sidebar', async () => {

@@ -103,16 +103,8 @@
   --font-mono: 'Roboto Mono Variable', ui-monospace, monospace;
   --color-app-bar: var(--app-bar);
   --color-app-bar-hover: var(--app-bar-hover);
-
-  /*
-   * The memory brain's save pulse (`MemoryButton` in context-omnibox/omnibox.tsx): a primary
-   * copy of the icon over the muted base, revealed from the bottom while it grows,
-   * flashed twice at its largest, then shrunk and faded out. The icon is 16px
-   * (Button's default `size-4`), so 1.5 is the 24px peak the design calls for.
-   * The fade is its reduced-motion stand-in: no growth or reveal, the same 1.4s.
-   */
-  --animate-memory-save-pulse: memory-save-pulse 1.4s ease-out both;
-  --animate-memory-save-fade: memory-save-fade 1.4s ease-out both;
+  /* The omnibox's pill and its active tab. */
+  --shadow-pill: 0 0.75px 1.5px -0.75px rgb(0 0 0 / 0.1), 0 0.75px 2.25px 0 rgb(0 0 0 / 0.1);
 
   /* A working answer's *Working 8s* label: a band of foreground sweeping across `text-shimmer`. */
   --animate-shimmer: shimmer 2s linear infinite;
@@ -123,49 +115,6 @@
     }
     to {
       background-position: -100% 0;
-    }
-  }
-
-  @keyframes memory-save-pulse {
-    0% {
-      clip-path: inset(100% 0 0 0);
-      opacity: 1;
-      scale: 1;
-    }
-    55% {
-      clip-path: inset(0);
-      opacity: 1;
-      scale: 1.5;
-    }
-    65% {
-      opacity: 0.35;
-    }
-    72% {
-      opacity: 1;
-    }
-    79% {
-      opacity: 0.35;
-    }
-    86% {
-      clip-path: inset(0);
-      opacity: 1;
-      scale: 1.5;
-    }
-    100% {
-      clip-path: inset(0);
-      opacity: 0;
-      scale: 1;
-    }
-  }
-
-  @keyframes memory-save-fade {
-    0%,
-    100% {
-      opacity: 0;
-    }
-    30%,
-    70% {
-      opacity: 1;
     }
   }
 }

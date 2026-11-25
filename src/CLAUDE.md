@@ -33,7 +33,7 @@ This file holds what crosses the webview; each larger subsystem has a guide besi
 
 ## Routing & layout
 
-- Entry: `src/main.tsx` → `RouterProvider`. Routes in `src/routes/` (code-based, wired in `src/routeTree.ts`): `__root.tsx` mounts the provider stack; `_app.tsx` is a pathless layout rendering `AppLayout`; `chat.tsx` (`/chat`), `chat-id.tsx` (`/chat/$chatId`) and `dashboard.tsx` nest under it. `index.tsx` redirects to `DEFAULT_ROUTE`. `_logs.tsx` is a second pathless layout, rendering `LogsWindowLayout`, with `logs-window.tsx` (`/logs`, the page every `logs-N` window loads) under it. **The chat id is a path param, not a search param** — `retainSearchParams` on `_app` would drag a search param into the dashboard. The Chat/Dashboard switch is the app bar's `ModeNav` (router `Link`s).
+- Entry: `src/main.tsx` → `RouterProvider`. Routes in `src/routes/` (code-based, wired in `src/routeTree.ts`): `__root.tsx` mounts the provider stack; `_app.tsx` is a pathless layout rendering `AppLayout`; `chat.tsx` (`/chat`), `chat-id.tsx` (`/chat/$chatId`) and `dashboard.tsx` nest under it. `index.tsx` redirects to `DEFAULT_ROUTE`. `_logs.tsx` is a second pathless layout, rendering `LogsWindowLayout`, with `logs-window.tsx` (`/logs`, the page every `logs-N` window loads) under it. **The chat id is a path param, not a search param** — `retainSearchParams` on `_app` would drag a search param into the dashboard. The Chat/Dashboard switch is the omnibox's tabs (router `Link`s).
 - **Layouts** (`src/layouts/`) are presentational shells rendering an `Outlet`. `LogsWindowLayout` is the log window's: one column the window's height bounds, no sidebars, no dialogs host; its page draws its own bar.
 - App-wide concerns live in `src/lib/`; components in `src/components/`.
 - **A file in `src/lib/` holds one concept, not one export.** A single export joins the module that owns its concept (`approvalAnchor` in `chats.tsx`; the looks areas share, in `control-style.ts`). It keeps a file of its own only when several areas name it and none owns it (`app-mode.ts`, `storage-key.ts`).
@@ -46,7 +46,7 @@ This file holds what crosses the webview; each larger subsystem has a guide besi
   - `settings/` — the settings dialog and the folder-grant form.
   - `chat/` — the chat panes, title bar, composer, transcript, nav, the transcript's log cards, and the dashboard's chat.
   - `dashboard/` — the objects and events tables, the object panel, the resource nav, the breadcrumb bar, the page header, the status pill and `VirtualTable`.
-  - `shell/` — the app bar, the context omnibox, both sidebars, the mode nav, the app's dialogs host, the startup gate, the error boundary and the error banner.
+  - `shell/` — the app bar, the context omnibox and mode tabs, both sidebars, the app's dialogs host, the startup gate, the error boundary and the error banner.
 - **Imports point one way**: `primitives` ← `cluster` ← `logs` ← `settings` ← `chat`, `dashboard` ← `shell`. An area imports only from the areas to its left (and `src/lib/`); `chat` and `dashboard` import neither each other. Across areas an import is `@/components/<area>/<name>`; a sibling in the same area may use `./`.
 
 ## Errors reach the host's log
