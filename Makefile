@@ -10,7 +10,7 @@
 # No target names a file it makes.
 .PHONY: build-sidecar build-sidecar-dev build-bwrap build-pasta build-embedded-sources \
 	generate-proto generate-prompts generate-icons \
-	lint lint-go lint-rust lint-ts lint-tailwind lint-yaml lint-sh lint-md lint-claude-md lint-markers lint-design \
+	lint lint-go lint-rust lint-ts lint-tailwind lint-yaml lint-sh lint-md lint-claude-md lint-markers lint-design lint-security-model \
 	design-status design-record \
 	vet vet-go vet-go-changed vet-rust \
 	test test-go test-rust test-ts test-changed test-livecache test-liveswitch \
@@ -69,7 +69,7 @@ generate-icons: ## Regenerate src-tauri/icons/, public/favicon.ico and src/asset
 	mkdir -p src/assets/icons
 	cp src-icons/app-light.svg src-icons/app-dark.svg src/assets/icons/
 
-lint: lint-go lint-rust lint-ts lint-tailwind lint-yaml lint-sh lint-md lint-claude-md lint-markers lint-design ## Run every linter CI runs
+lint: lint-go lint-rust lint-ts lint-tailwind lint-yaml lint-sh lint-md lint-claude-md lint-markers lint-design lint-security-model ## Run every linter CI runs
 
 lint-go: ## Check the sidecar's and the CLI's Go formatting
 	@unformatted=$$(gofmt -l sidecar cli); \
@@ -114,6 +114,9 @@ lint-markers: ## Check every coverage marker gives its reason
 
 lint-design: ## Check the design manifest against the code it names
 	cd tools && go run ./designsync check
+
+lint-security-model: ## Check the security model against the tests and files it cites
+	cd tools && go run ./securitymodel check
 
 # designsync reads Figma when FIGMA_TOKEN is set. On macOS an unset one comes
 # from the Keychain item kstack-figma-token; without either, the code side alone.

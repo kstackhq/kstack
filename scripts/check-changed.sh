@@ -4,8 +4,9 @@
 # toolchain. `make check` runs every area; CI runs what
 # .github/ci-config/path-filters.yml selects.
 #
-#   always                     lint-md, lint-claude-md, lint-markers, cover-changed, then
-#                              test-changed for what cover-changed did not test
+#   always                     lint-md, lint-claude-md, lint-markers, lint-security-model,
+#                              cover-changed, then test-changed for what cover-changed did
+#                              not test
 #   sidecar/, cli/, tools/     lint-go, vet-go-changed
 #   src-tauri/, proto/, the layout fixture  lint-rust, vet-rust
 #   the webview and its config lint-ts, lint-tailwind
@@ -37,7 +38,7 @@ cd "$(dirname "$0")/.."
 # shellcheck source=scripts/changed.sh
 . scripts/changed.sh
 
-jobs=(lint-md lint-claude-md lint-markers)
+jobs=(lint-md lint-claude-md lint-markers lint-security-model)
 tests="cover-changed test-changed"
 if has '^(sidecar|cli|tools)/'; then jobs+=(lint-go vet-go-changed); fi
 if rust_changed; then
