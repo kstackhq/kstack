@@ -40,11 +40,18 @@ func exec(t *testing.T, db *appdb.DB, q string, args ...any) {
 	require.NoError(t, err)
 }
 
-// seedKubeRule writes a kube_rules row of chatID's, on cluster 1.
-func seedKubeRule(t *testing.T, db *appdb.DB, chatID ChatID, id string, effect permissions.Effect, class permissions.Class) {
+// kubeRule is a rule of effect over writes on cluster 1.
+func kubeRule(id string, effect permissions.Effect) permissions.Rule {
+	return permissions.Rule{ID: id, Effect: effect, AccessLevel: permissions.Write, Principal: "*", Target: "kubernetes",
+		Scope: "1/**", Service: "*", Operation: "*", Resource: "*"}
+}
+
+// seedRule writes a permission_rules row of chatID's.
+func seedRule(t *testing.T, db *appdb.DB, chatID ChatID, r permissions.Rule) {
 	t.Helper()
-	exec(t, db, `INSERT INTO kube_rules (id, chat_id, effect, class, cluster_id, created_at) VALUES (?, ?, ?, ?, '1', ?)`,
-		id, string(chatID), string(effect), class.Name(), time.Now().UnixMilli())
+	now := time.Now().UnixMilli()
+	exec(t, db, `INSERT INTO permission_rules (`+settings.RuleColumns+`, chat_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		append(settings.RuleValues(r), string(chatID), now, now)...)
 }
 
 // seedFolderGrant writes a folder_grants row of chatID's, as given.
@@ -94,14 +101,14 @@ func TestAChatsGrantsGoWithTheChat(t *testing.T) {
 	other := seedChat(t, s.db, aChat("1", time.Now()))
 	assert.Empty(t, s.chatRules(t.Context(), c.ID))
 
-	allow := permissions.Rule{ID: "a", Effect: permissions.Allow, Class: permissions.UpstreamWrite, ClusterID: "1"}
-	seedKubeRule(t, s.db, c.ID, "a", permissions.Allow, permissions.UpstreamWrite)
+	allow := kubeRule("a", permissions.Allow)
+	seedRule(t, s.db, c.ID, allow)
 	seedFolderGrant(t, s.db, c.ID, "f", "/srv/code", "read")
 	assert.Equal(t, []permissions.Rule{allow}, s.chatRules(t.Context(), c.ID), "a row is read live, and a folder grant is no rule")
 	assert.Empty(t, s.chatRules(t.Context(), other.ID), "another chat's rows are its own")
 
 	exec(t, s.db, `DELETE FROM chats WHERE id = ?`, string(c.ID))
-	assert.Zero(t, rowsIn(t, s.db, "kube_rules"), "the rows go with the chat")
+	assert.Zero(t, rowsIn(t, s.db, "permission_rules"), "the rows go with the chat")
 	assert.Zero(t, rowsIn(t, s.db, "folder_grants"))
 }
 
@@ -111,9 +118,9 @@ func TestAChatsRuleRoundTripsThroughItsRow(t *testing.T) {
 
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
-	rule := permissions.Rule{Effect: permissions.Deny, Class: permissions.Destructive, ClusterID: "2", Namespace: "team-a",
-		Verb: "delete", Group: "apps", Kind: "deployments", Inside: true}
-	added, err := s.addKubeRule(t.Context(), c.ID, rule)
+	rule := permissions.Rule{Effect: permissions.Deny, AccessLevel: permissions.Destructive, Principal: "subagent", Target: "aws",
+		Scope: "123456789012/*", Service: "ec2", Operation: "TerminateInstances", Resource: "instance"}
+	added, err := s.addRule(t.Context(), c.ID, rule)
 	require.NoError(t, err)
 	rule.ID = added.ID
 	assert.Equal(t, []permissions.Rule{rule}, s.chatRules(t.Context(), c.ID))
@@ -129,9 +136,9 @@ func withSettingsOnItsDB(t *testing.T, s *service) {
 	s.settings = settings.NewService(settingsStore(t, s.db), nil, nil, nil, "")
 }
 
-// A session's policy is the mode of the cluster the action runs on, read
-// live, and the chat's rules then the always rules.
-func TestTheSessionReadsTheClustersMode(t *testing.T) {
+// A session's policy is the mode of the action's account, read live, and the
+// chat's rules then the always rules.
+func TestASessionReadsItsAccountsModeAndRules(t *testing.T) {
 	t.Parallel()
 
 	s := newTestService(t)
@@ -139,60 +146,67 @@ func TestTheSessionReadsTheClustersMode(t *testing.T) {
 	ctx := t.Context()
 	c := seedChat(t, s.db, aChat("1", time.Now()))
 	sess := s.sessionFor(c.ID, false, false)
+	k8s := permissions.Kubernetes
 
-	assert.Equal(t, permissions.Ask, sess.Policy(ctx, "dev").Mode)
-	require.NoError(t, s.settings.SetDefaultMode(ctx, permissions.Auto))
-	assert.Equal(t, permissions.Auto, sess.Policy(ctx, "dev").Mode, "a mode changed in Settings reaches the next write")
-	require.NoError(t, s.settings.SetMode(ctx, "prod", permissions.ReadOnly))
-	assert.Equal(t, permissions.ReadOnly, sess.Policy(ctx, "prod").Mode)
-	assert.Equal(t, permissions.Auto, sess.Policy(ctx, "dev").Mode)
-	assert.Empty(t, sess.Policy(ctx, "dev").Rules)
+	assert.Equal(t, permissions.ModeAsk, sess.Policy(ctx, k8s, "dev").Mode)
+	require.NoError(t, s.settings.SetMode(ctx, k8s, "*", permissions.ModeAuto))
+	assert.Equal(t, permissions.ModeAuto, sess.Policy(ctx, k8s, "dev").Mode, "a mode changed in Settings reaches the next write")
+	require.NoError(t, s.settings.SetMode(ctx, k8s, "prod", permissions.ModeReadOnly))
+	assert.Equal(t, permissions.ModeReadOnly, sess.Policy(ctx, k8s, "prod").Mode)
+	assert.Equal(t, permissions.ModeAuto, sess.Policy(ctx, k8s, "dev").Mode)
+	assert.Equal(t, permissions.ModeAsk, sess.Policy(ctx, permissions.AWS, "123456789012").Mode, "another target's account has its own")
+	require.NoError(t, s.settings.SetMode(ctx, permissions.AWS, "123456789012", permissions.ModeAuto))
+	assert.Equal(t, permissions.ModeAuto, sess.Policy(ctx, permissions.AWS, "123456789012").Mode)
+	assert.Empty(t, sess.Policy(ctx, k8s, "dev").Rules)
 
-	always, err := s.settings.AddKubeRule(ctx, permissions.Rule{Effect: permissions.Allow, Class: permissions.UpstreamWrite, ClusterID: "dev"})
+	always, err := s.settings.AddRule(ctx, permissions.Rule{Effect: permissions.Allow, AccessLevel: permissions.Write, Principal: "*",
+		Target: "kubernetes", Scope: "dev/**", Service: "*", Operation: "*", Resource: "*"})
 	require.NoError(t, err)
-	seedKubeRule(t, s.db, c.ID, "g", permissions.Deny, permissions.UpstreamWrite)
+	seedRule(t, s.db, c.ID, kubeRule("g", permissions.Deny))
 	ids := []string{}
-	for _, r := range sess.Policy(ctx, "dev").Rules {
+	for _, r := range sess.Policy(ctx, k8s, "dev").Rules {
 		ids = append(ids, r.ID)
 	}
 	assert.Equal(t, []string{"g", always.ID}, ids, "the chat's rules, then the always rules")
 }
 
 // A policy whose mode or rules cannot be read is read-only and refuses every
-// cluster write and Secret read.
+// write and data read.
 func TestAPolicyThatCannotBeReadRefuses(t *testing.T) {
 	t.Parallel()
 
 	s := newTestService(t)
 	withSettingsOnItsDB(t, s)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
-	_, err := s.settings.AddKubeRule(t.Context(), permissions.Rule{Effect: permissions.Allow, Class: permissions.SecretRead, ClusterID: "dev"})
+	_, err := s.settings.AddRule(t.Context(), permissions.Rule{Effect: permissions.Allow, AccessLevel: permissions.DataRead, Principal: "*",
+		Target: "kubernetes", Scope: "dev/**", Service: "*", Operation: "*", Resource: "*"})
 	require.NoError(t, err)
-	for _, table := range []string{"settings", "kube_rules"} {
+	for _, table := range []string{"permission_modes", "permission_rules"} {
 		exec(t, s.db, `DROP TABLE `+table)
 	}
 
-	p := s.sessionFor(c.ID, false, false).Policy(t.Context(), "dev")
-	assert.Equal(t, permissions.ReadOnly, p.Mode)
-	for _, class := range []permissions.Class{permissions.UpstreamWrite, permissions.SecretRead} {
-		got, _ := p.Authorize(permissions.Action{Class: class, ClusterID: "1", Context: "dev-eks", Namespace: "web", Verb: "get", Group: "core", Kind: "secrets"})
-		assert.Equal(t, permissions.Refuse, got, "class %d", class)
+	p := s.sessionFor(c.ID, false, false).Policy(t.Context(), permissions.Kubernetes, "dev")
+	assert.Equal(t, permissions.ModeReadOnly, p.Mode)
+	for _, level := range []permissions.AccessLevel{permissions.Write, permissions.DataRead} {
+		got, _ := p.Authorize(permissions.Action{Principal: permissions.Chat, Target: permissions.Kubernetes, AccessLevel: level,
+			Scope: "dev/web", AccountName: "dev-eks", Operation: "get", Resource: "secrets"})
+		assert.Equal(t, permissions.Deny, got.Effect, "%s", level)
 	}
 }
 
-// A read of the chat's rules that fails may have hidden a Deny, so it refuses
-// the chat's cluster writes and Secret reads, and a rule that cannot read
-// them is not written.
+// A read of the chat's rules that fails may have hidden a deny, so it refuses
+// the chat's writes and data reads, and a rule that cannot read them is not
+// written.
 func TestAGrantsReadThatFailsRefuses(t *testing.T) {
 	t.Parallel()
 
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
-	seedKubeRule(t, s.db, c.ID, "a", permissions.Allow, permissions.UpstreamWrite)
-	exec(t, s.db, `DROP TABLE kube_rules`)
+	seedRule(t, s.db, c.ID, kubeRule("a", permissions.Allow))
+	exec(t, s.db, `DROP TABLE permission_rules`)
 
 	assert.Equal(t, permissions.Unread(), s.chatRules(t.Context(), c.ID))
-	_, err := s.addKubeRule(t.Context(), c.ID, permissions.Rule{Effect: permissions.Allow, Class: permissions.UpstreamWrite, ClusterID: "1"})
+	_, err := s.addRule(t.Context(), c.ID, kubeRule("", permissions.Allow))
 	assert.Error(t, err)
 }
 
@@ -202,18 +216,18 @@ func TestAGrantsWriteThatFailsRefuses(t *testing.T) {
 
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
-	rule := permissions.Rule{Effect: permissions.Allow, Class: permissions.UpstreamWrite, ClusterID: "1"}
-	added, err := s.addKubeRule(t.Context(), c.ID, rule)
+	rule := kubeRule("", permissions.Allow)
+	added, err := s.addRule(t.Context(), c.ID, rule)
 	require.NoError(t, err)
 	for _, kind := range []string{"INSERT", "DELETE"} {
-		exec(t, s.db, `CREATE TRIGGER refuse_`+kind+` BEFORE `+kind+` ON kube_rules
+		exec(t, s.db, `CREATE TRIGGER refuse_`+kind+` BEFORE `+kind+` ON permission_rules
 			BEGIN SELECT RAISE(ABORT, 'refused'); END`)
 	}
 
-	rule.ClusterID = "2"
-	_, err = s.addKubeRule(t.Context(), c.ID, rule)
+	rule.Scope = "2/**"
+	_, err = s.addRule(t.Context(), c.ID, rule)
 	assert.ErrorContains(t, err, "refused")
-	_, err = s.RemoveChatKubeRule(t.Context(), c.ID, added.ID)
+	_, err = s.RemoveChatRule(t.Context(), c.ID, added.ID)
 	assert.ErrorContains(t, err, "refused")
 	assert.Equal(t, []permissions.Rule{added}, s.chatRules(t.Context(), c.ID))
 }
@@ -227,37 +241,38 @@ func TestAChatsRulesAreListedAndRemoved(t *testing.T) {
 	ctx := t.Context()
 	home := grantable(t, s)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
-	rule := permissions.Rule{Effect: permissions.Allow, Class: permissions.UpstreamWrite, ClusterID: "1", Namespace: "web"}
+	rule := kubeRule("", permissions.Allow)
+	rule.Scope = "1/web"
 	require.NoError(t, s.GrantFolder(ctx, c.ID, filepath.Join(home, "code"), false))
 
-	added, err := s.addKubeRule(ctx, c.ID, rule)
+	added, err := s.addRule(ctx, c.ID, rule)
 	require.NoError(t, err)
 	require.NotEmpty(t, added.ID)
-	listed, err := s.ChatKubeRules(ctx, c.ID)
+	listed, err := s.ChatRules(ctx, c.ID)
 	require.NoError(t, err)
 	assert.Equal(t, []permissions.Rule{added}, listed)
 
-	again, err := s.addKubeRule(ctx, c.ID, rule)
+	again, err := s.addRule(ctx, c.ID, rule)
 	require.NoError(t, err)
 	assert.Equal(t, added, again, "a rule the chat holds is not written twice")
 	assert.Len(t, s.chatRules(ctx, c.ID), 1)
 
 	_, chat := folderGrants(t, s, c.ID)
 	require.Len(t, chat, 1)
-	_, err = s.RemoveChatKubeRule(ctx, c.ID, chat[0].ID)
+	_, err = s.RemoveChatRule(ctx, c.ID, chat[0].ID)
 	assert.ErrorIs(t, err, ErrGrantGone, "a folder grant is not a rule")
 
-	left, err := s.RemoveChatKubeRule(ctx, c.ID, added.ID)
+	left, err := s.RemoveChatRule(ctx, c.ID, added.ID)
 	require.NoError(t, err)
 	assert.Empty(t, left)
 	assert.Empty(t, s.chatRules(ctx, c.ID), "the command's next decision no longer finds it")
-	_, err = s.RemoveChatKubeRule(ctx, c.ID, added.ID)
+	_, err = s.RemoveChatRule(ctx, c.ID, added.ID)
 	assert.ErrorIs(t, err, ErrGrantGone)
 
 	exec(t, s.db, `DELETE FROM chats WHERE id = ?`, string(c.ID))
-	_, err = s.RemoveChatKubeRule(ctx, c.ID, appdb.NewID())
+	_, err = s.RemoveChatRule(ctx, c.ID, appdb.NewID())
 	assert.ErrorIs(t, err, ErrChatGone)
-	_, err = s.addKubeRule(ctx, c.ID, rule)
+	_, err = s.addRule(ctx, c.ID, rule)
 	assert.ErrorIs(t, err, ErrChatGone)
 }
 
@@ -290,17 +305,17 @@ func TestAChatsGrantWritesPingItsKey(t *testing.T) {
 	_, chat := folderGrants(t, s, c.ID)
 	require.NoError(t, s.RevokeFolder(ctx, c.ID, chat[0].ID))
 	pinged("a folder grant revoked")
-	added, err := s.addKubeRule(ctx, c.ID, permissions.Rule{Effect: permissions.Allow, Class: permissions.UpstreamWrite, ClusterID: "1"})
+	added, err := s.addRule(ctx, c.ID, kubeRule("", permissions.Allow))
 	require.NoError(t, err)
 	pinged("a rule an approval wrote")
-	_, err = s.addKubeRule(ctx, c.ID, permissions.Rule{Effect: permissions.Allow, Class: permissions.UpstreamWrite, ClusterID: "1"})
+	_, err = s.addRule(ctx, c.ID, kubeRule("", permissions.Allow))
 	require.NoError(t, err)
 	quiet("a rule the chat holds already")
-	_, err = s.RemoveChatKubeRule(ctx, c.ID, added.ID)
+	_, err = s.RemoveChatRule(ctx, c.ID, added.ID)
 	require.NoError(t, err)
 	pinged("a rule removed")
 
-	_, err = s.RemoveChatKubeRule(ctx, c.ID, added.ID)
+	_, err = s.RemoveChatRule(ctx, c.ID, added.ID)
 	require.ErrorIs(t, err, ErrGrantGone)
 	quiet("a refused removal")
 	require.ErrorIs(t, s.RevokeFolder(ctx, c.ID, chat[0].ID), ErrGrantGone)
@@ -573,23 +588,21 @@ func TestConcurrentGrantsOfOneFolderLeaveOne(t *testing.T) {
 	assert.Len(t, chat, 1)
 }
 
-// A chat's session asks and reads Secret data under its rules, and so does a
-// subagent's under it: only a monitor's session is built with either flag.
+// A chat's session is the chat's, and a subagent's under it the subagent's:
+// each a principal that asks and reads data under its rules.
 func TestAChatsSessionAsksAndReadsSecretData(t *testing.T) {
 	t.Parallel()
 
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
-	for _, sess := range []session.Session{s.sessionFor(c.ID, false, false), session.Narrow(s.sessionFor(c.ID, false, false))} {
-		assert.False(t, sess.NoPrompts)
-		assert.False(t, sess.NoSecretData)
-	}
+	assert.Equal(t, session.Chat, s.sessionFor(c.ID, false, false).Kind)
+	assert.Equal(t, session.Subagent, session.Narrow(s.sessionFor(c.ID, false, false)).Kind)
 }
 
 // The monitor's session holds less than any chat's: no switch, no policy (the
-// proxy reads read-only), no network, no folders, no prompts and no Secret
-// data. Under the policy the proxy builds from it, every write, every Secret
-// read and every action a rule would ask about is refused.
+// proxy reads read-only), no network, no folders, and its kind alone, which
+// the boundary holds to reads. Under any policy, every write, every data read
+// and every action a rule would ask about is refused.
 func TestTheMonitorSessionIsReadOnlyAndAsksNobody(t *testing.T) {
 	t.Parallel()
 
@@ -601,14 +614,19 @@ func TestTheMonitorSessionIsReadOnlyAndAsksNobody(t *testing.T) {
 	assert.Nil(t, sess.Network)
 	assert.Nil(t, sess.Folders)
 	assert.Empty(t, grantedFolders(t, sess))
-	assert.True(t, sess.NoPrompts)
-	assert.True(t, sess.NoSecretData)
 
-	asks := permissions.Rule{Effect: permissions.AskFor, Class: permissions.ReadInside}
-	policy := permissions.Policy{Mode: permissions.ReadOnly, Rules: []permissions.Rule{asks}, NoPrompts: sess.NoPrompts, NoSecretData: sess.NoSecretData}
-	for _, class := range []permissions.Class{permissions.UpstreamWrite, permissions.Destructive, permissions.SecretRead, permissions.ReadInside} {
-		got, why := policy.Authorize(permissions.Action{Class: class, Verb: "patch", Group: "apps", Kind: "deployments"})
-		assert.Equal(t, permissions.Refuse, got, "class %d: %s", class, why)
+	allow := func(level permissions.AccessLevel) permissions.Rule {
+		return permissions.Rule{Effect: permissions.Allow, AccessLevel: level, Principal: "*", Target: "*", Scope: "*", Service: "*", Operation: "*", Resource: "*"}
+	}
+	asks := allow(permissions.Read)
+	asks.Effect = permissions.Ask
+	for _, mode := range permissions.Modes {
+		for _, level := range permissions.Levels {
+			policy := permissions.Policy{Mode: mode, Rules: []permissions.Rule{asks, allow(level)}}
+			got, why := policy.Authorize(permissions.Action{Principal: sess.Kind, Target: permissions.Kubernetes, Scope: "1/web",
+				AccessLevel: level, Operation: "patch", Service: "apps", Resource: "deployments"})
+			assert.Equal(t, permissions.Deny, got.Effect, "%s %s: %s", mode, level, why)
+		}
 	}
 }
 
@@ -621,15 +639,15 @@ func TestAChatsReadThatFailsPartwayAnswersNone(t *testing.T) {
 	grantable(t, s)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
 	for _, q := range []string{
-		`DROP TABLE kube_rules`,
-		`CREATE TABLE kube_rules (id, chat_id, effect, class, context, namespace, verb, api_group, kind, inside, created_at)`,
+		`DROP TABLE permission_rules`,
+		`CREATE TABLE permission_rules (id, chat_id, effect, access_level, principal, target, scope, service, operation, resource, created_at)`,
 		`DROP TABLE folder_grants`,
 		`CREATE TABLE folder_grants (id, chat_id, folder, access, created_at)`,
 	} {
 		exec(t, s.db, q)
 	}
 	for _, q := range []string{
-		`INSERT INTO kube_rules VALUES ('a', ?1, 'allow', 'upstream-write', '', '', '', '', '', 0, 1), ('b', ?1, 'deny', 'upstream-write', '', '', '', '', '', 'maybe', 2)`,
+		`INSERT INTO permission_rules VALUES ('a', ?1, 'allow', 'write', '*', 'kubernetes', '1', '*', '*', '*', 1), ('b', ?1, 'deny', 'write', '*', '*', NULL, '*', '*', '*', 2)`,
 		`INSERT INTO folder_grants VALUES ('a', ?1, '/srv/code', 'read', 1), ('b', ?1, NULL, 'read', 2)`,
 	} {
 		exec(t, s.db, q, string(c.ID))
@@ -665,11 +683,13 @@ func TestAChatsRuleKstackCannotApplyIsRefused(t *testing.T) {
 
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
-	_, err := s.addKubeRule(t.Context(), c.ID, permissions.Rule{Effect: permissions.Allow, Class: permissions.Destructive})
+	rule := kubeRule("", permissions.Allow)
+	rule.AccessLevel = permissions.Destructive
+	_, err := s.addRule(t.Context(), c.ID, rule)
 	var refusal settings.RuleRefusal
 	require.ErrorAs(t, err, &refusal)
-	assert.Equal(t, "allows a destructive write, which always asks", string(refusal))
-	assert.Zero(t, rowsIn(t, s.db, "kube_rules"))
+	assert.Equal(t, "allows a destructive change, which always asks", string(refusal))
+	assert.Zero(t, rowsIn(t, s.db, "permission_rules"))
 }
 
 // A send outside the sandbox takes no folders, so it starts though they cannot

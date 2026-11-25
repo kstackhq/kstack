@@ -15,6 +15,7 @@
 package azureproxy
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -126,33 +127,41 @@ func (u *upstream) setAnswer(h http.HandlerFunc) {
 // transport dials u whatever host a request names.
 func (u *upstream) transport() http.RoundTripper { return testutil.DialAnywhere(u.Server) }
 
-// fakeAsker hands each Ask to the test and waits for its answer.
+// fakeAsker hands each Ask to the test and waits for its answer. An
+// approval holds for duration, once when unset.
 type fakeAsker struct {
-	asked    chan runproxy.Request
-	answers  chan bool
-	recorded chan runproxy.Request
+	asked     chan runproxy.Request
+	answers   chan bool
+	duration  permissions.Duration
+	recorded  chan runproxy.Request
+	decisions chan permissions.Decision
 }
 
 func newFakeAsker() *fakeAsker {
-	return &fakeAsker{asked: make(chan runproxy.Request, 8), answers: make(chan bool, 8), recorded: make(chan runproxy.Request, 8)}
-}
-
-func (a *fakeAsker) Ask(ctx context.Context, r runproxy.Request) (bool, error) {
-	a.asked <- r
-	select {
-	case ok := <-a.answers:
-		return ok, nil
-	case <-ctx.Done():
-		return false, ctx.Err()
+	return &fakeAsker{
+		asked: make(chan runproxy.Request, 8), answers: make(chan bool, 8),
+		recorded: make(chan runproxy.Request, 8), decisions: make(chan permissions.Decision, 8),
 	}
 }
 
-func (a *fakeAsker) Record(_ context.Context, r runproxy.Request, _ permissions.Decision, _ string) error {
+func (a *fakeAsker) Ask(ctx context.Context, r runproxy.Request) (permissions.Answer, error) {
+	a.asked <- r
+	select {
+	case ok := <-a.answers:
+		return permissions.Answer{Approved: ok, Duration: cmp.Or(a.duration, permissions.DurationOnce)}, nil
+	case <-ctx.Done():
+		return permissions.Answer{}, ctx.Err()
+	}
+}
+
+func (a *fakeAsker) Record(_ context.Context, r runproxy.Request, d permissions.Decision, _ string) error {
 	a.recorded <- r
+	a.decisions <- d
 	return nil
 }
 
-// harness is the proxy over a fake upstream, tokens and asker.
+// harness is the proxy over a fake upstream, tokens and asker, in a chat
+// whose every account is in policy, ask mode until a test changes it.
 type harness struct {
 	handler  http.Handler
 	grant    *runproxy.Grant
@@ -160,6 +169,23 @@ type harness struct {
 	asker    *fakeAsker
 	tokens   *fakeTokens
 	upstream *upstream
+	mu       sync.Mutex
+	policy   permissions.Policy
+	accounts []string // each account a policy was read for
+}
+
+// setPolicy is the mode and rules the next decision reads.
+func (h *harness) setPolicy(p permissions.Policy) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.policy = p
+}
+
+func (h *harness) readPolicy(_ context.Context, _ permissions.Target, account string) permissions.Policy {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.accounts = append(h.accounts, account)
+	return h.policy
 }
 
 func newHarness(t *testing.T, limits runproxy.Limits) *harness {
@@ -167,8 +193,10 @@ func newHarness(t *testing.T, limits runproxy.Limits) *harness {
 	if limits.QPS == 0 {
 		limits = runproxy.Limits{QPS: 1000, Burst: 1000, Open: 8, Bodies: 8}
 	}
-	h := &harness{asker: newFakeAsker(), tokens: &fakeTokens{next: []string{"users-own-token"}}, upstream: newUpstream(t)}
-	h.grant = runproxy.NewGrant(permissions.Azure, func(context.Context) bool { return !h.off.Load() }, session.Session{Kind: session.Chat}, h.asker, "", limits)
+	h := &harness{asker: newFakeAsker(), tokens: &fakeTokens{next: []string{"users-own-token"}}, upstream: newUpstream(t),
+		policy: permissions.Policy{Mode: permissions.ModeAsk}}
+	sess := session.Session{Kind: session.Chat, Policy: h.readPolicy}
+	h.grant = runproxy.NewGrant(permissions.Azure, func(context.Context) bool { return !h.off.Load() }, sess, h.asker, "", limits)
 	t.Cleanup(h.grant.End)
 	h.handler = New(Config{Grant: h.grant, Port: 6443, Account: testAccount, Tokens: h.tokens, Transport: h.upstream.transport()})
 	return h
@@ -447,7 +475,7 @@ func TestAChangeAsksAndOnlyAnApprovalForwards(t *testing.T) {
 	for _, approve := range []bool{false, true} {
 		done := serveAsync(h.handler, h.request(http.MethodPut, compute+"?api-version=2024-07-01", body))
 		req := testutil.Recv(t, h.asker.asked, "the change")
-		assert.Equal(t, permissions.UpstreamWrite, req.Action.Class)
+		assert.Equal(t, permissions.Write, req.Action.AccessLevel)
 		assert.Equal(t, "Azure: PUT Microsoft.Compute/virtualMachines/vm-1 in rg", req.Action.Summary)
 		assert.Equal(t, runproxy.Sent{
 			Host: "management.azure.com", Method: http.MethodPut, Path: compute + "?api-version=2024-07-01",
@@ -474,12 +502,12 @@ func TestAChangeAsksAndOnlyAnApprovalForwards(t *testing.T) {
 	}
 }
 
-// Deleting a resource group is class 5 and names the subscription.
-func TestAGroupDeleteIsClass5(t *testing.T) {
+// Deleting a resource group is destructive and names the subscription.
+func TestAGroupDeleteIsDestructive(t *testing.T) {
 	h := newHarness(t, runproxy.Limits{})
 	done := serveAsync(h.handler, h.request(http.MethodDelete, rg+"?api-version=2024-11-01", ""))
 	req := testutil.Recv(t, h.asker.asked, "the delete")
-	assert.Equal(t, permissions.Destructive, req.Action.Class)
+	assert.Equal(t, permissions.Destructive, req.Action.AccessLevel)
 	assert.Equal(t, "Azure: delete resource group rg in Pay-As-You-Go", req.Action.Summary)
 	h.asker.answers <- false
 	testutil.Recv(t, done, "the answer")
@@ -516,7 +544,7 @@ func TestSecretMetadataAsksAsADataRead(t *testing.T) {
 		}
 		done := serveAsync(h.handler, h.request(method, target, ""))
 		req := testutil.Recv(t, h.asker.asked, target)
-		assert.Equal(t, permissions.SecretRead, req.Action.Class, target)
+		assert.Equal(t, permissions.DataRead, req.Action.AccessLevel, target)
 		assert.Equal(t, summary, req.Action.Summary)
 		h.asker.answers <- true
 		assert.Equal(t, http.StatusOK, testutil.Recv(t, done, target).Code)
@@ -623,4 +651,121 @@ func TestAnAccountWithNoSubscriptionRefuses(t *testing.T) {
 	w := serve(handler, h.request(http.MethodGet, "/subscriptions?api-version=1", ""))
 	assert.Equal(t, http.StatusForbidden, w.Code)
 	assert.Empty(t, h.upstream.requests())
+}
+
+// A read is classified as it is today and forwarded unasked and unrecorded,
+// under every mode, a tenant-level read included: no policy is read for it.
+func TestAReadIsClassifiedAsToday(t *testing.T) {
+	for _, mode := range permissions.Modes {
+		h := newHarness(t, runproxy.Limits{})
+		h.setPolicy(permissions.Policy{Mode: mode})
+		for _, target := range []string{
+			"/subscriptions?api-version=1",
+			"/tenants?api-version=1",
+			"/providers/Microsoft.Management/managementGroups/mg?api-version=1",
+			compute + "?api-version=1",
+		} {
+			w := serve(h.handler, h.request(http.MethodGet, target, ""))
+			assert.Equal(t, http.StatusOK, w.Code, "%s %s", mode, target)
+		}
+		assert.Empty(t, h.asker.asked)
+		assert.Empty(t, h.asker.recorded)
+		assert.Empty(t, h.accounts, "a read reads no policy")
+	}
+}
+
+// allowWrites is an allow of writes in the test subscription's group rg.
+var allowWrites = permissions.Rule{ID: "a", Effect: permissions.Allow, AccessLevel: permissions.Write, Principal: "*", Target: "azure",
+	Scope: sub + "/rg", Service: "*", Operation: "*", Resource: "*"}
+
+func TestARuleAndAModeDecideAnAzureAction(t *testing.T) {
+	start := compute + "/start?api-version=1"
+	forwards := func(t *testing.T, h *harness, method, target, body string) {
+		t.Helper()
+		w := serve(h.handler, h.request(method, target, body))
+		assert.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		assert.Equal(t, permissions.Allowed, testutil.Recv(t, h.asker.decisions, "the record"))
+		assert.Empty(t, h.asker.asked)
+	}
+	t.Run("auto forwards a write unasked, recorded", func(t *testing.T) {
+		h := newHarness(t, runproxy.Limits{})
+		h.setPolicy(permissions.Policy{Mode: permissions.ModeAuto})
+		forwards(t, h, http.MethodPost, start, "")
+		assert.Len(t, h.upstream.requests(), 1)
+		assert.Equal(t, []string{sub}, h.accounts, "the policy is the subscription's")
+	})
+	t.Run("read-only denies", func(t *testing.T) {
+		h := newHarness(t, runproxy.Limits{})
+		h.setPolicy(permissions.Policy{Mode: permissions.ModeReadOnly})
+		w := serve(h.handler, h.request(http.MethodPost, start, ""))
+		assert.Equal(t, http.StatusForbidden, w.Code)
+		assert.Contains(t, refusal(t, w), "this account is read-only")
+		assert.Equal(t, permissions.Denied, testutil.Recv(t, h.asker.decisions, "the record"))
+		assert.Empty(t, h.upstream.requests())
+	})
+	t.Run("an allow rule forwards", func(t *testing.T) {
+		h := newHarness(t, runproxy.Limits{})
+		h.setPolicy(permissions.Policy{Mode: permissions.ModeAsk, Rules: []permissions.Rule{allowWrites}})
+		forwards(t, h, http.MethodPost, start, "")
+	})
+	t.Run("a deny rule refuses", func(t *testing.T) {
+		h := newHarness(t, runproxy.Limits{})
+		deny := allowWrites
+		deny.Effect = permissions.Deny
+		h.setPolicy(permissions.Policy{Mode: permissions.ModeAuto, Rules: []permissions.Rule{deny}})
+		w := serve(h.handler, h.request(http.MethodPost, start, ""))
+		assert.Equal(t, http.StatusForbidden, w.Code)
+		assert.Contains(t, refusal(t, w), "a rule denies it")
+		assert.Empty(t, h.upstream.requests())
+	})
+	t.Run("a command answer allows the next", func(t *testing.T) {
+		h := newHarness(t, runproxy.Limits{})
+		h.asker.duration = permissions.DurationCommand
+		done := serveAsync(h.handler, h.request(http.MethodPost, start, ""))
+		req := testutil.Recv(t, h.asker.asked, "the start")
+		assert.True(t, req.Grantable)
+		assert.NotEmpty(t, req.CommandRule)
+		assert.NotEmpty(t, req.ChatRule)
+		h.asker.answers <- true
+		assert.Equal(t, http.StatusOK, testutil.Recv(t, done, "the answer").Code)
+		forwards(t, h, http.MethodPost, start, "")
+	})
+	t.Run("an in-account data read runs under auto", func(t *testing.T) {
+		h := newHarness(t, runproxy.Limits{})
+		h.setPolicy(permissions.Policy{Mode: permissions.ModeAuto})
+		forwards(t, h, http.MethodGet, compute+"?api-version=1&$expand=userData", "")
+	})
+	t.Run("a data read naming another subscription asks once", func(t *testing.T) {
+		h := newHarness(t, runproxy.Limits{})
+		h.setPolicy(permissions.Policy{Mode: permissions.ModeAuto})
+		target := site + "/config/appsettings/list?api-version=1"
+		done := serveAsync(h.handler, h.request(http.MethodPost, target, `{"x":"/subscriptions/`+sub2+`"}`))
+		req := testutil.Recv(t, h.asker.asked, "the read")
+		assert.Empty(t, req.Action.Scope)
+		assert.False(t, req.Grantable)
+		h.asker.answers <- false
+		testutil.Recv(t, done, "the answer")
+	})
+}
+
+// The action the grant records and asks with holds every field the
+// classifier filled: the proxy drops none before the decision.
+func TestNoProxyDropsAFieldBeforeTheDecision(t *testing.T) {
+	h := newHarness(t, runproxy.Limits{})
+	target := rg + "/providers/Microsoft.Authorization/roleAssignments/ra?api-version=1"
+	done := serveAsync(h.handler, h.request(http.MethodPut, target, `{}`))
+	req := testutil.Recv(t, h.asker.asked, "the assignment")
+	h.asker.answers <- false
+	testutil.Recv(t, done, "the answer")
+
+	a, _ := parsePath(http.MethodPut, rg+"/providers/Microsoft.Authorization/roleAssignments/ra")
+	want := action(http.MethodPut, a, classify(http.MethodPut, a, nil), nil, []byte(`{}`), testAccount.Subscriptions[0])
+	want.Principal = permissions.Chat
+	assert.Equal(t, want, req.Action)
+	assert.Equal(t, permissions.Action{
+		Principal: permissions.Chat, Target: permissions.Azure, Scope: sub + "/rg", AccountName: sub,
+		Service: "microsoft.authorization", Operation: "write", Resource: "roleassignments", Name: "ra",
+		AccessLevel: permissions.AccessControl, Confined: true,
+		Summary: "Azure: PUT Microsoft.Authorization/roleAssignments/ra in rg",
+	}, req.Action)
 }

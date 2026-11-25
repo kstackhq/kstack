@@ -81,9 +81,9 @@ const (
 
 	stmtSelectToolSettings
 
-	stmtSelectChatKubeRules
-	stmtInsertChatKubeRule
-	stmtDeleteChatKubeRule
+	stmtSelectChatRules
+	stmtInsertChatRule
+	stmtDeleteChatRule
 	stmtSelectChatFolderGrants
 	stmtUpsertChatFolderGrant
 	stmtDeleteChatFolderGrant
@@ -331,10 +331,10 @@ var statements = []sqlstmt.Statement{
 	stmtSelectToolSettings: sqlstmt.OnBoth(settings.SelectToolSettings),
 
 	// OnBoth, since a rule's write reads the chat's rules in its transaction.
-	stmtSelectChatKubeRules: sqlstmt.OnBoth(`SELECT ` + settings.KubeRuleColumns + ` FROM kube_rules WHERE chat_id = ? ORDER BY created_at, id`),
-	stmtInsertChatKubeRule: sqlstmt.OnWriter(`INSERT INTO kube_rules (` + settings.KubeRuleColumns + `, chat_id, created_at)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
-	stmtDeleteChatKubeRule: sqlstmt.OnWriter(`DELETE FROM kube_rules WHERE chat_id = ? AND id = ?`),
+	stmtSelectChatRules: sqlstmt.OnBoth(`SELECT ` + settings.RuleColumns + ` FROM permission_rules WHERE chat_id = ? ORDER BY created_at, id`),
+	stmtInsertChatRule: sqlstmt.OnWriter(`INSERT INTO permission_rules (` + settings.RuleColumns + `, chat_id, created_at, updated_at)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+	stmtDeleteChatRule: sqlstmt.OnWriter(`DELETE FROM permission_rules WHERE chat_id = ? AND id = ?`),
 	// OnBoth, since a grant's write reads the chat in its transaction.
 	stmtSelectChatFolderGrants: sqlstmt.OnBoth(`SELECT ` + settings.FolderGrantColumns + ` FROM folder_grants WHERE chat_id = ? ORDER BY created_at, id`),
 	// A folder granted again keeps its row's id and created_at, and changes its access.

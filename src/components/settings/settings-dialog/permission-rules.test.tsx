@@ -20,40 +20,47 @@ import { EffectBadge, PermissionRow, PermissionRules } from './permission-rules'
 
 const allow = {
   id: 'r1',
-  line: 'Allow cluster writes in staging / payments-*',
+  line: 'Allow writes in staging / payments-*',
   effect: 'Allow' as const,
-  class: 'UpstreamWrite' as const,
-  clusterID: 'c2',
-  namespace: 'payments-*',
-  verb: '',
-  group: '',
-  kind: '',
+  accessLevel: 'Write' as const,
+  principal: null,
+  target: 'Kubernetes' as const,
+  scope: 'c2/payments-*',
+  service: '*',
+  operation: '*',
+  resource: '*',
 };
 const deny = {
   ...allow,
   id: 'r2',
-  line: 'Deny Secret reads everywhere',
+  line: 'Deny data reads everywhere',
   effect: 'Deny' as const,
-  class: 'SecretRead' as const,
-  clusterID: null,
+  accessLevel: 'DataRead' as const,
+  target: null,
+  scope: '*',
 };
 
 // Kept out of JSX: the formatter writes an escape inside it as the bare character.
 const RLO = 'prod\u202Eue';
 
 const onAdd = vi.fn<(input: unknown) => Promise<boolean>>();
+const onUpdate = vi.fn<(id: string, input: unknown) => Promise<boolean>>();
 const onRemove = vi.fn();
 
 function renderRules(over: Partial<Parameters<typeof PermissionRules>[0]> = {}) {
   render(
     <PermissionRules
       rules={[allow, deny]}
-      clusters={[
-        { value: 'c1', label: 'dev-eks' },
-        { value: 'c2', label: 'staging' },
-      ]}
+      targets={['Kubernetes']}
+      accounts={{
+        Kubernetes: [
+          { value: 'c1', label: 'dev-eks' },
+          { value: 'c2', label: 'staging' },
+        ],
+      }}
       contexts={['staging']}
       onAdd={onAdd}
+      onUpdate={onUpdate}
       onRemove={onRemove}
       {...over}
     />,
@@ -70,6 +77,7 @@ async function openMenu(user: ReturnType<typeof userEvent.setup>, line: string) 
 beforeEach(() => {
   vi.clearAllMocks();
   onAdd.mockResolvedValue(true);
+  onUpdate.mockResolvedValue(true);
 });
 
 describe('EffectBadge', () => {
@@ -102,7 +110,9 @@ describe('PermissionRow', () => {
 describe('PermissionRules', () => {
   it('lists each rule with its effect, and says what rules do', () => {
     const card = renderRules();
-    expect(card).toHaveTextContent('Checked before the mode. Each field matches anything when empty.');
+    expect(card).toHaveTextContent(
+      'Checked before the mode. Each field matches anything when empty; a deny wins over an ask, and an ask over an allow.',
+    );
     expect(rowOf(allow.line)).toHaveTextContent('Allow');
     expect(rowOf(deny.line)).toHaveTextContent('Deny');
     expect(card).toHaveTextContent('See what a write would do under your modes and rules.');
@@ -137,7 +147,7 @@ describe('PermissionRules', () => {
     await user.click(screen.getByRole('button', { name: 'Add rule' }));
     await user.selectOptions(screen.getByLabelText('Cluster'), 'staging');
     await user.click(screen.getByRole('button', { name: 'Add' }));
-    expect(onAdd).toHaveBeenCalledWith(expect.objectContaining({ clusterID: 'c2' }));
+    expect(onAdd).toHaveBeenCalledWith(expect.objectContaining({ scope: 'c2/**' }));
     expect(screen.queryByRole('form')).toBeNull();
   });
 
@@ -150,14 +160,8 @@ describe('PermissionRules', () => {
     expect(screen.getByRole('form', { name: 'Add a rule' })).toBeInTheDocument();
   });
 
-  it('edits a rule in place of its row, adding the edit before removing the original', async () => {
+  it('edits a rule in place of its row, by its id', async () => {
     const user = userEvent.setup();
-    const order: string[] = [];
-    onAdd.mockImplementation(async () => {
-      order.push('add');
-      return true;
-    });
-    onRemove.mockImplementation(() => order.push('remove'));
     renderRules();
 
     await openMenu(user, allow.line);
@@ -169,39 +173,41 @@ describe('PermissionRules', () => {
 
     await user.type(within(form).getByLabelText('Verb'), 'patch');
     await user.click(within(form).getByRole('button', { name: 'Save' }));
-    expect(onAdd).toHaveBeenCalledWith({
+    expect(onUpdate).toHaveBeenCalledWith('r1', {
       effect: 'Allow',
-      class: 'UpstreamWrite',
-      clusterID: 'c2',
-      namespace: 'payments-*',
-      verb: 'patch',
-      group: '',
-      kind: '',
+      accessLevel: 'Write',
+      principal: null,
+      target: 'Kubernetes',
+      scope: 'c2/payments-*',
+      service: '*',
+      operation: 'patch',
+      resource: '*',
     });
-    expect(onRemove).toHaveBeenCalledWith('r1');
-    expect(order).toEqual(['add', 'remove']);
+    expect(onAdd).not.toHaveBeenCalled();
+    expect(onRemove).not.toHaveBeenCalled();
     expect(screen.queryByRole('form')).toBeNull();
   });
 
-  it('opens a rule for every cluster on Every cluster', async () => {
+  it('opens a rule for every target on Every target', async () => {
     const user = userEvent.setup();
     renderRules();
     await openMenu(user, deny.line);
     await user.click(await screen.findByRole('menuitem', { name: 'Edit' }));
-    expect(within(screen.getByRole('form', { name: 'Edit rule' })).getByLabelText('Cluster')).toHaveValue('');
+    const form = screen.getByRole('form', { name: 'Edit rule' });
+    expect(within(form).getByLabelText('Reaches')).toHaveValue('');
+    expect(within(form).getByLabelText('Account')).toHaveValue('');
   });
 
-  it('removes nothing when the edit is refused', async () => {
+  it('keeps the edit form open when the edit is refused', async () => {
     const user = userEvent.setup();
-    onAdd.mockResolvedValue(false);
+    onUpdate.mockResolvedValue(false);
     renderRules();
 
     await openMenu(user, allow.line);
     await user.click(await screen.findByRole('menuitem', { name: 'Edit' }));
     await user.type(screen.getByLabelText('Verb'), 'patch');
     await user.click(screen.getByRole('button', { name: 'Save' }));
-    expect(onAdd).toHaveBeenCalled();
-    expect(onRemove).not.toHaveBeenCalled();
+    expect(onUpdate).toHaveBeenCalled();
     expect(screen.getByRole('form', { name: 'Edit rule' })).toBeInTheDocument();
   });
 });

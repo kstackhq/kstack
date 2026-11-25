@@ -306,8 +306,8 @@ read](../../../docs/security/2026-10-05-secret-data-is-a-permissioned-read.md).
 in `Cloud` beside their switches: `builtCloudPlatforms` (`app/cloudplatforms_unix.go`), and none
 on a machine with no sandbox. A run of a chat or a subagent mounts each cloud platform whose
 switch is on at its start (none if unreadable); a monitor's and the probe's mount none. `Mount` gets the port, the run's
-directories and the grant's inputs (`cloudAskerFor`: the runtime's asker as `cloudAsker`, or a
-refusal naming the cloud platform), and answers routes, variables and a `runproxy.Grant`. Two routes
+directories and the grant's inputs (`cloudAskerFor`: the runtime's asker, answering a duration,
+or a refusal naming the platform), and answers routes, variables and a `runproxy.Grant`. Two routes
 on one host, two values for one variable, or a failed mount fail the run and end what was made; a
 proxy variable brings `NO_PROXY=127.0.0.1`. **A mount's rules**: every value comes from the mount,
 never the sidecar's environment; its grant takes `cloudLimits`; a file it writes goes through `writeNew`, 0600 and `O_EXCL`, under the run's directory,

@@ -1061,12 +1061,12 @@ func TestAStrandedWaitClearsTheChatsMark(t *testing.T) {
 // deleteX is the action the chat tests' writer asks.
 var deleteX = tools.ActionRequest{
 	Action: permissions.Action{
-		Class: permissions.UpstreamWrite, ClusterID: "1", Context: "dev", Namespace: "web", Verb: "delete", Group: "core", Kind: "pods", Name: "x",
-		Summary: "Delete pods/x in web on dev",
+		Principal: permissions.Chat, Target: permissions.Kubernetes, AccessLevel: permissions.Write, Scope: "1/web", AccountName: "dev",
+		Operation: "delete", Resource: "pods", Name: "x", Summary: "Delete pods/x in web on dev",
 	},
 	Grantable:   true,
 	CommandRule: "Allow delete of core pods in dev / web for this command",
-	ChatRule:    "Allow cluster writes in dev / web",
+	ChatRule:    "Allow writes in dev / web",
 	Write: &tools.ClusterWrite{
 		Method: "DELETE", Path: "/api/v1/namespaces/web/pods/x?dryRun=All", ContentType: "application/json",
 		Body: `{"propagationPolicy":"Background"}`,
@@ -1355,8 +1355,8 @@ type recorderTool struct {
 // allowedPatch is the action a recorderTool records allowed.
 var allowedPatch = tools.ActionRequest{
 	Action: permissions.Action{
-		Class: permissions.UpstreamWrite, ClusterID: "1", Context: "dev", Namespace: "web", Verb: "patch", Group: "core", Kind: "configmaps", Name: "c",
-		Summary: "Patch configmaps/c in web on dev",
+		Principal: permissions.Chat, Target: permissions.Kubernetes, AccessLevel: permissions.Write, Scope: "1/web", AccountName: "dev",
+		Operation: "patch", Resource: "configmaps", Name: "c", Summary: "Patch configmaps/c in web on dev",
 	},
 	Write: &tools.ClusterWrite{
 		Method: "PATCH", Path: "/api/v1/namespaces/web/configmaps/c", ContentType: "application/merge-patch+json", Body: `{}`,
@@ -1617,7 +1617,7 @@ func TestTwoProxiesAskOneAtATime(t *testing.T) {
 	t.Parallel()
 
 	cloud := tools.ActionRequest{
-		Action: permissions.Action{Target: permissions.AWS, Class: permissions.UpstreamWrite, Summary: "AWS: call ec2:X"},
+		Action: permissions.Action{Target: permissions.AWS, AccessLevel: permissions.Write, Once: true, Summary: "AWS: call ec2:X"},
 		Cloud:  &tools.CloudRequest{Host: "ec2.amazonaws.com", Method: "POST", Path: "/"},
 	}
 	second := make(chan struct{})
@@ -1740,7 +1740,7 @@ func TestAnUngrantableActionTakesOnceOrDenyAlone(t *testing.T) {
 	t.Parallel()
 
 	destructive := deleteX
-	destructive.Action.Class, destructive.Grantable = permissions.Destructive, false
+	destructive.Action.AccessLevel, destructive.Grantable = permissions.Destructive, false
 	destructive.CommandRule, destructive.ChatRule = "", ""
 	s := startWriter(t, writerTool{request: &destructive})
 	msg := send(t, s, nil, "1", "hi")
@@ -1756,25 +1756,43 @@ func TestAnUngrantableActionTakesOnceOrDenyAlone(t *testing.T) {
 	assert.Equal(t, "true once", toolCallsOf(t, settled)[0].Output)
 }
 
-// A cloud platform's action takes Once or Deny alone even when marked
-// grantable: a rule is always a cluster's.
-func TestACloudPlatformsActionTakesOnceOrDenyAlone(t *testing.T) {
+// awsStart is a grantable AWS change, as the proxy asks it.
+var awsStart = tools.ActionRequest{
+	Action: permissions.Action{
+		Principal: permissions.Chat, Target: permissions.AWS, AccessLevel: permissions.Write, Scope: "123456789012/eu-west-1",
+		AccountName: "123456789012", Service: "ec2", Operation: "StartInstances", Summary: "AWS: call ec2:StartInstances",
+	},
+	Grantable:   true,
+	CommandRule: `Allow StartInstances of ec2 "" in AWS 123456789012 / eu-west-1 for this command`,
+	ChatRule:    "Allow writes in AWS 123456789012 / eu-west-1",
+	Cloud:       &tools.CloudRequest{Host: "ec2.eu-west-1.amazonaws.com", Method: "POST", Path: "/"},
+}
+
+// A grantable cloud platform's action takes every duration, as a cluster's
+// does: Chat writes its rule as one of the chat's, Always into the settings.
+func TestAGrantableCloudActionTakesEveryDuration(t *testing.T) {
 	t.Parallel()
 
-	cloud := deleteX
-	cloud.Action.Target = permissions.AWS
-	s := startWriter(t, writerTool{request: &cloud})
-	msg := send(t, s, nil, "1", "hi")
-	id := toolCallsOf(t, awaitWrite(t, s, msg, ApprovalPending))[0].SandboxActions[0].Approval.ID
+	want := permissions.GrantRule(awsStart.Action)
 
-	for _, d := range []ApprovalDecision{DecisionCommand, DecisionChat, DecisionAlways} {
-		ok, err := s.Approve(t.Context(), id, d)
-		assert.ErrorIs(t, err, ErrBadRequest, d)
-		assert.False(t, ok)
-	}
-	approve(t, s, id, true)
-	settled := awaitSettled(t, s, msg.ChatID, msg.ID)
-	assert.Equal(t, "true once", toolCallsOf(t, settled)[0].Output)
+	s := startWriter(t, writerTool{request: &awsStart})
+	s, msg := askWith(t, s, DecisionChat)
+	got := s.chatRules(t.Context(), msg.ChatID)
+	require.Len(t, got, 1)
+	want.ID = got[0].ID
+	assert.Equal(t, want, got[0])
+
+	s = startWriter(t, writerTool{request: &awsStart})
+	_, _ = askWith(t, s, DecisionAlways)
+	rules := storedAlwaysRules(t, s)
+	require.Len(t, rules, 1)
+	want.ID = rules[0].ID
+	assert.Equal(t, want, rules[0])
+
+	s = startWriter(t, writerTool{request: &awsStart})
+	s, msg = askWith(t, s, DecisionCommand)
+	assert.Equal(t, "true command", toolCallsOf(t, msg)[0].Output)
+	assert.Empty(t, s.chatRules(t.Context(), msg.ChatID))
 }
 
 // Command approves with command and writes no rule: the proxy keeps it for the
@@ -1793,16 +1811,16 @@ func TestCommandWritesNoRule(t *testing.T) {
 // storedAlwaysRules is the always rules as stored.
 func storedAlwaysRules(t *testing.T, s *service) []permissions.Rule {
 	t.Helper()
-	rules, err := s.settings.KubeRules(t.Context())
+	rules, err := s.settings.Rules(t.Context())
 	require.NoError(t, err)
 	return rules
 }
 
-// chatRuleRows is how many kube_rules rows are a chat's.
+// chatRuleRows is how many permission_rules rows are a chat's.
 func chatRuleRows(t *testing.T, db *appdb.DB) int {
 	t.Helper()
 	var n int
-	require.NoError(t, db.Read.QueryRow(`SELECT COUNT(*) FROM kube_rules WHERE chat_id IS NOT NULL`).Scan(&n))
+	require.NoError(t, db.Read.QueryRow(`SELECT COUNT(*) FROM permission_rules WHERE chat_id IS NOT NULL`).Scan(&n))
 	return n
 }
 
@@ -1890,7 +1908,7 @@ func TestAlwaysWaitsWhenItsRuleCannotBeWritten(t *testing.T) {
 
 	s := startWriter(t, writerTool{})
 	s.settings = settings.NewService(settingsStore(t, s.db), nil, nil, nil, "")
-	exec(t, s.db, `CREATE TRIGGER refuse_insert BEFORE INSERT ON kube_rules BEGIN SELECT RAISE(ABORT, 'refused'); END`)
+	exec(t, s.db, `CREATE TRIGGER refuse_insert BEFORE INSERT ON permission_rules BEGIN SELECT RAISE(ABORT, 'refused'); END`)
 
 	msg := send(t, s, nil, "1", "hi")
 	id := toolCallsOf(t, awaitWrite(t, s, msg, ApprovalPending))[0].SandboxActions[0].Approval.ID
@@ -2061,22 +2079,23 @@ func TestTheRecordSaysTheNetworkOnceTheCallRuns(t *testing.T) {
 // readDB is a Secret read's request, as the proxy asks it.
 var readDB = tools.ActionRequest{
 	Action: permissions.Action{
-		Class: permissions.SecretRead, ClusterID: "1", Context: "dev", Namespace: "web", Verb: "get", Group: "core", Kind: "secrets", Name: "db",
-		Summary: "Show Secret db in web on dev",
+		Principal: permissions.Chat, Target: permissions.Kubernetes, AccessLevel: permissions.DataRead, Scope: "1/web", AccountName: "dev",
+		Operation: "get", Resource: "secrets", Name: "db", Summary: "Show Secret db in web on dev",
 	},
 	Grantable:   true,
 	CommandRule: "Allow get of core secrets in dev / web for this command",
-	ChatRule:    "Allow Secret reads in dev / web",
+	ChatRule:    "Allow data reads in dev / web",
 	Write:       &tools.ClusterWrite{Method: "GET", Path: "/api/v1/namespaces/web/secrets/db"},
 }
 
-// A Secret read's request is answered as any other: Chat writes the class 6
-// grant for its context and namespace as one of the chat's, and Always writes
-// it into the settings.
-func TestAChatAnswerWritesAClassSixGrant(t *testing.T) {
+// A Secret read's request is answered as any other: Chat writes the data
+// read grant for its cluster and namespace as one of the chat's, and Always
+// writes it into the settings.
+func TestAChatAnswerWritesADataReadGrant(t *testing.T) {
 	t.Parallel()
 
-	want := permissions.Rule{Effect: permissions.Allow, Class: permissions.SecretRead, ClusterID: "1", Namespace: "web"}
+	want := permissions.Rule{Effect: permissions.Allow, AccessLevel: permissions.DataRead, Principal: "*", Target: "kubernetes",
+		Scope: "1/web", Service: "*", Operation: "*", Resource: "*"}
 
 	s := startWriter(t, writerTool{request: &readDB})
 	s, msg := askWith(t, s, DecisionChat)

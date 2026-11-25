@@ -153,7 +153,7 @@ func (c refusingChat) StopBackgroundTask(context.Context, chat.ToolCallID) (bool
 	return false, c.err
 }
 
-func (c refusingChat) ChatKubeRules(context.Context, chat.ChatID) ([]permissions.Rule, error) {
+func (c refusingChat) ChatRules(context.Context, chat.ChatID) ([]permissions.Rule, error) {
 	return nil, c.err
 }
 

@@ -209,13 +209,12 @@ type Service interface {
 	// RevokeFolder removes the folder grant id: the chat's, or with no chat an
 	// always one. ErrGrantGone for an id that is not one.
 	RevokeFolder(ctx context.Context, chatID ChatID, id string) error
-	// ChatKubeRules is the chat's own Kubernetes rules; none for a chat with
-	// none.
-	ChatKubeRules(ctx context.Context, chatID ChatID) ([]permissions.Rule, error)
-	// RemoveChatKubeRule removes one of the chat's Kubernetes rules by id and
-	// answers the rules left: ErrChatGone or ErrGrantGone for a chat or an id
+	// ChatRules is the chat's own rules; none for a chat with none.
+	ChatRules(ctx context.Context, chatID ChatID) ([]permissions.Rule, error)
+	// RemoveChatRule removes one of the chat's rules by id and answers the
+	// rules left: ErrChatGone or ErrGrantGone for a chat or an id
 	// gone.
-	RemoveChatKubeRule(ctx context.Context, chatID ChatID, id string) ([]permissions.Rule, error)
+	RemoveChatRule(ctx context.Context, chatID ChatID, id string) ([]permissions.Rule, error)
 	// ListenForGrantChanges notifies of each change to the chat's rules and folder
 	// grants. Listen before the first read.
 	ListenForGrantChanges(chatID ChatID) GrantChangeNotifications

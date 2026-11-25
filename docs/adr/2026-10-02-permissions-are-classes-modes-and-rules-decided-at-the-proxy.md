@@ -2,7 +2,7 @@
 title: A sandboxed cluster write runs, asks or is refused by its class, the context's mode and the user's rules
 date: 2026-10-02
 scope: cross-cutting
-status: Accepted
+status: Superseded by [2026-11-25-permissions-are-access-levels-a-boundary-modes-and-rules-over-one-action](2026-11-25-permissions-are-access-levels-a-boundary-modes-and-rules-over-one-action.md)
 amended_by:
   - [Authorization is binary, and a prompt is a denial the user may lift](2026-10-03-authorization-is-binary-and-a-prompt-is-a-denial-the-user-may-lift.md)
 ---

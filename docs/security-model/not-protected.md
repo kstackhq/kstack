@@ -30,8 +30,8 @@ Every row of the model that no test enforces, and every residual an enforced row
 - [CLOUD-46](cloud-platforms.md#cloud-46), By decision. A run with Azure trusts a certificate Kstack made through `REQUESTS_CA_BUNDLE`. With network on, every tool that reads it verifies public hosts against the system's bundle in place of its own.
 - [CLOUD-47](cloud-platforms.md#cloud-47), By decision. On macOS a run's `ca.pem` carries `/etc/ssl/cert.pem`, which holds no root added to the Keychain alone. With network on, a tool behind a TLS-inspecting proxy whose root lives only there fails to verify public hosts.
 - [CLOUD-48](cloud-platforms.md#cloud-48), By decision. Every Azure SDK in a run with Azure believes it has a managed identity. With network on, one that calls the real Resource Manager sends it the grant's token.
-- [CLOUD-49](cloud-platforms.md#cloud-49), By decision. An Azure `POST` that only reads asks as a change. One that answers a secret under a name the credential and list/get rules miss is class 4, asked and not refused under `NoSecretData`.
-- [CLOUD-50](cloud-platforms.md#cloud-50), By decision. An Azure change that runs code on a machine (a VM extension, a deployment script) is class 4 and rests on the user's eye.
+- [CLOUD-49](cloud-platforms.md#cloud-49), By decision. An Azure `POST` that only reads asks as a change. One that answers a secret under a name the credential and list/get rules miss is a write off `ordinary`, asked each time and refused to the monitor.
+- [CLOUD-50](cloud-platforms.md#cloud-50), By decision. An Azure change that runs code on a machine (a VM extension, a deployment script) is a write off `ordinary`, which asks each time, and rests on the user's eye.
 - [CLOUD-51](cloud-platforms.md#cloud-51), By decision. A long `az … create` asks once per request.
 - [CLOUD-60](cloud-platforms.md#cloud-60), By decision. A role or identity the `exec` block names otherwise is not read, and such a run uses the default chain.
 - [CLOUD-61](cloud-platforms.md#cloud-61), By decision. Resolving the user's AWS profile can run its `credential_process` outside the sandbox, with no stdin and no stderr. A role assumed from a source profile's process is no login.
@@ -56,7 +56,6 @@ Every row of the model that no test enforces, and every residual an enforced row
 - [KUBE-25](cluster-proxy.md#kube-25), residual. Its body reaches the cluster's admission webhooks.
 - [KUBE-51](cluster-proxy.md#kube-51), By decision. Cluster reads leave the machine on the model's word. Everything the user's credentials can read, less Secret values the user has not allowed showing, can reach the provider with no per-call approval.
 - [KUBE-52](cluster-proxy.md#kube-52), By decision. A helm release passes redacted inside. Its chart, default values, rendered notes and other objects' manifests pass, and so does a Secret typed `helm.sh/release.v1` by hand, all but its `config` and its manifests' Secrets, unless the user allowed showing them. A release write runs once its command read no Secret data redacted in its namespace. Residual: An audit of what else carries secrets is in TODO.
-- [KUBE-53](cluster-proxy.md#kube-53), By decision. No kube-context's mode reaches a cloud platform, so a read-only context does not stop a cloud platform's change.
 
 ## Commands and the approval request
 

@@ -33,7 +33,6 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/version"
-	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/runproxy"
 )
 
@@ -149,7 +148,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		refuse(w, runproxy.BodyRefusal(status))
 		return
 	}
-	v := classify(svc.name, r.Method, segs, q)
+	v := classify(svc.name, r.Method, segs, q, body)
 	switch {
 	case v.kind == refused:
 		refuse(w, v.why)
@@ -167,7 +166,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		refuse(w, sourceRefusal(err))
 		return
 	}
-	out := h.grant.Decide(r.Context(), request(svc, r, segs, v, body, tok), func() error {
+	out := h.grant.Decide(r.Context(), request(svc, r, v, body, tok), func() error {
 		h.forward(w, r, svc, &tok)
 		return nil
 	})
@@ -245,13 +244,13 @@ func (h *Handler) checkAnswer(resp *http.Response) error {
 }
 
 // request is what the user is asked to approve.
-func request(svc service, r *http.Request, segs []string, v verdict, body []byte, tok Token) runproxy.Request {
+func request(svc service, r *http.Request, v verdict, body []byte, tok Token) runproxy.Request {
 	details := []runproxy.Detail{{Label: "Account", Value: tok.Account}, {Label: "Service", Value: svc.name}}
 	if p := r.Header.Get("X-Goog-User-Project"); p != "" {
 		details = append(details, runproxy.Detail{Label: "Quota project", Value: p})
 	}
 	return runproxy.Request{
-		Action: permissions.Action{Class: v.class, Summary: summary(svc, r.Method, segs)},
+		Action: v.act,
 		Sent: runproxy.Sent{
 			Host: svc.upstream, Method: r.Method, Path: r.URL.RequestURI(),
 			ContentType: r.Header.Get("Content-Type"), Body: body, Details: details,
@@ -261,15 +260,19 @@ func request(svc service, r *http.Request, segs []string, v verdict, body []byte
 
 // summary is the request in a line, from its parsed path, never its body:
 // the method, the service and the resource past the API's version.
-func summary(svc service, method string, segs []string) string {
-	rest := segs
+func summary(svc, method string, segs []string) string {
+	return "Google Cloud: " + method + " " + svc + " " + strings.Join(pastVersion(segs), "/")
+}
+
+// pastVersion is segs past the first that names an API version, all of segs
+// when none does.
+func pastVersion(segs []string) []string {
 	for i, s := range segs {
 		if isVersion(s) {
-			rest = segs[i+1:]
-			break
+			return segs[i+1:]
 		}
 	}
-	return "Google Cloud: " + method + " " + svc.name + " " + strings.Join(rest, "/")
+	return segs
 }
 
 // isVersion is whether seg names an API version: v1, v1beta1, beta, alpha.

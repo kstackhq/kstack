@@ -27,11 +27,12 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { VisibleText } from '@/components/primitives/visible-text';
-import type { PermissionSettingsValue, RuleInput } from '@/lib/permission-settings';
+import type { PermissionTarget } from '@/gql/graphql';
+import type { Rule, RuleInput } from '@/lib/permission-settings';
 
 import { Group } from './group';
 import { RuleForm } from './permission-rule-form';
-import type { ClusterOption } from './permission-rule-form';
+import type { AccountOption } from './permission-rule-form';
 import { TestRequest } from './permission-test-request';
 
 const OUTLINED = new Set(['Deny', 'Redacted', 'Refused']);
@@ -75,50 +76,49 @@ export function PermissionRow({ badge, line, detail, children }: RowProps) {
   );
 }
 
-type Rule = PermissionSettingsValue['kubeRules'][number];
-
 // Picked field by field: urql's cache adds a __typename the input refuses.
-const inputOf = ({ effect, class: klass, clusterID, namespace, verb, group, kind }: Rule): RuleInput => ({
+const inputOf = ({ effect, accessLevel, principal, target, scope, service, operation, resource }: Rule): RuleInput => ({
   effect,
-  class: klass,
-  clusterID: clusterID ?? null,
-  namespace,
-  verb,
-  group,
-  kind,
+  accessLevel,
+  principal: principal ?? null,
+  target: target ?? null,
+  scope,
+  service,
+  operation,
+  resource,
 });
 
 const NEW = 'new';
 
 type Props = {
   rules: Rule[];
-  /** The clusters a rule may name, by id and label. */
-  clusters: ClusterOption[];
+  /** The targets a rule may name, in order. */
+  targets: PermissionTarget[];
+  /** The accounts a rule may name, by target. */
+  accounts: Partial<Record<PermissionTarget, AccountOption[]>>;
   /** The known contexts, for Test a request. */
   contexts: string[];
   /** Resolves to whether the sidecar took the rule. */
   onAdd: (input: RuleInput) => Promise<boolean>;
+  /** Resolves to whether the sidecar took the edit. */
+  onUpdate: (id: string, input: RuleInput) => Promise<boolean>;
   onRemove: (id: string) => void;
 };
 
-export function PermissionRules({ rules, clusters, contexts, onAdd, onRemove }: Props) {
+export function PermissionRules({ rules, targets, accounts, contexts, onAdd, onUpdate, onRemove }: Props) {
   // The id of the rule whose form is open in its row's place, or NEW.
   const [editing, setEditing] = useState<string | null>(null);
   const close = () => setEditing(null);
 
-  // An edit adds the new rule, then removes the one it replaces only once the
-  // add is taken. A verdict holds under any order of the rules and Deny wins,
-  // so the moment both are held decides nothing neither would.
-  const submit = async (input: RuleInput, replaces?: string) => {
-    if (!(await onAdd(input))) return;
-    if (replaces) onRemove(replaces);
-    close();
+  // A refused write keeps the form open; the pane draws the refusal.
+  const submit = async (write: Promise<boolean>) => {
+    if (await write) close();
   };
 
   return (
     <Group
       title="Rules"
-      lede="Checked before the mode. Each field matches anything when empty."
+      lede="Checked before the mode. Each field matches anything when empty; a deny wins over an ask, and an ask over an allow."
       action={
         <Button type="button" variant="outline" size="sm" onClick={() => setEditing(NEW)}>
           <Plus aria-hidden />
@@ -129,7 +129,12 @@ export function PermissionRules({ rules, clusters, contexts, onAdd, onRemove }: 
       <ul className="divide-y rounded-lg border text-sm">
         {editing === NEW && (
           <li>
-            <RuleForm clusters={clusters} onSubmit={submit} onCancel={close} />
+            <RuleForm
+              targets={targets}
+              accounts={accounts}
+              onSubmit={(input) => submit(onAdd(input))}
+              onCancel={close}
+            />
           </li>
         )}
         {rules.length === 0 && editing !== NEW && <li className="px-4 py-3 text-muted-foreground">No rules yet.</li>}
@@ -137,14 +142,15 @@ export function PermissionRules({ rules, clusters, contexts, onAdd, onRemove }: 
           rule.id === editing ? (
             <li key={rule.id}>
               <RuleForm
-                clusters={clusters}
+                targets={targets}
+                accounts={accounts}
                 initial={inputOf(rule)}
-                onSubmit={(input) => submit(input, rule.id)}
+                onSubmit={(input) => submit(onUpdate(rule.id, input))}
                 onCancel={close}
               />
             </li>
           ) : (
-            // Placeholder: awaits each rule's origin, last match and match count on KubeRule, for `detail`.
+            // Placeholder: awaits each rule's origin, last match and match count on PermissionRule, for `detail`.
             <PermissionRow key={rule.id} badge={rule.effect} line={rule.line}>
               <DropdownMenu>
                 <DropdownMenuTrigger

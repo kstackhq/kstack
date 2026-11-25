@@ -18,20 +18,20 @@ package session
 
 import (
 	"context"
+	"slices"
 
-	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 )
 
-// Kind is what kind of agent a session runs.
-type Kind string
+// Kind is what kind of agent a session runs: the principal its runs' actions
+// carry, so there is one list.
+type Kind = permissions.Principal
 
 const (
-	Chat     Kind = "chat"
-	Subagent Kind = "subagent"
-	Monitor  Kind = "monitor"
-	// Console is the Sandbox console's: a command the user typed in Settings.
-	Console Kind = "console"
+	Chat     = permissions.Chat
+	Subagent = permissions.Subagent
+	Monitor  = permissions.Monitor
+	Console  = permissions.Console
 )
 
 // Network is why a sandboxed command reaches the internet. It is stored on the
@@ -53,11 +53,11 @@ const (
 type Session struct {
 	Kind    Kind
 	Outside bool // the user switched the chat to run outside the sandbox
-	// Policy is the mode and rules a cluster write on cluster, the cluster the
-	// run's grant was made for, is decided by: the cluster's mode, and every
-	// rule, each matching the context the action carries. It is read live on
-	// every write, so a mode or rule changed meanwhile applies to the next one.
-	Policy func(ctx context.Context, cluster apimeta.ClusterID) permissions.Policy
+	// Policy is the mode and rules an action on target in account is decided
+	// by: the account's mode, and every rule. It is read live on every
+	// decision, so a mode or rule changed meanwhile applies to the next one.
+	// What a principal may never do is the boundary's, which no policy lifts.
+	Policy func(ctx context.Context, target permissions.Target, account string) permissions.Policy
 	// Network is the network a sandboxed command starting now has: NetworkChat
 	// while the chat's switch is on, read live, else NetworkTurn for the turn's
 	// toggle, else NoNetwork. Nil is a session that never has network.
@@ -67,17 +67,24 @@ type Session struct {
 	// empty list. Nil reads none: only the chat's builder sets it, and every
 	// reader goes through GrantedFolders.
 	Folders func(context.Context) ([]Folder, error)
-	// NoPrompts and NoSecretData are the one source of the policy's two flags:
-	// a proxy copies them onto the Policy it reads, so a session that never
-	// asks, or never reads Secret data, stays so whatever its rules and mode.
-	NoPrompts    bool
-	NoSecretData bool
 }
 
 // Folder is one folder a session's commands may read, or read and write.
 type Folder struct {
 	Path  string
 	Write bool
+}
+
+// PolicyFor is the policy an action on target in account is decided by: the
+// session's, read now, joined by the rules its command's answers added. A
+// session with no Policy is read-only with no rules.
+func (s Session) PolicyFor(ctx context.Context, target permissions.Target, account string, commandRules []permissions.Rule) permissions.Policy {
+	if s.Policy == nil {
+		return permissions.Policy{Mode: permissions.ModeReadOnly}
+	}
+	p := s.Policy(ctx, target, account)
+	p.Rules = append(slices.Clip(p.Rules), commandRules...)
+	return p
 }
 
 // GrantedFolders is the session's folders, none when it has no Folders.
@@ -88,12 +95,15 @@ func (s Session) GrantedFolders(ctx context.Context) ([]Folder, error) {
 	return s.Folders(ctx)
 }
 
-// Narrow is a subagent's session under parent: the parent's, as Kind Subagent.
-// The switch is copied at spawn, so a subagent started outside the sandbox
+// Narrow is a subagent's session under parent: the parent's, as Kind Subagent
+// when the parent is a chat, the one kind that spawns one; any other keeps its
+// kind, so a narrowed monitor stays a monitor. The switch is copied at spawn, so a subagent started outside the sandbox
 // stays outside, and it decides by its parent's Policy and Network, and reads
 // its parent's Folders: one spawned in a turn with the toggle keeps it for its
 // whole life.
 func Narrow(parent Session) Session {
-	parent.Kind = Subagent
+	if parent.Kind == Chat {
+		parent.Kind = Subagent
+	}
 	return parent
 }

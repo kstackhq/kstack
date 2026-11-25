@@ -16,6 +16,7 @@ package awsproxy
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -44,21 +45,37 @@ import (
 // testCreds are the user's credentials, as the identity resolves them.
 var testCreds = aws.Credentials{
 	AccessKeyID: "AKIAIOSFODNN7EXAMPLE", SecretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-	SessionToken: "FwoGZXIvYXdzEXAMPLESESSIONTOKEN", Source: "test",
+	SessionToken: "FwoGZXIvYXdzEXAMPLESESSIONTOKEN", Source: "test", AccountID: "123456789012",
 }
 
 // identity is the proxy's Identity seam: the test credentials, or err, and a
 // count of drops.
 type identity struct {
-	mu    sync.Mutex
-	err   error
-	drops int
+	mu        sync.Mutex
+	err       error
+	drops     int
+	noAccount bool // the credentials carry no account id
+	// laterAccount, when set, is the account every read after the first carries.
+	laterAccount string
+	laterErr     error // what every read after the first fails with
+	calls        int
 }
 
 func (id *identity) Credentials(context.Context) (aws.Credentials, error) {
 	id.mu.Lock()
 	defer id.mu.Unlock()
-	return testCreds, id.err
+	id.calls++
+	creds := testCreds
+	if id.noAccount {
+		creds.AccountID = ""
+	}
+	if id.laterAccount != "" && id.calls > 1 {
+		creds.AccountID = id.laterAccount
+	}
+	if id.laterErr != nil && id.calls > 1 {
+		return aws.Credentials{}, id.laterErr
+	}
+	return creds, id.err
 }
 
 func (id *identity) Drop() {
@@ -73,18 +90,29 @@ func (id *identity) dropped() int {
 	return id.drops
 }
 
-// asker answers every request with approve and hands each to asked.
+// asker answers every request with approve for duration, hands each to
+// asked, and each record to recorded.
 type asker struct {
-	approve bool
-	asked   chan runproxy.Request
+	approve  bool
+	duration permissions.Duration
+	asked    chan runproxy.Request
+	recorded chan record
 }
 
-func (a *asker) Ask(_ context.Context, r runproxy.Request) (bool, error) {
+// record is one request decided with nobody asked.
+type record struct {
+	req    runproxy.Request
+	d      permissions.Decision
+	reason string
+}
+
+func (a *asker) Ask(_ context.Context, r runproxy.Request) (permissions.Answer, error) {
 	a.asked <- r
-	return a.approve, nil
+	return permissions.Answer{Approved: a.approve, Duration: cmp.Or(a.duration, permissions.DurationOnce)}, nil
 }
 
-func (a *asker) Record(context.Context, runproxy.Request, permissions.Decision, string) error {
+func (a *asker) Record(_ context.Context, r runproxy.Request, d permissions.Decision, reason string) error {
+	a.recorded <- record{r, d, reason}
 	return nil
 }
 
@@ -101,7 +129,9 @@ type received struct {
 type fixture struct {
 	t        *testing.T
 	grant    *runproxy.Grant
-	off      atomic.Bool // the grant's switch, on until a test turns it off
+	policyMu sync.Mutex
+	policy   permissions.Policy // every account's, ask by default
+	off      atomic.Bool        // the grant's switch, on until a test turns it off
 	id       *identity
 	asker    *asker
 	buckets  *Buckets
@@ -114,10 +144,11 @@ type fixture struct {
 func newFixture(t *testing.T) *fixture {
 	f := &fixture{
 		t: t, id: &identity{}, buckets: NewBuckets(), seen: make(chan received, 32),
-		asker:  &asker{approve: true, asked: make(chan runproxy.Request, 8)},
+		asker:  &asker{approve: true, asked: make(chan runproxy.Request, 8), recorded: make(chan record, 8)},
 		answer: func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "ok") },
+		policy: permissions.Policy{Mode: permissions.ModeAsk},
 	}
-	f.grant = runproxy.NewGrant(permissions.AWS, func(context.Context) bool { return !f.off.Load() }, session.Session{Kind: session.Chat}, f.asker, "",
+	f.grant = runproxy.NewGrant(permissions.AWS, func(context.Context) bool { return !f.off.Load() }, f.session(session.Chat), f.asker, "",
 		runproxy.Limits{QPS: 1000, Burst: 1000, Open: 8, Bodies: 8})
 	t.Cleanup(f.grant.End)
 	f.upstream = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -140,6 +171,22 @@ func newFixture(t *testing.T) *fixture {
 	}}
 	f.proxy = New(f.grant, Upstream{Identity: f.id, Client: client, Buckets: f.buckets})
 	return f
+}
+
+// session is a session of kind reading the fixture's policy.
+func (f *fixture) session(kind session.Kind) session.Session {
+	return session.Session{Kind: kind, Policy: func(context.Context, permissions.Target, string) permissions.Policy {
+		f.policyMu.Lock()
+		defer f.policyMu.Unlock()
+		return f.policy
+	}}
+}
+
+// setPolicy makes every account's mode mode, under rules.
+func (f *fixture) setPolicy(mode permissions.Mode, rules ...permissions.Rule) {
+	f.policyMu.Lock()
+	defer f.policyMu.Unlock()
+	f.policy = permissions.Policy{Mode: mode, Rules: rules}
 }
 
 // verify is nil when the test credentials signed r as received.
@@ -414,12 +461,12 @@ func TestAnOperationNamedElsewhereReachesNoUpstream(t *testing.T) {
 	f.none()
 }
 
-// A read whose answer can hold a secret asks as a secret read, and is refused
-// unasked under NoSecretData, though its name reads like any other: a Logs
+// A read whose answer can hold a secret asks as a data read, and is refused
+// unasked for the monitor, though its name reads like any other: a Logs
 // Insights query's results, which may be unmasked whichever command started the
 // query, and a VPN connection's sample configuration, which holds its tunnels'
 // pre-shared keys.
-func TestASecretReadAsksAndIsRefusedUnderNoSecretData(t *testing.T) {
+func TestASecretReadAsksAndIsRefusedForTheMonitor(t *testing.T) {
 	for name, build := range map[string]func(keyID string) *http.Request{
 		"query results": func(keyID string) *http.Request {
 			r := sandboxRequest(http.MethodPost, "/", keyID, "eu-west-1", "logs", `{"queryId":"q"}`)
@@ -436,9 +483,10 @@ func TestASecretReadAsksAndIsRefusedUnderNoSecretData(t *testing.T) {
 			f := newFixture(t)
 			f.asker.approve = false
 			assert.Equal(t, http.StatusForbidden, f.serve(build(f.keyID())).Code)
-			assert.Equal(t, permissions.SecretRead, testutil.Recv(t, f.asker.asked, "the request").Action.Class)
+			assert.Equal(t, permissions.DataRead, testutil.Recv(t, f.asker.asked, "the request").Action.AccessLevel)
 
-			g := runproxy.NewGrant(permissions.AWS, func(context.Context) bool { return !f.off.Load() }, session.Session{Kind: session.Chat, NoSecretData: true}, f.asker, "",
+			f.setPolicy(permissions.ModeAuto)
+			g := runproxy.NewGrant(permissions.AWS, func(context.Context) bool { return !f.off.Load() }, f.session(session.Monitor), f.asker, "",
 				runproxy.Limits{QPS: 1000, Burst: 1000, Open: 8, Bodies: 8})
 			t.Cleanup(g.End)
 			w := httptest.NewRecorder()
@@ -468,7 +516,7 @@ func TestOnlyAnApprovalForwardsAChange(t *testing.T) {
 	w := f.serve(f.query("ec2", "TerminateInstances&InstanceId.1=i-1"))
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	asked := testutil.Recv(t, f.asker.asked, "the request")
-	assert.Equal(t, permissions.Destructive, asked.Action.Class)
+	assert.Equal(t, permissions.Destructive, asked.Action.AccessLevel)
 	assert.Equal(t, "AWS: call ec2:TerminateInstances in eu-west-1", asked.Action.Summary)
 	assert.Equal(t, runproxy.Sent{
 		Host: "ec2.eu-west-1.amazonaws.com", Method: http.MethodPost, Path: "/",

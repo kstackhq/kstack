@@ -37,10 +37,10 @@ value, and surfaces as `sandboxPathFault`.
 ## The session (`session`)
 
 **A `session.Session` is one agent run's policy** (`internal/run/session`, a leaf a proxy
-imports, never the reverse): `Kind` (`Console` is the Sandbox console's, which no chat holds), `Outside`, and live readers `Policy` (by the
-action's cluster id: its mode, and every rule), `Network` (a failed
-read is `NoNetwork`) and `Folders` (read only through `GrantedFolders`; a failed read is an error, never none). Only the monitor sets
-`NoSecretData`, and it and the console `NoPrompts`. **`session.Narrow`** builds a subagent's from its parent's: identity
+imports, never the reverse): `Kind` (`permissions.Principal`; `Console` is the Sandbox console's, which no chat holds), `Outside`, and live readers `Policy` (by
+target and account: its mode, and every rule), `Network` (a failed
+read is `NoNetwork`) and `Folders` (read only through `GrantedFolders`; a failed read is an error, never none). What a kind may do
+is the boundary's, never the session's. **`session.Narrow`** builds a subagent's from a chat's (any other kind keeps its own): identity
 copied at spawn, each live field handed on or tightened, never widened. A new field is classed by
 that rule and gets its line in `TestNarrowKeepsTheParentsIdentity`.
 
@@ -157,38 +157,40 @@ a chat through the real sandbox.
 
 ## Permissions (`permissions`)
 
-**`internal/run/permissions` is the decision** (`permissions.go`, `match.go`): five `Class`es (the note's 3 has none), each a
-rule names stored by `Name` (`ClassNamed`), `Mode`s (`ReadOnly`, `Ask`,
-`Auto`), `Rule`s, a classified `Action`, and a `Policy` whose `Decide(act)` is `Authorize` then
-`Outcome`.
+**`internal/run/permissions` is the decision** (`permissions.go`, `match.go`), over one classified
+`Action`: `Principal`, `Target` (`Kubernetes`, `AWS`, `Azure`, `GCP`, `GitHub`), `Scope` (`/`-separated
+segments, the first the account: a cluster's id, a cloud account; `""` is an account the classifier
+cannot trust), `AccountName` (words only), `Service`, `Operation`, `Resource`, one `AccessLevel`
+(`read`, `data-read`, `write`, `access-control`, `destructive`, `reach`), `Confined`, `Once`, `Spans`,
+`DryRun`.
 
-- `Authorize` refuses class 6 first under `NoSecretData`, and turns an ask into `Refuse` last under
-  `NoPrompts`. Otherwise the verdict is the strongest match: `Refuse` (a matching `Deny`, or a
-  read-only mode on class 4 or 5, *this cluster is read-only*) > `Forbid` (a matching `AskFor`, or class 5) > `Permit` (class
-  1 or 2, a matching `Allow`, or `Auto`) > `Unmatched` (the zero value). Class 4 covers class 5;
-  class 6 asks under `ReadOnly` and `Ask` and is `Permit` under `Auto`. A grant's `Duration` is
-  `once`, `command`, `chat` or `always`. **The verdict is order-independent**; rule order picks the reason
-  alone. `Unmatched` and `Forbid` prompt; a prompt is a denial the user may lift.
-- **A cloud platform's action** (`Action.Target` not `Cluster`) carries `Class` and `Summary` alone,
-  is `Forbid` before any rule or mode, and no rule matches it; the two flags still apply.
-- `Match` is the one glob matcher. **Every pattern Kstack writes from a value goes through
-  `Literal`.** `ClusterScope` (`[cluster]`) matches cluster-scoped actions alone.
-- A `Rule` names a cluster by id, or none for every cluster; an `Action` carries the id beside its
-  context. `Rule.Line(cluster)` is the rule in words, the caller naming the cluster; keep its
-  quoting so ` / ` outside quotes separates cluster from namespace.
-- `Grantable`, `GrantRule` and `CommandRule` decide what an answer may write. `Refused` and
-  `RefusedSecrets` stand in for rules Kstack could not read (class 4 does not cover class 6);
-  `Unread()` is both, what a failed read of the rules answers. `Rule.Same` compares two rules but for
-  their ids. A folder grant is no rule (`services/settings`' `FolderGrant`).
+- **`Policy.Authorize` takes the first of**: the boundary's `Never`, a `Deny` rule, the mode's deny,
+  an `Ask` rule, the limit `Once`, an `Allow` rule, the mode's allow, else ask (`Grantable` unless a
+  dry run or a rule it cannot store). `boundary` is Kstack's table by principal and level (`Free`,
+  `Scoped`: free when `Confined`, `Once`, `Never`); `Once` and an empty scope raise the limit to
+  `Once`. `modes` is the default effect per mode and level. A principal that does not ask (`asks`)
+  is denied what would ask; a subagent takes the stricter of its verdict and the chat's. **Order-independent**;
+  rule order picks the reason alone. Every principal and mode has every level.
+- **A rule** names a level, a principal and a target (or `*`), and patterns: `Service` and `Operation`
+  by `Match`, `Scope` and `Resource` by `MatchPath` (`*` never crosses `/`, `*` alone is anything, a
+  last `**` is that and below). No empty pattern is a wildcard; `Service` `""` is the core group. A
+  deny or ask matches the levels its own `Covers` (`write` covers `destructive` and `access-control`),
+  and a scope below a `Spans` action's; an allow its own level and scope, all below for `Spans`. **Every pattern Kstack writes from a value goes through `Literal`.**
+- `GrantRule` (the level in the scope as a literal, and below it for `Spans`, for every principal; a one-segment scope names
+  its service and resource too) and `CommandRule` (also the operation) are an answer's rules.
+  `Refused` and `RefusedData` stand in for rules Kstack could not read. `Rule.Line(account)` is the
+  rule in words; keep its quoting, so ` / ` outside quotes separates segments. A folder grant is no rule.
 
-**`kubeproxy/classify.go` classifies a request** into a class, verb and one-line `Summary`. A
-`GET` of core `secrets` is class 6. A dry run is class 1 only on a group version in `honorsDryRun`
-(an aggregated API may ignore `dryRun`). Class 5 is the destructive list (`Destructive` in words),
-including any replica write `keepsReplicas` cannot read as plain. A write to a core Namespace is in
-that namespace's scope. →
-[ADR: permissions are classes, modes and rules](../../../docs/adr/2026-10-02-permissions-are-classes-modes-and-rules-decided-at-the-proxy.md),
-[ADR: a prompt is a denial the user may lift](../../../docs/adr/2026-10-03-authorization-is-binary-and-a-prompt-is-a-denial-the-user-may-lift.md),
+**`kubeproxy/classify.go` classifies a request**: scope `<cluster id>[/<namespace>]`, a Namespace
+object at cluster scope and `Once`; `reach` is `classifyRefusal`'s (the handler still refuses it);
+`destructive` the list `AlwaysAsks` words, a replica write `keepsReplicas` cannot read as plain
+included; `access-control` RBAC, admission and a CSR's approval (`AccessControl` in words), `Confined` in
+a namespace; `data-read` a `GET` of core `secrets` not metadata only, `Spans` in no namespace; a dry run on a group version in
+`honorsDryRun` is `read`. A write `builtin` lacks in a built-in group, or a custom resource's
+subresource but `status` and `scale`, is `Once`. →
+[ADR: permissions are access levels, a boundary, modes and rules](../../../docs/adr/2026-11-25-permissions-are-access-levels-a-boundary-modes-and-rules-over-one-action.md),
 [the permissions engine](../../../docs/security/2026-10-02-the-permissions-engine.md),
+[one engine for every target](../../../docs/security/2026-11-25-target-neutral-permissions.md),
 [Secret data is a permissioned read](../../../docs/security/2026-10-05-secret-data-is-a-permissioned-read.md).
 
 ## The cluster proxy (`kubeproxy`)
@@ -227,7 +229,8 @@ and `redact_helm.go` (Secret rewriter), `status.go` (every refusal's `Status`, a
   `checkBody` (encoding, UTF-8, media type, `decodeBody`, `uniqueKeys`, any `[redacted]` mark or its
   base64, and `checkRelease` inside a release). Then it classifies the request into a `Write` and
   takes one verdict: `Authorize` over the session's `Policy` for the grant's cluster plus the
-  grant's `commandRules` (no `Policy` is read-only).
+  grant's `commandRules` (no `Policy` is read-only), the session's kind its principal. A `read`
+  (an honored dry run) is forwarded unasked and unrecorded.
 - **Verdicts.** `Allowed` is recorded through `Asker.Record`, then forwarded; a failed record
   forwards nothing. `Denied` is recorded and answered 403. `Prompted` is previewed, then `Ask`ed
   with a `Request` (action, `Grantable`, the rule lines each allow answer adds, the `Write`, the
@@ -235,8 +238,7 @@ and `redact_helm.go` (Secret rewriter), `status.go` (every refusal's `Status`, a
   user holds neither. A `Command` approval adds `CommandRule(act)` to the grant for the rest of the
   command. → [cluster writes ask](../../../docs/security/2026-09-29-cluster-writes-ask.md),
   [the permissions engine](../../../docs/security/2026-10-02-the-permissions-engine.md),
-  [ADR: a sandboxed command asks for each cluster write](../../../docs/adr/2026-09-29-a-sandboxed-command-asks-for-each-cluster-write.md),
-  [ADR: permissions decided at the proxy](../../../docs/adr/2026-10-02-permissions-are-classes-modes-and-rules-decided-at-the-proxy.md).
+  [ADR: a sandboxed command asks for each cluster write](../../../docs/adr/2026-09-29-a-sandboxed-command-asks-for-each-cluster-write.md).
 - **The preview** (`diff.go`) runs only for a write that asks, a `PUT` or `PATCH` of a named object
   on a group version in `honorsDryRun`: a `GET`, then the request with `dryRun=All`, bounded by
   `diffTimeout` and `maxDiffObject`. Both answers drop `managedFields`, `resourceVersion` and
@@ -265,7 +267,7 @@ key in memory) it serves TLS on the same listener: `listen.go` reads a connectio
 under the header bound; `IsTLS` tells a handler.
 
 - **A `Grant`** is one run's access to one cloud platform: a 256-bit token, its `Limits`, and an
-  `Asker` or a refusal. `NewGrant` panics on `Cluster` or a zero limit. `End` makes `Holds` and
+  `Asker` or a refusal. `NewGrant` panics on `Kubernetes` or a zero limit. `End` makes `Holds` and
   `Enter` false and cancels what `Enter` let in; `Wait` joins it. `Challenge` answers 407 when
   `Limits.Challenges`, else 401.
 - `Body` reads a body in one of `Limits.Bodies` slots (403 encoded, 429 none free, 413 past 1 MiB);
@@ -275,11 +277,15 @@ under the header bound; `IsTLS` tells a handler.
   `Upgrades` reads an `Upgrade` header, even an empty one, and the `Connection` list, for the
   run's door and `kubeproxy` alike; `Outbound` never copies `Authorization` or
   `Proxy-Authorization`.
-- **`Decide` is the one ask path**: it keeps `Class` and `Summary` alone, stamps the target,
-  refuses with no asker and a request that cannot be shown (not UTF-8 with no `Unshown`, a query
-  or form body that does not parse), then takes its lock (`maxQueued` waiting). A refusal is
-  recorded; the rest ask; only an approval takes a slot and forwards. A data read gives up the
-  lock before `forward`, a change at its return.
+- **`Decide` is the one decision path**: it stamps the target and the session's kind and keeps
+  every other field, refuses with no asker and a request that cannot be shown (not UTF-8 with no
+  `Unshown`, a query or form body that does not parse), then takes its lock (`maxQueued` waiting)
+  and reads `session.Policy` for the action's account plus the command's rules. An allow is
+  recorded, then forwarded; a deny recorded and refused; an ask goes to the `Asker` with
+  `Grantable` and the rule lines, and a `command` `Answer` adds `CommandRule`. A read never reaches
+  it. A data read gives up the lock before `forward`, a change at its return. **Each proxy's
+  classifier fills every field**, an account's scope canonical and lower case, and names in an
+  `ordinary` table the changes a mode or rule may allow; any other is `Once`.
 
 ## Azure's proxy (`azureproxy`)
 
@@ -288,8 +294,9 @@ under the header bound; `IsTLS` tells a handler.
 the managed-identity endpoint, which answers the grant's token. `path.go` reads Resource
 Manager's grammar, its words ASCII, any case, and two polling paths (`GET`).
 `classify.go` refuses AKS run-command, access profiles, a credential action (by name, or listed:
-`publishxml`, `readonlykeys`, any method) and an unnamed `list`/`get`; then class 6 (the
-secret-metadata list, and an operation's result in its namespaces), reads, class 5, class 4.
+`publishxml`, `readonlykeys`, any method; `reach`) and an unnamed `list`/`get`; then data reads (the
+secret-metadata list, and an operation's result in its namespaces), reads, destructive,
+`Microsoft.Authorization` (`access-control`, `Confined` for a role assignment in a group), writes.
 A change naming no subscription is refused; any other goes to `Decide`. Forwarding adds
 the user's token for the subscription's tenant; a `401` drops it and answers the
 sign-in sentence. `rewrite.go` points `Location`, `Azure-AsyncOperation`, `Operation-Location`
@@ -305,8 +312,10 @@ The run's key id is `KSTACK` and its grant's token. The handler reads service an
 SigV4 scope (`scope.go`), refuses a service off `services.go`'s table, drops the sandbox's
 signature, and signs the request it builds for the table's host with the user's credentials
 (`Identity`, `forward.go`); a login that resolves none is answered its `Refusal`'s text, else a fixed sentence. The classifier (`classify.go`) reads the operation only where the
-row's protocol names it, refusing a request that names it elsewhere or twice, then checks refused,
-class 6, class 5, then a read, and asks for the rest; a read naming another account's bucket,
+row's protocol names it, refusing a request that names it elsewhere or twice, then checks refused
+(`reach`), data reads, destructive, `access-control` (`iam`, a policy, permission or grant), then a
+read, and decides the rest; the scope is the credentials' account and the region, `""` for a
+foreign request; a read naming another account's bucket,
 registry or template URL asks, against the login's own buckets (`Buckets`, one list shared by its
 runs, trusted only while fresh). An `x-amz` header
 off `headers.go`'s list, a forwarded header sent twice, a streamed or multipart upload, and a body
@@ -329,7 +338,8 @@ its `TokenSource`. → [ADR](../../../docs/adr/2026-11-17-a-sandboxed-command-re
   rides a fetch alone and `GraphQL-Features` `/graphql` alone. A refusal starts `kstack:`, a 403,
   in GitHub's JSON on the API host and text on the Git host.
 - **The classifier** (`classify.go`, `graphql.go`): a read passes; a change, a push and
-  `dataPaths` ask; `credentialPaths` is refused. A path matches in any case, and one by id
+  `dataPaths` are decided; `credentialPaths` is refused (`reach`); a change to who may do what
+  (`accessControlPaths`) is `access-control`; a route by id has scope `""`. A path matches in any case, and one by id
   (`/repositories/{id}`, `/organizations/{id}`) as its form by name. GraphQL is a JSON `POST` with
   no query string, and any mutation makes its document a change.
 - **The push reader** (`push.go`) reads at most 64 KiB of pkt-lines (shallow lines, commands,
@@ -344,7 +354,7 @@ its `TokenSource`. → [ADR](../../../docs/adr/2026-11-17-a-sandboxed-command-re
 `runproxy.Grant`. It reaches the user's token through `TokenSource`, never `services`.
 `services.go` is the table: six services, each one upstream host and its path prefixes, routed as
 `<service>.gcp.kstack.invalid`. `request.go` reads a path by decoded segment and refuses an encoded
-`/` or `.` outside a storage object's name. `classify.go` answers read, change, data read (class 6)
-or refused. `redact.go` blanks secrets in `compute`'s and `container`'s 2xx answers and fails
+`/` or `.` outside a storage object's name. `classify.go` answers read, change, data read,
+`access-control` (`setIamPolicy`, `iam`) or refused (`reach`); a project only as an id is an account. `redact.go` blanks secrets in `compute`'s and `container`'s 2xx answers and fails
 closed. **Every refusal is Google's 403**, a grant's 429 included, since `gcloud` retries a 429 and
 a 5xx. → [ADR](../../../docs/adr/2026-11-17-google-cloud-is-reached-with-the-active-gcloud-accounts-token.md).

@@ -25,16 +25,24 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 )
 
-// Destructive is the class 5 list in words, as Settings shows it under
+// AlwaysAsks is the destructive list in words, as Settings shows it under
 // Always asks: one line per item destructive decides on.
-var Destructive = []string{
+var AlwaysAsks = []string{
 	"Deleting a namespace, node, persistent volume, persistent volume claim or custom resource definition, or finalizing a namespace",
 	"Deleting a whole collection in one request (kubectl deletes one object at a time, so its --all and -l are decided object by object)",
+	"Adding an ephemeral container to a pod",
+	"Scaling to zero, or any change to a scale or to a deployment's, stateful set's, replica set's or replication controller's replicas that is not a plain positive count",
+	"Any change to a Namespace object, a create included",
+	"Any change Kstack does not know, such as a subresource of a built-in kind it does not list",
+}
+
+// AccessControl is the access control list in words, as Settings shows it: each
+// asks unless a rule inside a namespace allows it, and always asks across a
+// cluster.
+var AccessControl = []string{
 	"Any change to roles, cluster roles or their bindings",
 	"Any change to admission webhooks or admission policies",
 	"Approving a certificate signing request",
-	"Adding an ephemeral container to a pod",
-	"Scaling to zero, or any change to a scale or to a deployment's, stateful set's, replica set's or replication controller's replicas that is not a plain positive count",
 }
 
 // verbs is the Kubernetes verb of each method on a named resource.
@@ -44,53 +52,89 @@ var verbs = map[string]string{
 }
 
 // classify is what a request the policy passed does, for a decision: its
-// class, scope and target, read off the path, and for a replica write or a
+// level, scope and target, read off the path, and for a replica write or a
 // Namespace's create off the body, which checkBody has passed. cluster and
-// context are the grant's.
+// context are the grant's. The scope is the cluster, then the namespace; a
+// Namespace object sits at cluster scope.
 func classify(r *http.Request, p apiPath, body []byte, cluster apimeta.ClusterID, context string) permissions.Action {
 	act := permissions.Action{
-		ClusterID: cluster, Context: context, Namespace: p.namespace,
-		Verb: verbs[r.Method], Group: p.group, Kind: p.resource, Name: p.name,
+		Target: permissions.Kubernetes, AccountName: context,
+		Service: p.group, Operation: verbs[r.Method], Resource: p.resource, Name: p.name,
 		DryRun: isDryRun(r),
 	}
-	if p.kind == resourcePath && act.Group == "" {
-		act.Group = "core"
-	}
-	// A Namespace is not in a namespace, but a rule scoped to one means it too.
-	// A create names it in the body.
-	if act.Group == "core" && p.resource == "namespaces" {
-		if act.Name == "" && r.Method == http.MethodPost {
-			act.Name = createdName(r.Header.Get("Content-Type"), body)
+	if cluster != "" {
+		act.Scope = string(cluster)
+		if p.namespace != "" {
+			act.Scope += "/" + p.namespace
 		}
-		act.Namespace = act.Name
 	}
+	// A request on Secrets in no namespace reaches every namespace's.
+	act.Spans = p.namespace == "" && p.onSecrets()
 	if p.subresource != "" {
-		act.Kind += "/" + p.subresource
+		act.Resource += "/" + p.subresource
+	}
+	if isNamespace(p) && act.Name == "" && r.Method == http.MethodPost {
+		act.Name = createdName(r.Header.Get("Content-Type"), body)
 	}
 	if r.Method == http.MethodDelete && p.name == "" {
-		act.Verb = "deletecollection"
+		act.Operation = "deletecollection"
 	}
-	// A read's verb is the API server's, which a Secret read's rule can name.
+	// A read's verb is the API server's, which a data read's rule can name.
 	if r.Method == http.MethodGet && p.kind == resourcePath {
 		switch {
 		case isWatch(p, r.URL.Query()):
-			act.Verb = "watch"
+			act.Operation = "watch"
 		case p.name == "":
-			act.Verb = "list"
+			act.Operation = "list"
 		}
 	}
+	group := cmp.Or(p.group, "core")
+	write := isWrite(r, p)
 	switch {
-	case r.Method == http.MethodGet && p.onSecrets():
-		act.Class = permissions.SecretRead
-	case !isWrite(r, p) || act.DryRun && honorsDryRun[act.Group+"/"+p.version]:
-		act.Class = permissions.ReadInside
+	case write && act.DryRun && honorsDryRun[group+"/"+p.version]:
+		act.AccessLevel = permissions.Read
+	case !write && r.Method == http.MethodGet && p.onSecrets() && !metadataOnly(r):
+		act.AccessLevel = permissions.DataRead
+	case !write:
+		act.AccessLevel = permissions.Read
 	case destructive(r, p, act, body):
-		act.Class = permissions.Destructive
+		act.AccessLevel = permissions.Destructive
+	case writtenHard[group][p.resource],
+		group == "certificates.k8s.io" && p.resource == "certificatesigningrequests" && p.subresource == "approval":
+		act.AccessLevel = permissions.AccessControl
+		act.Confined = p.namespace != ""
 	default:
-		act.Class = permissions.UpstreamWrite
+		act.AccessLevel = permissions.Write
+	}
+	// A write no table names asks each time, and so does any change to a
+	// Namespace object: no rule names one object, and a rule over every
+	// Namespace would reach every namespace's.
+	if act.AccessLevel != permissions.Read && act.AccessLevel != permissions.DataRead {
+		act.Once = !named(p) || isNamespace(p)
 	}
 	act.Summary = summary(p, act)
 	return act
+}
+
+// isNamespace is whether p is a core Namespace object or its subresource.
+func isNamespace(p apiPath) bool {
+	return p.kind == resourcePath && p.group == "" && p.resource == "namespaces"
+}
+
+// named is whether a write's resource is one a table names: in a group
+// version the API server serves itself, a row of builtin; in any other
+// group, a resource, its status or its scale. A built-in group's other
+// version may be an aggregated API, so it is named only by its own rows.
+func named(p apiPath) bool {
+	group := cmp.Or(p.group, "core")
+	resource := p.resource
+	if p.subresource != "" {
+		resource += "/" + p.subresource
+	}
+	if builtinGroups[group] {
+		return builtin[group+"/"+p.version][resource]
+	}
+	return p.subresource == "" || p.subresource == "status" || p.subresource == "scale"
 }
 
 // honorsDryRun are the group versions the API server serves itself, which
@@ -108,15 +152,76 @@ var honorsDryRun = map[string]bool{
 	"authentication.k8s.io/v1": true, "authorization.k8s.io/v1": true,
 }
 
-// deletedHard are the resources whose delete is class 5, by group then
+// builtin are the resources and subresources the API server serves itself,
+// by group version, for each group version in honorsDryRun. A write to a
+// built-in group that these rows lack is named by no table, so it asks each
+// time. Adding a row is a security change.
+var builtin = map[string]map[string]bool{
+	"core/v1": set(
+		"bindings", "componentstatuses", "configmaps", "endpoints", "events", "limitranges",
+		"namespaces", "namespaces/status", "namespaces/finalize",
+		"nodes", "nodes/status", "persistentvolumes", "persistentvolumes/status",
+		"persistentvolumeclaims", "persistentvolumeclaims/status",
+		"pods", "pods/status", "pods/binding", "pods/eviction", "pods/ephemeralcontainers", "pods/resize",
+		"podtemplates", "replicationcontrollers", "replicationcontrollers/status", "replicationcontrollers/scale",
+		"resourcequotas", "resourcequotas/status", "secrets", "serviceaccounts", "services", "services/status",
+	),
+	"apps/v1": set(
+		"controllerrevisions", "daemonsets", "daemonsets/status",
+		"deployments", "deployments/status", "deployments/scale",
+		"replicasets", "replicasets/status", "replicasets/scale",
+		"statefulsets", "statefulsets/status", "statefulsets/scale",
+	),
+	"batch/v1":                        set("cronjobs", "cronjobs/status", "jobs", "jobs/status"),
+	"autoscaling/v1":                  set("horizontalpodautoscalers", "horizontalpodautoscalers/status"),
+	"autoscaling/v2":                  set("horizontalpodautoscalers", "horizontalpodautoscalers/status"),
+	"policy/v1":                       set("poddisruptionbudgets", "poddisruptionbudgets/status"),
+	"networking.k8s.io/v1":            set("ingressclasses", "ingresses", "ingresses/status", "ipaddresses", "networkpolicies", "servicecidrs", "servicecidrs/status"),
+	"storage.k8s.io/v1":               set("csidrivers", "csinodes", "csistoragecapacities", "storageclasses", "volumeattachments", "volumeattachments/status", "volumeattributesclasses"),
+	"rbac.authorization.k8s.io/v1":    set("clusterroles", "clusterrolebindings", "roles", "rolebindings"),
+	"apiextensions.k8s.io/v1":         set("customresourcedefinitions", "customresourcedefinitions/status"),
+	"apiregistration.k8s.io/v1":       set("apiservices", "apiservices/status"),
+	"certificates.k8s.io/v1":          set("certificatesigningrequests", "certificatesigningrequests/status", "certificatesigningrequests/approval", "clustertrustbundles", "podcertificaterequests", "podcertificaterequests/status"),
+	"admissionregistration.k8s.io/v1": set("mutatingadmissionpolicies", "mutatingadmissionpolicybindings", "mutatingwebhookconfigurations", "validatingadmissionpolicies", "validatingadmissionpolicies/status", "validatingadmissionpolicybindings", "validatingwebhookconfigurations"),
+	"coordination.k8s.io/v1":          set("leases"),
+	"discovery.k8s.io/v1":             set("endpointslices"),
+	"scheduling.k8s.io/v1":            set("priorityclasses"),
+	"node.k8s.io/v1":                  set("runtimeclasses"),
+	"events.k8s.io/v1":                set("events"),
+	"flowcontrol.apiserver.k8s.io/v1": set("flowschemas", "flowschemas/status", "prioritylevelconfigurations", "prioritylevelconfigurations/status"),
+	"resource.k8s.io/v1":              set("deviceclasses", "devicetaintrules", "devicetaintrules/status", "resourceclaims", "resourceclaims/status", "resourceclaimtemplates", "resourceslices"),
+	"authentication.k8s.io/v1":        set("selfsubjectreviews", "tokenreviews"),
+	"authorization.k8s.io/v1":         set("localsubjectaccessreviews", "selfsubjectaccessreviews", "selfsubjectrulesreviews", "subjectaccessreviews"),
+}
+
+// builtinGroups are the groups of honorsDryRun's group versions.
+var builtinGroups = func() map[string]bool {
+	groups := map[string]bool{}
+	for gv := range honorsDryRun {
+		group, _, _ := strings.Cut(gv, "/")
+		groups[group] = true
+	}
+	return groups
+}()
+
+func set(items ...string) map[string]bool {
+	m := make(map[string]bool, len(items))
+	for _, item := range items {
+		m[item] = true
+	}
+	return m
+}
+
+// deletedHard are the resources whose delete is destructive, by group then
 // resource.
 var deletedHard = map[string]map[string]bool{
 	"core":                 {"namespaces": true, "nodes": true, "persistentvolumes": true, "persistentvolumeclaims": true},
 	"apiextensions.k8s.io": {"customresourcedefinitions": true},
 }
 
-// writtenHard are the resources any write of which is class 5, by group then
-// resource: who may do what, and what sees or changes every write.
+// writtenHard are the resources any write of which is an access control change,
+// by group then resource: who may do what, and what sees or changes every
+// write.
 var writtenHard = map[string]map[string]bool{
 	"rbac.authorization.k8s.io": {"clusterroles": true, "clusterrolebindings": true, "roles": true, "rolebindings": true},
 	"admissionregistration.k8s.io": {
@@ -133,20 +238,18 @@ var scaled = map[string]map[string]bool{
 	"core": {"replicationcontrollers": true},
 }
 
-// destructive is whether a write that is not a dry run is on the class 5 list.
+// destructive is whether a write that is not a dry run is on the destructive
+// list.
 func destructive(r *http.Request, p apiPath, act permissions.Action, body []byte) bool {
+	group := cmp.Or(p.group, "core")
 	switch {
-	case act.Verb == "deletecollection":
+	case act.Operation == "deletecollection":
 		return true
-	case act.Verb == "delete" && p.subresource == "" && deletedHard[act.Group][p.resource]:
+	case act.Operation == "delete" && p.subresource == "" && deletedHard[group][p.resource]:
 		return true
 	// Finalize clears what holds a terminating namespace, so it completes the
 	// delete above.
-	case act.Group == "core" && p.resource == "namespaces" && p.subresource == "finalize":
-		return true
-	case writtenHard[act.Group][p.resource]:
-		return true
-	case act.Group == "certificates.k8s.io" && p.resource == "certificatesigningrequests" && p.subresource == "approval":
+	case isNamespace(p) && p.subresource == "finalize":
 		return true
 	case p.subresource == "ephemeralcontainers":
 		return true
@@ -154,7 +257,7 @@ func destructive(r *http.Request, p apiPath, act permissions.Action, body []byte
 	if r.Method != http.MethodPut && r.Method != http.MethodPatch {
 		return false
 	}
-	if p.subresource == "scale" || p.subresource == "" && scaled[act.Group][p.resource] {
+	if p.subresource == "scale" || p.subresource == "" && scaled[group][p.resource] {
 		return !keepsReplicas(r.Header.Get("Content-Type"), body, p.subresource == "scale")
 	}
 	return false
@@ -175,7 +278,7 @@ func createdName(contentType string, body []byte) string {
 }
 
 // keepsReplicas is whether a write that can set replicas is in a form the
-// proxy reads whole and that leaves at least one. Anything else is class 5, so
+// proxy reads whole and that leaves at least one. Anything else is destructive, so
 // a form the proxy does not know asks rather than passes. On a Scale that is a
 // literal positive spec.replicas in a JSON, merge or strategic body, or a JSON
 // Patch that only adds or replaces /spec/replicas with one. On a workload it is
@@ -297,12 +400,12 @@ var verbWords = map[string]string{
 func summary(p apiPath, act permissions.Action) string {
 	var line string
 	switch {
-	case act.Class == permissions.SecretRead && act.Verb == "watch":
+	case act.AccessLevel == permissions.DataRead && act.Operation == "watch":
 		line = "Watch Secret " + cmp.Or(act.Name, "data")
-	case act.Class == permissions.SecretRead:
+	case act.AccessLevel == permissions.DataRead:
 		line = "Show Secret " + cmp.Or(act.Name, "data")
 	default:
-		line = verbWords[act.Verb] + " " + p.resource
+		line = verbWords[act.Operation] + " " + p.resource
 		if act.Name != "" {
 			line += "/" + act.Name
 		}
@@ -313,8 +416,8 @@ func summary(p apiPath, act permissions.Action) string {
 	if p.namespace != "" {
 		line += " in " + p.namespace
 	}
-	if act.Context != "" {
-		line += " on " + act.Context
+	if act.AccountName != "" {
+		line += " on " + act.AccountName
 	}
 	return line
 }

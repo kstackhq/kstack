@@ -52,7 +52,7 @@ func cloudTool(t *testing.T, sw *switches, platforms ...CloudPlatform) *Tool {
 
 // chatRuntime is a fresh chat with no cluster, of kind, asking through asker.
 func chatRuntime(t *testing.T, kind session.Kind, asker tools.ActionAsker) tools.Runtime {
-	return tools.Runtime{Dir: testChatDir(t), Session: session.Session{Kind: kind}, ActionAsker: asker}
+	return tools.Runtime{Dir: testChatDir(t), Session: session.Session{Kind: kind, Policy: askSession.Policy}, ActionAsker: asker}
 }
 
 // startRun makes a sandboxed run of rt, ended when the test ends.

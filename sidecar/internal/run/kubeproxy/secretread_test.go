@@ -65,7 +65,7 @@ func TestMetadataOnly(t *testing.T) {
 
 // allowSecrets is a rule allowing Secret reads in dev / web, as a chat answer
 // writes one.
-var allowSecrets = permissions.GrantRule(permissions.Action{Class: permissions.SecretRead, ClusterID: "c1", Context: "dev", Namespace: "web"})
+var allowSecrets = permissions.GrantRule(permissions.Action{Target: permissions.Kubernetes, AccessLevel: permissions.DataRead, Scope: "c1/web"})
 
 // getSecret is a get of the Secret db in web, as kubectl get -o yaml sends it.
 func (s *served) getSecret(t *testing.T) *http.Request {
@@ -79,7 +79,7 @@ func (s *served) getSecret(t *testing.T) *http.Request {
 // redacted whatever its rules allow, and records nothing.
 func TestASecretReadWithNoAskerIsRedacted(t *testing.T) {
 	api := answering(t, secretJSON)
-	for _, sess := range []session.Session{sessionIn(permissions.Ask, allowSecrets), sessionIn(permissions.Auto)} {
+	for _, sess := range []session.Session{sessionIn(permissions.ModeAsk, allowSecrets), sessionIn(permissions.ModeAuto)} {
 		s := serveGrant(t, NewGrant(api.upstream(), sess, "c1", "dev", nil, noAsker, 1000, 1000, 32))
 		resp, body := s.do(t, s.getSecret(t))
 		require.Equal(t, http.StatusOK, resp.StatusCode, body)
@@ -93,7 +93,7 @@ func TestASecretReadWithNoAskerIsRedacted(t *testing.T) {
 func TestAnAllowedSecretReadPassesUnredacted(t *testing.T) {
 	api := answering(t, secretJSON)
 	asker := newRecordingAsker()
-	s := serveIn(t, api.upstream(), sessionIn(permissions.Ask, allowSecrets), asker)
+	s := serveIn(t, api.upstream(), sessionIn(permissions.ModeAsk, allowSecrets), asker)
 
 	resp, body := s.do(t, s.getSecret(t))
 
@@ -101,7 +101,7 @@ func TestAnAllowedSecretReadPassesUnredacted(t *testing.T) {
 	assert.JSONEq(t, secretJSON, body)
 	r := testutil.Recv(t, (<-chan recorded)(asker.records), "the record")
 	assert.Equal(t, permissions.Allowed, r.d)
-	assert.Equal(t, "a rule allows it: Allow Secret reads in dev / web", r.why)
+	assert.Equal(t, "a rule allows it: Allow data reads in dev / web", r.why)
 	assert.Equal(t, Write{Method: "GET", Path: "/api/v1/namespaces/web/secrets/db"}, r.w)
 	assert.Equal(t, "Show Secret db in web on dev", r.r.Action.Summary)
 	assert.Empty(t, asker.fakeAsker, "nobody was asked")
@@ -117,15 +117,15 @@ func TestAnAllowedSecretReadPassesUnredacted(t *testing.T) {
 // is recorded refused with the reason: under a Deny rule, and in a session
 // that never asks.
 func TestADeniedSecretReadIsRedactedAndTwoHundred(t *testing.T) {
-	deny := permissions.Rule{ID: "d", Effect: permissions.Deny, Class: permissions.SecretRead, ClusterID: "c1"}
-	silent := sessionIn(permissions.Ask)
-	silent.NoPrompts = true
+	deny := rule(permissions.Deny, permissions.DataRead, "c1/**")
+	silent := sessionIn(permissions.ModeAsk)
+	silent.Kind = session.Console
 	for _, c := range []struct {
 		sess session.Session
 		why  string
 	}{
-		{sessionIn(permissions.Ask, deny), "a rule denies it: Deny Secret reads in dev"},
-		{silent, "this session never asks: ask mode"},
+		{sessionIn(permissions.ModeAsk, deny), "a rule denies it: Deny data reads anywhere in dev"},
+		{silent, "it is never allowed"},
 	} {
 		api := answering(t, secretJSON)
 		asker := newRecordingAsker()
@@ -141,7 +141,7 @@ func TestADeniedSecretReadIsRedactedAndTwoHundred(t *testing.T) {
 	}
 
 	// A refusal the asker cannot record still answers redacted.
-	s := serveIn(t, answering(t, secretJSON).upstream(), sessionIn(permissions.Ask, deny), errAsker{errors.New("store refused")})
+	s := serveIn(t, answering(t, secretJSON).upstream(), sessionIn(permissions.ModeAsk, deny), errAsker{errors.New("store refused")})
 	resp, body := s.do(t, s.getSecret(t))
 	require.Equal(t, http.StatusOK, resp.StatusCode, body)
 	assert.JSONEq(t, redactedSecretJSON, body)
@@ -155,14 +155,14 @@ func TestAPromptedSecretReadWaitsForTheDecision(t *testing.T) {
 	asker := make(fakeAsker, 1)
 	s := serveAsking(t, api.upstream(), asker)
 
-	for answer, want := range map[Answer]string{once: secretJSON, denied: redactedSecretJSON} {
+	for answer, want := range map[permissions.Answer]string{once: secretJSON, denied: redactedSecretJSON} {
 		done := s.sendAsync(t, s.getSecret(t))
 		a := asker.next(t)
 		assert.Empty(t, api.requests(), "nothing is read while the user decides")
 		assert.Equal(t, "Show Secret db in web on dev", a.r.Action.Summary)
 		assert.Equal(t, Write{Method: "GET", Path: "/api/v1/namespaces/web/secrets/db"}, a.w)
 		assert.True(t, a.r.Grantable)
-		assert.Equal(t, "Allow Secret reads in dev / web", a.r.ChatRule)
+		assert.Equal(t, "Allow data reads in dev / web", a.r.ChatRule)
 		a.answer <- answer
 		r := testutil.Recv(t, done, "the read")
 		require.NotNil(t, r.resp)
@@ -186,7 +186,7 @@ func TestACommandAnswerCoversTheReadsThatFollow(t *testing.T) {
 	s := serveIn(t, api.upstream(), askSession, asker)
 
 	done := s.sendAsync(t, s.getSecret(t))
-	asker.next(t).answer <- Answer{Approved: true, Duration: permissions.DurationCommand}
+	asker.next(t).answer <- permissions.Answer{Approved: true, Duration: permissions.DurationCommand}
 	testutil.Recv(t, done, "the first read")
 
 	resp, body := s.do(t, s.getSecret(t))
@@ -210,15 +210,33 @@ func TestAClusterWideListAsksForTheContext(t *testing.T) {
 	done := s.sendAsync(t, s.request(t, "GET", "/api/v1/secrets", s.g.Token()))
 	a := asker.next(t)
 	assert.Equal(t, "Show Secret data on dev", a.r.Action.Summary)
-	assert.Equal(t, "Allow Secret reads in dev", a.r.ChatRule)
-	assert.Empty(t, permissions.GrantRule(a.r.Action).Namespace)
+	assert.Equal(t, "Allow data reads of core secrets anywhere in dev", a.r.ChatRule)
+	assert.Equal(t, "c1/**", permissions.GrantRule(a.r.Action).Scope, "every namespace, as the list reaches")
 	a.answer <- denied
 	testutil.Recv(t, done, "the list")
 }
 
+// A list across every namespace reaches each one's Secrets, so a deny for any
+// namespace keeps the whole list redacted, though the mode is auto.
+func TestADenyForOneNamespaceRedactsAClusterWideList(t *testing.T) {
+	api := answering(t, `{"kind":"SecretList","apiVersion":"v1","items":[`+secretJSON+`]}`)
+	deny := allowSecrets
+	deny.Effect = permissions.Deny
+	asker := newRecordingAsker()
+	s := serveIn(t, api.upstream(), sessionIn(permissions.ModeAuto, deny), asker)
+
+	req := s.request(t, "GET", "/api/v1/secrets", s.g.Token())
+	req.Header.Set("Accept", "application/json")
+	resp, body := s.do(t, req)
+
+	require.Equal(t, http.StatusOK, resp.StatusCode, body)
+	assert.JSONEq(t, `{"kind":"SecretList","apiVersion":"v1","items":[`+redactedSecretJSON+`]}`, body)
+	assert.Equal(t, permissions.Denied, testutil.Recv(t, (<-chan recorded)(asker.records), "the record").d)
+}
+
 // A watch and a table that asks for the whole object are reads of Secret
 // data: each asks, and each passes unredacted once allowed.
-func TestAWatchAndAWholeTableAreClassSix(t *testing.T) {
+func TestAWatchAndAWholeTableAreDataReads(t *testing.T) {
 	watching, next, _ := secretWatch(t)
 	asker := make(fakeAsker, 1)
 	s := serveAsking(t, watching.upstream(), asker)
@@ -312,7 +330,7 @@ func TestASecretReadWaitsItsTurnBehindAWrite(t *testing.T) {
 	assert.Equal(t, http.StatusTooManyRequests, resp.StatusCode)
 	assert.Equal(t, "kstack: too many requests are waiting on the user. Send one at a time.", statusOf(t, body).Message)
 
-	s = serveIn(t, watching.upstream(), sessionIn(permissions.Ask, allowSecrets), asker)
+	s = serveIn(t, watching.upstream(), sessionIn(permissions.ModeAsk, allowSecrets), asker)
 	resp, err := s.client.Do(s.request(t, "GET", "/api/v1/namespaces/web/secrets?watch=true", s.g.Token()))
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -329,7 +347,7 @@ func TestASecretReadWaitsItsTurnBehindAWrite(t *testing.T) {
 // that must never ask would show Secret data if it did.
 type approvingAsker struct{ t *testing.T }
 
-func (a approvingAsker) Ask(context.Context, Request) (Answer, error) {
+func (a approvingAsker) Ask(context.Context, Request) (permissions.Answer, error) {
 	a.t.Error("a session that never asks asked")
 	return once, nil
 }
@@ -361,15 +379,15 @@ func TestSecretDataIsRedactedWithoutTheGrant(t *testing.T) {
 		}
 	})
 	var sessions []session.Session
-	for _, mode := range []permissions.Mode{permissions.ReadOnly, permissions.Ask} {
+	for _, mode := range []permissions.Mode{permissions.ModeReadOnly, permissions.ModeAsk} {
 		sess := sessionIn(mode)
-		sess.NoPrompts = true
+		sess.Kind = session.Console
 		sessions = append(sessions, sess)
 	}
-	everything := permissions.Rule{ID: "e", Effect: permissions.Allow, Class: permissions.SecretRead}
-	for _, mode := range []permissions.Mode{permissions.ReadOnly, permissions.Ask, permissions.Auto} {
+	everything := rule(permissions.Allow, permissions.DataRead, "c1/**")
+	for _, mode := range permissions.Modes {
 		sess := sessionIn(mode, allowSecrets, everything)
-		sess.NoSecretData = true
+		sess.Kind = session.Monitor
 		sessions = append(sessions, sess)
 	}
 	for i, sess := range sessions {
@@ -394,7 +412,7 @@ func TestSecretDataIsRedactedWithoutTheGrant(t *testing.T) {
 		assert.Equal(t, map[string]any{"password": "[redacted]"}, helmReleaseOf(t, secret.Data["release"]).Config, "session %d", i)
 	}
 
-	s := serveIn(t, api.upstream(), sessionIn(permissions.Auto), approvingAsker{t})
+	s := serveIn(t, api.upstream(), sessionIn(permissions.ModeAuto), approvingAsker{t})
 	_, body := s.do(t, s.getSecret(t))
 	assert.JSONEq(t, secretJSON, body, "auto mode shows Secret data unasked")
 }

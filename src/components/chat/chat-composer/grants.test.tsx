@@ -32,8 +32,8 @@ const remove = vi.fn();
 const revoke = vi.fn();
 const held = (over: Partial<Grants> = {}): Grants => ({
   rules: [
-    { id: 'r1', line: 'Allow cluster writes in dev / web' },
-    { id: 'r2', line: 'Allow cluster writes in "say ​\\"hi\\""' },
+    { id: 'r1', line: 'Allow writes in dev / web' },
+    { id: 'r2', line: 'Allow writes in "say ​\\"hi\\""' },
   ],
   removing: null,
   error: null,
@@ -60,7 +60,7 @@ describe('ChatGrants', () => {
     await userEvent.click(trigger);
     const list = screen.getByRole('list', { name: 'Allowed for this chat' });
     expect(list.querySelectorAll('li')).toHaveLength(2);
-    expect(list).toHaveTextContent('Allow cluster writes in dev / web');
+    expect(list).toHaveTextContent('Allow writes in dev / web');
     expect(list.querySelector('mark')).not.toBeNull();
   });
 

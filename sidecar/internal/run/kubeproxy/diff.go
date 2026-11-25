@@ -16,6 +16,7 @@ package kubeproxy
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -31,7 +32,6 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
-	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 )
 
 const (
@@ -80,11 +80,11 @@ type preview struct {
 // under the write lock, in a slot and through the limiter, and both requests
 // end with the endpoint, the grant, or diffTimeout. An object not there is no
 // preview and no error.
-func (g *Grant) previewChange(r *http.Request, p apiPath, act permissions.Action, body []byte) preview {
+func (g *Grant) previewChange(r *http.Request, p apiPath, body []byte) preview {
 	if r.Method != http.MethodPut && r.Method != http.MethodPatch || p.name == "" {
 		return preview{}
 	}
-	if !honorsDryRun[act.Group+"/"+p.version] {
+	if !honorsDryRun[cmp.Or(p.group, "core")+"/"+p.version] {
 		return preview{err: previewUnhonored}
 	}
 	if !g.openRequests.TryAcquire(1) {

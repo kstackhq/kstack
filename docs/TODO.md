@@ -268,7 +268,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   `Deny` rule. A flag could carry its own defaults: read-only, and namespace deletion refused in
   every mode. Guessing it from the context's name (`*prod*`) was weighed and left out, since it
   catches `nonprod` and misses a production cluster named otherwise → [ADR: permissions are
-  classes, modes and rules](adr/2026-10-02-permissions-are-classes-modes-and-rules-decided-at-the-proxy.md).
+  access levels, a boundary, modes and rules](adr/2026-11-25-permissions-are-access-levels-a-boundary-modes-and-rules-over-one-action.md).
   **Trigger:** a user asks for it.
 
 - **Ask for a sandboxed command's cluster reads under a locked-down mode (design first).** Today

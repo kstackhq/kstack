@@ -29,8 +29,8 @@ type service struct {
 	// One without it is global, signed in us-east-1.
 	hostFormat string
 	reads      []string // read beyond the Describe, Get and List prefixes
-	destroys   []string // class 5 beyond the Delete and Terminate prefixes
-	secrets    []string // class 6: the answer holds stored data or a secret
+	destroys   []string // destructive beyond the Delete and Terminate prefixes; an access control change on iam
+	secrets    []string // a data read: the answer holds stored data or a secret
 	refused    []string // the answer is a credential
 }
 

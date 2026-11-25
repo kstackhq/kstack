@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"log/slog"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/vektah/gqlparser/v2/gqlerror"
@@ -611,32 +613,64 @@ func sandboxFoldersOf(grants []chat.FolderGrant) []*model.SandboxFolder {
 	return out
 }
 
-// permissionSettings is the permission modes and rules as Settings shows them:
-// the mode of each cluster with a kube-context that is not awaiting deletion.
+// permissionSettings is the permission modes and rules as Settings shows
+// them: Kubernetes, then each cloud platform the build has, each with its
+// default mode and its accounts. Kubernetes lists every cluster with a
+// kube-context that is not awaiting deletion; a cloud platform, each account
+// with a mode of its own.
 func (r *Resolver) permissionSettings(ctx context.Context) (*model.PermissionSettings, error) {
 	clusters, err := r.ClusterSvc.Clusters().List(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var listed []apimeta.ClusterID
+	rows, err := r.Settings.Modes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	stored := map[permissions.Target]map[string]permissions.Mode{}
+	for _, row := range rows {
+		if stored[row.Target] == nil {
+			stored[row.Target] = map[string]permissions.Mode{}
+		}
+		stored[row.Target][row.Account] = row.Mode
+	}
+	targetModes := func(target permissions.Target) *model.PermissionTargetModes {
+		def, ok := stored[target]["*"]
+		if !ok {
+			def = permissions.ModeAsk
+		}
+		return &model.PermissionTargetModes{Target: target, DefaultMode: def, Accounts: []*model.PermissionAccountMode{}}
+	}
+	account := func(t *model.PermissionTargetModes, id, name string, cluster *apimeta.ClusterID) {
+		m := &model.PermissionAccountMode{Account: id, Name: name, ClusterID: cluster, Mode: t.DefaultMode, Source: settings.SourceDefault}
+		if mode, ok := stored[t.Target][id]; ok {
+			m.Mode, m.Source = mode, settings.SourceEntry
+		}
+		t.Accounts = append(t.Accounts, m)
+	}
+	kube := targetModes(permissions.Kubernetes)
 	for _, c := range clusters {
 		if c.KubeContext() != "" && c.DeletionRequestedAt == nil {
-			listed = append(listed, c.ID)
+			account(kube, string(c.ID), c.KubeContext(), &c.ID)
 		}
 	}
-	defaultMode, states, err := r.Settings.ClusterModes(ctx, listed)
+	targets := []*model.PermissionTargetModes{kube}
+	for _, target := range r.CloudTargets {
+		t := targetModes(target)
+		for _, id := range slices.Sorted(maps.Keys(stored[target])) {
+			if id != "*" {
+				account(t, id, id, nil)
+			}
+		}
+		targets = append(targets, t)
+	}
+	rules, err := r.Settings.Rules(ctx)
 	if err != nil {
 		return nil, err
 	}
-	modes := make([]*settings.ClusterModeState, len(states))
-	for i := range states {
-		modes[i] = &states[i]
-	}
-	rules, err := r.Settings.KubeRules(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return &model.PermissionSettings{DefaultMode: defaultMode, Clusters: modes, KubeRules: rulePointers(rules), Destructive: kubeproxy.Destructive}, nil
+	return &model.PermissionSettings{
+		Targets: targets, Rules: rulePointers(rules), AlwaysAsks: kubeproxy.AlwaysAsks, AccessControl: kubeproxy.AccessControl,
+	}, nil
 }
 
 // permissionsAfter is a permission mutation's answer: its refusal, else the
@@ -645,8 +679,8 @@ func (r *Resolver) permissionsAfter(ctx context.Context, err error) (*model.Perm
 	if refusal, ok := errors.AsType[settings.RuleRefusal](err); ok {
 		return nil, gqlerrors.NewValidationError("permission", refusal.Error())
 	}
-	if refusal, ok := errors.AsType[settings.SettingRefusal](err); ok {
-		return nil, gqlerrors.NewValidationError("permission", refusal.Reason.Error())
+	if refusal, ok := errors.AsType[settings.ModeRefusal](err); ok {
+		return nil, gqlerrors.NewValidationError("permission", refusal.Error())
 	}
 	switch {
 	case errors.Is(err, settings.ErrClusterGone):
@@ -663,27 +697,48 @@ func (r *Resolver) permissionsAfter(ctx context.Context, err error) (*model.Perm
 	return out, nil
 }
 
-// ruleLine is rule in the user's words, naming its cluster by the record's
-// kube-context, or by its id once the record has none or is gone.
+// ruleLine is rule in the user's words. A Kubernetes rule naming a cluster
+// names it by the record's kube-context, or by its id once the record has
+// none or is gone; any other rule names its account by the account itself.
 func (r *Resolver) ruleLine(ctx context.Context, rule permissions.Rule) (string, error) {
-	if rule.ClusterID == "" {
+	account, literal := rule.Account()
+	if rule.Target != string(permissions.Kubernetes) || !literal {
 		return rule.Line(""), nil
 	}
-	c, err := r.ClusterSvc.Clusters().Get(ctx, rule.ClusterID)
+	c, err := r.ClusterSvc.Clusters().Get(ctx, apimeta.ClusterID(account))
 	if err != nil {
 		return "", err
 	}
-	name := string(rule.ClusterID)
 	if c != nil && c.KubeContext() != "" {
-		name = c.KubeContext()
+		account = c.KubeContext()
 	}
-	return rule.Line(name), nil
+	return rule.Line(account), nil
 }
 
-// rulePointers is rules as gqlgen serves a list of them: never null.
+// ruleOf is a rule input as the settings write it: a null principal or
+// target is every one.
+func ruleOf(input model.PermissionRuleInput) permissions.Rule {
+	r := permissions.Rule{
+		Effect: input.Effect, AccessLevel: input.AccessLevel, Principal: "*", Target: "*",
+		Scope: input.Scope, Service: input.Service, Operation: input.Operation, Resource: input.Resource,
+	}
+	if input.Principal != nil {
+		r.Principal = string(*input.Principal)
+	}
+	if input.Target != nil {
+		r.Target = string(*input.Target)
+	}
+	return r
+}
+
+// rulePointers is rules as gqlgen serves a list of them: never null, and one
+// entry per id, since a row Kstack cannot apply reads as two rules under its id.
 func rulePointers(rules []permissions.Rule) []*permissions.Rule {
 	out := make([]*permissions.Rule, 0, len(rules))
 	for i := range rules {
+		if i > 0 && rules[i].ID == rules[i-1].ID {
+			continue
+		}
 		out = append(out, &rules[i])
 	}
 	return out

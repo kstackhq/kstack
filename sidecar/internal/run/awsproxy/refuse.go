@@ -26,6 +26,7 @@ import (
 // What the proxy answers in place of AWS.
 const (
 	noLogin        = "kstack: no AWS login was found; run `aws sso login` outside the sandbox"
+	loginChanged   = "kstack: the AWS login changed while this request waited, so it was not sent"
 	uploadRefusal  = "kstack: the sandbox does not upload files to S3; do it outside the sandbox"
 	upstreamFailed = "kstack: AWS did not answer"
 	uncheckable    = "kstack: AWS's error could not be checked for the user's credentials, so it is not passed on"

@@ -88,19 +88,13 @@ type Request struct {
 	DiffError string
 }
 
-// Answer is the user's decision: approved or not, and for how long.
-type Answer struct {
-	Approved bool
-	Duration permissions.Duration
-}
-
 // Asker puts a request to the user, and records one decided with nobody
 // asked. From Ask, a context error is a wait that ended without a decision,
 // which the asker records as abandoned; any other error is a request or
 // decision the asker could not record. From Record, an error is a record the
 // asker could not write; reason is the decision in the user's words.
 type Asker interface {
-	Ask(ctx context.Context, r Request) (Answer, error)
+	Ask(ctx context.Context, r Request) (permissions.Answer, error)
 	Record(ctx context.Context, r Request, d permissions.Decision, reason string) error
 }
 
@@ -148,10 +142,16 @@ func (g *Grant) serveWrite(w http.ResponseWriter, r *http.Request, p apiPath) {
 		writeStatus(w, http.StatusForbidden, string(why))
 		return
 	}
-	act := classify(r, p, body, g.cluster, g.context)
+	act := g.classify(r, p, body)
 	write := Write{
 		Method: r.Method, Path: r.URL.RequestURI(), Subresource: p.subresource,
 		ContentType: r.Header.Get("Content-Type"), Body: body, DryRun: act.DryRun,
+	}
+	// A read, a dry run the API server honors, changes nothing: it is
+	// forwarded unasked and unrecorded, as a read is.
+	if act.AccessLevel == permissions.Read {
+		g.forward(w, r, p, body, p.onSecrets())
+		return
 	}
 	v, reason := g.policy(r.Context()).Authorize(act)
 	req := newRequest(act, v, &write)
@@ -171,7 +171,7 @@ func (g *Grant) serveWrite(w http.ResponseWriter, r *http.Request, p apiPath) {
 		writeStatus(w, http.StatusForbidden, "kstack: "+act.Summary+" is not allowed: "+reason)
 		return
 	}
-	pv := g.previewChange(r, p, act, body)
+	pv := g.previewChange(r, p, body)
 	req.Diff, req.DiffCut, req.DiffError = pv.diff, pv.cut, pv.err
 	answer, err := g.ask(r.Context(), req)
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
@@ -192,7 +192,7 @@ func (g *Grant) serveWrite(w http.ResponseWriter, r *http.Request, p apiPath) {
 // ask puts req to the user, and an approval for the command adds its rule for
 // the rest of the command. Called under the write lock, which guards the
 // command's rules.
-func (g *Grant) ask(ctx context.Context, req Request) (Answer, error) {
+func (g *Grant) ask(ctx context.Context, req Request) (permissions.Answer, error) {
 	answer, err := g.asker.Ask(ctx, req)
 	if err == nil && answer.Approved && answer.Duration == permissions.DurationCommand && req.Grantable {
 		g.commandRules = append(g.commandRules, permissions.CommandRule(req.Action))
@@ -204,25 +204,25 @@ func (g *Grant) ask(ctx context.Context, req Request) (Answer, error) {
 // allow answer adds when an answer may add one.
 func newRequest(act permissions.Action, v permissions.Verdict, write *Write) Request {
 	req := Request{Action: act, Write: write}
-	if permissions.Grantable(v, act) {
+	if v.Grantable {
 		req.Grantable = true
-		req.CommandRule, req.ChatRule = permissions.CommandRule(act).Line(act.Context), permissions.GrantRule(act).Line(act.Context)
+		req.CommandRule, req.ChatRule = permissions.GrantLines(act)
 	}
 	return req
 }
 
-// policy is the session's mode and rules for the grant's cluster, read now, so
-// a change made meanwhile applies, joined by the command's own rules and
-// carrying the session's two flags. A session with no policy is read-only.
-// Called under the write lock.
+// classify is classify's action for the grant's cluster, sent by the grant's
+// session's kind.
+func (g *Grant) classify(r *http.Request, p apiPath, body []byte) permissions.Action {
+	act := classify(r, p, body, g.cluster, g.context)
+	act.Principal = g.session.Kind
+	return act
+}
+
+// policy is the session's policy for the grant's cluster, read now, so a
+// change made meanwhile applies. Called under the write lock.
 func (g *Grant) policy(ctx context.Context) permissions.Policy {
-	p := permissions.Policy{Mode: permissions.ReadOnly}
-	if g.session.Policy != nil {
-		p = g.session.Policy(ctx, g.cluster)
-		p.Rules = append(slices.Clip(p.Rules), g.commandRules...)
-	}
-	p.NoPrompts, p.NoSecretData = g.session.NoPrompts, g.session.NoSecretData
-	return p
+	return g.session.PolicyFor(ctx, permissions.Kubernetes, string(g.cluster), g.commandRules)
 }
 
 // takeWriteLock waits for the write lock, as one of at most maxQueuedWrites

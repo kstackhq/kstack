@@ -12,28 +12,34 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The Settings dialog's Permissions pane: the approval modes and the rules a
-// sandboxed command's cluster writes are decided by. Drawn only on a machine
-// with a sandbox, since without one every command asks and nothing here
-// applies. A mode and a rule belong to a cluster, joined onto the clusters
-// watch by its id. Every cluster name, context and rule line is user or
-// cluster text, drawn through VisibleText.
+// The Settings dialog's Permissions pane: the modes and the rules a sandboxed
+// command's requests are decided by, a section per target. Drawn only on a
+// machine with a sandbox, since without one every command asks and nothing
+// here applies. A cluster's mode is joined onto the clusters watch by its id;
+// a cloud platform's section shows only while the machine offers it. Every
+// cluster name, account, context and rule line is user, cluster or cloud
+// text, drawn through VisibleText.
 import { Button } from '@kubetail/ui/elements/button';
 import { Tabs, TabsList, TabsTrigger } from '@kubetail/ui/elements/tabs';
-import { useId } from 'react';
+import { useId, useState } from 'react';
+import type { SubmitEvent } from 'react';
 
+import { Input } from '@/components/primitives/text-entry';
 import { VisibleText } from '@/components/primitives/visible-text';
-import type { PermissionMode, PermissionModeSource } from '@/gql/graphql';
+import type { PermissionMode, PermissionModeSource, PermissionTarget } from '@/gql/graphql';
+import { CLOUD_PLATFORM_NAMES } from '@/lib/chats';
 import { displayName, useClusters } from '@/lib/clusters';
 import type { Cluster } from '@/lib/clusters';
 import { usePermissionSettings } from '@/lib/permission-settings';
-import type { ClusterMode, PermissionSettings as Permissions } from '@/lib/permission-settings';
+import type { AccountMode, PermissionSettings as Permissions, TargetModes } from '@/lib/permission-settings';
 import { useSandbox } from '@/lib/sandbox';
+import { useSandboxCloudAccess } from '@/lib/sandbox-cloud-access';
 
-import { Select } from './field';
+import { Field, Select } from './field';
 import { Group } from './group';
 import { ChatGrants, RanWithoutAsking } from './permission-activity';
 import { PermissionModeInfo } from './permission-mode-info';
+import type { AccountOption } from './permission-rule-form';
 import { PermissionRules } from './permission-rules';
 
 // Each mode with what it asks, in the picker's order.
@@ -57,6 +63,9 @@ const SOURCES: Record<PermissionModeSource, string> = {
   Default: 'Default mode',
 };
 
+// Each mode by name alone, for a cloud platform's pickers.
+const MODE_NAMES = MODES.map(({ value, label }) => ({ value, label }));
+
 export function PermissionSettings() {
   const { available } = useSandbox();
   if (available === false) {
@@ -74,6 +83,7 @@ export function PermissionSettings() {
 function PermissionPane() {
   const permissions = usePermissionSettings();
   const { clusters } = useClusters();
+  const { platforms } = useSandboxCloudAccess();
   const { settings, error, readError, retry } = permissions;
   if (!settings) {
     if (!readError) return null;
@@ -88,16 +98,24 @@ function PermissionPane() {
       </div>
     );
   }
+  const kube = settings.targets.find((t) => t.target === 'Kubernetes');
+  // Every cloud platform the build offers has a section, switched on or not, so
+  // its modes and rules can be set before a run reaches it.
+  const clouds = settings.targets.filter((t) => t.target !== 'Kubernetes');
   // A mode waits for the clusters watch to deliver its cluster; the default
   // mode and the rules do not.
   const byID = new Map(clusters?.map((c) => [c.id, c]));
-  const rows = settings.clusters.flatMap((mode) => {
-    const cluster = byID.get(mode.clusterID);
+  const rows = (kube?.accounts ?? []).flatMap((mode) => {
+    const cluster = mode.clusterID ? byID.get(mode.clusterID) : undefined;
     return cluster ? [{ cluster, mode }] : [];
   });
   // Two clusters can name one context, from two kubeconfig files.
   const contexts = [...new Set(rows.flatMap(({ cluster }) => cluster.spec.source.kubeconfig?.context ?? []))];
-  const ruleClusters = rows.map(({ cluster }) => ({ value: cluster.id, label: clusterLabel(cluster) }));
+  const accounts: Partial<Record<PermissionTarget, AccountOption[]>> = {
+    Kubernetes: rows.map(({ cluster, mode }) => ({ value: mode.account, label: clusterLabel(cluster) })),
+  };
+  for (const t of clouds) accounts[t.target] = t.accounts.map((a) => ({ value: a.account, label: a.name }));
+  const targets = [...(kube ? ['Kubernetes' as const] : []), ...clouds.map((t) => t.target)];
 
   return (
     <>
@@ -113,17 +131,32 @@ function PermissionPane() {
         )}
       </div>
 
-      <DefaultModePicker permissions={permissions} />
+      {kube && <DefaultModePicker modes={kube} settings={settings} onSet={permissions.setDefaultMode} />}
 
-      <ClusterModes rows={rows} onSet={permissions.setMode} onClear={permissions.clearMode} />
+      <ClusterModes
+        rows={rows}
+        onSet={(id, mode) => permissions.setMode('Kubernetes', id, mode)}
+        onClear={(id) => permissions.clearMode('Kubernetes', id)}
+      />
+
+      {clouds.map((modes) => (
+        <CloudModes
+          key={modes.target}
+          modes={modes}
+          permissions={permissions}
+          off={platforms !== undefined && !platforms.includes(modes.target)}
+        />
+      ))}
 
       <ShowingFilter contexts={contexts} />
 
       <PermissionRules
-        rules={settings.kubeRules}
-        clusters={ruleClusters}
+        rules={settings.rules}
+        targets={targets}
+        accounts={accounts}
         contexts={contexts}
         onAdd={permissions.addRule}
+        onUpdate={permissions.updateRule}
         onRemove={permissions.removeRule}
       />
 
@@ -133,13 +166,22 @@ function PermissionPane() {
   );
 }
 
-// The default mode and its picker.
-function DefaultModePicker({ permissions }: { permissions: Permissions }) {
-  const { settings, setDefaultMode } = permissions;
-  if (!settings) return null;
-  const current = MODES.find((m) => m.value === settings.defaultMode);
+// The clusters' default mode and its picker.
+function DefaultModePicker({
+  modes,
+  settings,
+  onSet,
+}: {
+  modes: TargetModes;
+  settings: NonNullable<Permissions['settings']>;
+  onSet: Permissions['setDefaultMode'];
+}) {
+  const current = MODES.find((m) => m.value === modes.defaultMode);
   return (
-    <Group title="Default mode" info={<PermissionModeInfo destructive={settings.destructive} />}>
+    <Group
+      title="Default mode"
+      info={<PermissionModeInfo alwaysAsks={settings.alwaysAsks} accessControl={settings.accessControl} />}
+    >
       <div className="flex items-center gap-3 rounded-lg border px-4 py-3 text-sm">
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           {current && (
@@ -149,7 +191,7 @@ function DefaultModePicker({ permissions }: { permissions: Permissions }) {
             </>
           )}
         </div>
-        <Tabs value={current?.value ?? ''} onValueChange={(mode) => setDefaultMode(mode as PermissionMode)}>
+        <Tabs value={modes.defaultMode} onValueChange={(mode) => onSet('Kubernetes', mode as PermissionMode)}>
           <TabsList aria-label="Default mode">
             {MODES.map(({ value, label }) => (
               <TabsTrigger key={value} value={value}>
@@ -159,6 +201,80 @@ function DefaultModePicker({ permissions }: { permissions: Permissions }) {
           </TabsList>
         </Tabs>
       </div>
+    </Group>
+  );
+}
+
+// A cloud platform's section: its default mode, then each account with a
+// mode of its own, and a form that gives one more account its own.
+function CloudModes({ modes, permissions, off }: { modes: TargetModes; permissions: Permissions; off: boolean }) {
+  const name = CLOUD_PLATFORM_NAMES[modes.target];
+  const [account, setAccount] = useState('');
+  const [mode, setMode] = useState<PermissionMode>('Ask');
+  const add = async (e: SubmitEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (await permissions.setMode(modes.target, account.trim(), mode)) setAccount('');
+  };
+  return (
+    <Group
+      title={name}
+      lede={
+        off
+          ? `Off: sandboxed commands do not reach ${name}. Each account follows the default mode unless you set one for it.`
+          : `Each ${name} account follows the default mode unless you set one for it.`
+      }
+    >
+      <ul className="divide-y rounded-lg border text-sm">
+        <li className="flex items-center gap-3 px-4 py-3">
+          <span className="flex-1">Default mode</span>
+          <Select
+            className="w-36"
+            aria-label={`Default mode of ${name}`}
+            options={MODE_NAMES}
+            value={modes.defaultMode}
+            onChange={(value) => permissions.setDefaultMode(modes.target, value)}
+          />
+        </li>
+        {modes.accounts.map((a: AccountMode) => (
+          <li key={a.account} aria-label={a.name} className="flex items-center gap-3 px-4 py-3">
+            <span className="min-w-0 flex-1 font-mono break-all">
+              <VisibleText text={a.name} />
+            </span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => permissions.clearMode(modes.target, a.account)}
+            >
+              Clear
+            </Button>
+            <Select
+              className="w-36"
+              aria-label={`Mode of ${a.name}`}
+              options={MODE_NAMES}
+              value={a.mode}
+              onChange={(value) => permissions.setMode(modes.target, a.account, value)}
+            />
+          </li>
+        ))}
+        <li>
+          <form
+            aria-label={`Add an account to ${name}`}
+            className="grid grid-cols-[1fr_auto_auto] items-end gap-3 px-4 py-3"
+            onSubmit={add}
+          >
+            <Field label="Account">
+              {(id) => <Input id={id} value={account} onChange={(e) => setAccount(e.target.value)} />}
+            </Field>
+            <Field label="Mode">
+              {(id) => <Select id={id} className="w-36" options={MODE_NAMES} value={mode} onChange={setMode} />}
+            </Field>
+            <Button type="submit" size="sm" disabled={account.trim() === ''}>
+              Add account
+            </Button>
+          </form>
+        </li>
+      </ul>
     </Group>
   );
 }
@@ -185,7 +301,7 @@ function ClusterModes({
   onSet,
   onClear,
 }: {
-  rows: { cluster: Cluster; mode: ClusterMode }[];
+  rows: { cluster: Cluster; mode: AccountMode }[];
   onSet: (clusterID: string, mode: PermissionMode) => void;
   onClear: (clusterID: string) => void;
 }) {

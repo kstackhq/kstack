@@ -1938,16 +1938,25 @@ type ToolSetting {
 
 # --- Permissions ---
 
-"How much an action can do, as the permissions engine numbers its classes. A rule may name `UpstreamWrite`, `Destructive` or `SecretRead`."
-enum PermissionClass {
-  ReadInside
-  WriteInside
-  UpstreamWrite
+"How much an action can do, its one access level. A rule may name `DataRead`, `Write`, `AccessControl` or `Destructive`; a `Write` rule that denies or asks covers `AccessControl` and `Destructive` too. `AccessControl` is a change to who may do what, or to what sees every request."
+enum PermissionAccessLevel {
+  Read
+  DataRead
+  Write
+  AccessControl
   Destructive
-  SecretRead
+  Reach
 }
 
-"Which classes ask: `ReadOnly` refuses writes, `Ask` asks for every write, `Auto` asks for destructive ones alone. Showing Secret data asks under `ReadOnly` and `Ask`, and runs unasked under `Auto`."
+"Who sent an action: a chat, a chat's subagent, the monitor, or the Sandbox console."
+enum PermissionPrincipal {
+  Chat
+  Subagent
+  Monitor
+  Console
+}
+
+"An account's word on what runs unasked: `ReadOnly` refuses changes, `Ask` asks for every change, `Auto` runs writes and data reads unasked and asks for the rest. A data read asks under `ReadOnly` and `Ask`."
 enum PermissionMode {
   ReadOnly
   Ask
@@ -1961,38 +1970,46 @@ enum PermissionEffect {
   Ask
 }
 
-"Where a cluster's mode comes from: `Entry`, the cluster's own; `Default`, the default mode."
+"Where an account's mode comes from: `Entry`, the account's own; `Default`, its target's default."
 enum PermissionModeSource {
   Entry
   Default
 }
 
-"One rule over cluster writes and Secret reads. `clusterID` is the one cluster it applies to, null for every cluster; join it onto `clusterCollectionWatch`. Every other string but `group` is a pattern: `*` matches any run of characters, `?` one, `\\` escapes the next, and an empty one matches anything. A `namespace` pattern matches objects in a namespace alone; `[cluster]` matches cluster-scoped objects alone. Every string is user text: draw it through VisibleText."
-type KubeRule {
+"One rule over the actions sandboxed commands send. `principal` and `target` are null for every one. `scope` and `resource` are path patterns of `/`-separated segments, the scope's first the account; `service` and `operation` are patterns. In a pattern `*` matches any run of characters, `?` one and `\\` escapes the next; in a path pattern `*` never crosses `/`, `*` alone matches anything, and a last segment of `**` matches the segments before it and anything below. An empty `service` is Kubernetes' core group. Every string is user text: draw it through VisibleText."
+type PermissionRule {
   id: String!
   effect: PermissionEffect!
-  class: PermissionClass!
-  clusterID: ClusterID
-  namespace: String!
-  verb: String!
-  group: String!
-  kind: String!
-  "The rule in the user's words, naming its cluster by its kube-context."
+  accessLevel: PermissionAccessLevel!
+  principal: PermissionPrincipal
+  target: PermissionTarget
+  scope: String!
+  service: String!
+  operation: String!
+  resource: String!
+  "The rule in the user's words, naming a cluster by its kube-context."
   line: String!
 }
 
-"A classified action, as the sidecar's classifier wrote it. Every string is cluster or user text: draw it through VisibleText."
+"A classified action, as the sidecar's classifier wrote it. Every string is cluster, cloud or user text: draw it through VisibleText."
 type PermissionAction {
-  "What the action acts on: the chat's cluster, or a cloud platform."
+  "What the action reaches: a cluster, or a cloud platform."
   target: PermissionTarget!
   "The action in one line, naming its target as kubectl does (`Delete pods/api-7f9c in team-a on dev-eks`), or its cloud platform in words (`AWS: call ec2:TerminateInstances in eu-west-1`)."
   summary: String!
-  class: PermissionClass!
-  context: String!
-  namespace: String!
-  verb: String!
-  group: String!
-  kind: String!
+  accessLevel: PermissionAccessLevel!
+  "Who sent it; null for a stored action that names none."
+  principal: PermissionPrincipal
+  "The path of segments it is in, the first its account; empty for an account the classifier could not trust."
+  scope: String!
+  "The account in the user's words: a cluster's kube-context, a cloud account."
+  accountName: String!
+  service: String!
+  operation: String!
+  resource: String!
+  name: String!
+  "Whether it asks each time, whatever the mode and the rules."
+  once: Boolean!
   "Whether a rule may allow it. False offers Once and Deny alone."
   grantable: Boolean!
   "The rule a Command answer adds, in the words Settings uses; empty when not grantable."
@@ -2007,43 +2024,54 @@ type CloudAccess {
   on: Boolean!
 }
 
-"What an action acts on."
+"What an action reaches."
 enum PermissionTarget {
-  Cluster
+  Kubernetes
   AWS
   GitHub
   GCP
   Azure
 }
 
-"A cluster with a kube-context, and the mode its sandboxed commands run under. Join it onto `clusterCollectionWatch` by `clusterID`."
-type PermissionClusterMode {
-  clusterID: ClusterID!
+"One account and the mode its target's actions run under. `account` is what a rule's scope names first: a cluster's id, a cloud account; treat it as opaque. `clusterID` is set on Kubernetes, to join onto `clusterCollectionWatch`."
+type PermissionAccountMode {
+  account: String!
+  "The account in the user's words: a cluster's kube-context, else the account."
+  name: String!
+  clusterID: ClusterID
   mode: PermissionMode!
   source: PermissionModeSource!
 }
 
-"The modes and rules sandboxed commands' cluster writes are decided by."
-type PermissionSettings {
-  "The mode of a cluster with none of its own."
+"A target's default mode and each account's. Kubernetes lists every cluster with a kube-context that is not awaiting deletion; a cloud platform lists the accounts with a mode of their own."
+type PermissionTargetModes {
+  target: PermissionTarget!
+  "The mode of an account with none of its own."
   defaultMode: PermissionMode!
-  "The mode of each cluster with a kube-context that is not awaiting deletion."
-  clusters: [PermissionClusterMode!]!
-  "The user's always rules."
-  kubeRules: [KubeRule!]!
-  "The writes that always ask, in words."
-  destructive: [String!]!
+  accounts: [PermissionAccountMode!]!
 }
 
-"A rule to add. `clusterID` names a cluster Settings lists, and null is every cluster, which only a `Deny` or `Ask` rule may name. Every string is a pattern but `group`, and empty matches anything. A `namespace` of `[cluster]` is cluster-scoped objects alone."
-input KubeRuleInput {
+"The modes and rules sandboxed commands' requests are decided by."
+type PermissionSettings {
+  targets: [PermissionTargetModes!]!
+  "The user's always rules."
+  rules: [PermissionRule!]!
+  "The changes that always ask on a cluster, in words."
+  alwaysAsks: [String!]!
+  "The changes that ask unless a rule inside a namespace allows them, in words."
+  accessControl: [String!]!
+}
+
+"A rule to add. A null `principal` or `target` is every one; a rule that allows names a target and an account by a literal first scope segment, and a Kubernetes one names a cluster Settings lists. `scope`, `service`, `operation` and `resource` are patterns, `*` by default."
+input PermissionRuleInput {
   effect: PermissionEffect!
-  class: PermissionClass!
-  clusterID: ClusterID
-  namespace: String! = ""
-  verb: String! = ""
-  group: String! = ""
-  kind: String! = ""
+  accessLevel: PermissionAccessLevel!
+  principal: PermissionPrincipal
+  target: PermissionTarget
+  scope: String! = "*"
+  service: String! = "*"
+  operation: String! = "*"
+  resource: String! = "*"
 }
 
 # --- Cloud account ---
@@ -2393,8 +2421,8 @@ type Query {
   "The folders granted, always and for `chatID`, each with why it fails its check now. Empty lists on a machine with no sandbox."
   sandboxFolders(chatID: ChatID): SandboxFolders!
 
-  "The chat's own Kubernetes rules, each as Settings spells a rule. Empty for a chat with none."
-  chatKubeRules(chatID: ChatID!): [KubeRule!]!
+  "The chat's own rules, each as Settings spells a rule. Empty for a chat with none."
+  chatPermissionRules(chatID: ChatID!): [PermissionRule!]!
 
   # --- Tools ---
   "Every tool a chat can be offered on this machine, in the order Settings draws them, each with its setting; live updates via toolSettingsStateWatch."
@@ -2489,7 +2517,7 @@ type Mutation {
   chatDelete(id: ChatID!): Boolean!
 
   # --- Sandbox ---
-  "Turns a cloud platform's switch on or off, and answers the list. Refuses `Cluster`, and a cloud platform this build lacks, with `KSTACK_VALIDATION_ERROR`. A switch that cannot be written or read back is an error."
+  "Turns a cloud platform's switch on or off, and answers the list. Refuses `Kubernetes`, and a cloud platform this build lacks, with `KSTACK_VALIDATION_ERROR`. A switch that cannot be written or read back is an error."
   sandboxCloudAccessSet(target: PermissionTarget!, on: Boolean!): [CloudAccess!]!
   "Save the PATH of every sandboxed command, and answer it. Refused KSTACK_VALIDATION_ERROR with the refusal of a value that does not parse, naming the element, or on a machine with no sandbox. A save that took but cannot be read back is KSTACK_SAVED_UNREAD."
   sandboxPathSet(value: String!): SandboxPath!
@@ -2530,23 +2558,26 @@ type Mutation {
   toolSettingSet(name: String!, enabled: Boolean!): [ToolSetting!]!
 
   # --- Permissions ---
-  "Set the mode of a cluster with none of its own. A change that took whose answer could not be read after is `KSTACK_SAVED_UNREAD`."
-  permissionDefaultModeSet(mode: PermissionMode!): PermissionSettings!
+  "Set a target's default mode, the mode of an account with none of its own. Refused `KSTACK_VALIDATION_ERROR` for a mode Kstack cannot apply. A change that took whose answer could not be read after is `KSTACK_SAVED_UNREAD`."
+  permissionDefaultModeSet(target: PermissionTarget!, mode: PermissionMode!): PermissionSettings!
 
-  "Set one cluster's own mode. Refused `KSTACK_RECORD_NOT_FOUND` for a cluster that is gone or awaiting deletion, and `KSTACK_VALIDATION_ERROR` for one with no kube-context. A change that took whose answer could not be read after is `KSTACK_SAVED_UNREAD`."
-  permissionModeSet(clusterID: ClusterID!, mode: PermissionMode!): PermissionSettings!
+  "Set one account's own mode. A Kubernetes account is a cluster's id: refused `KSTACK_RECORD_NOT_FOUND` for a cluster that is gone or awaiting deletion, and `KSTACK_VALIDATION_ERROR` for one with no kube-context. A cloud account is one name with no `/`, `*` or `?`, else `KSTACK_VALIDATION_ERROR`. A change that took whose answer could not be read after is `KSTACK_SAVED_UNREAD`."
+  permissionModeSet(target: PermissionTarget!, account: String!, mode: PermissionMode!): PermissionSettings!
 
-  "Clear one cluster's own mode, so it takes the default. Refused `KSTACK_RECORD_NOT_FOUND` for a cluster that is gone or awaiting deletion. A change that took whose answer could not be read after is `KSTACK_SAVED_UNREAD`."
-  permissionModeClear(clusterID: ClusterID!): PermissionSettings!
+  "Clear one account's own mode, so it takes its target's default. Refused as `permissionModeSet` refuses the account. A change that took whose answer could not be read after is `KSTACK_SAVED_UNREAD`."
+  permissionModeClear(target: PermissionTarget!, account: String!): PermissionSettings!
 
-  "Add an always rule. Refused `KSTACK_VALIDATION_ERROR` for a rule Kstack cannot apply, saying why. A change that took whose answer could not be read after is `KSTACK_SAVED_UNREAD`."
-  kubeRuleAdd(input: KubeRuleInput!): PermissionSettings!
+  "Add an always rule. Refused `KSTACK_VALIDATION_ERROR` for a rule Kstack cannot apply, saying why; `KSTACK_RECORD_NOT_FOUND` for a Kubernetes rule naming a cluster that is gone. A change that took whose answer could not be read after is `KSTACK_SAVED_UNREAD`."
+  permissionRuleAdd(input: PermissionRuleInput!): PermissionSettings!
+
+  "Edit an always rule, keeping its id and its place. Refused as `permissionRuleAdd` refuses the rule, and `KSTACK_VALIDATION_ERROR` for an unknown id. An edit into a rule held already removes the edited one. A change that took whose answer could not be read after is `KSTACK_SAVED_UNREAD`."
+  permissionRuleUpdate(id: String!, input: PermissionRuleInput!): PermissionSettings!
 
   "Remove an always rule. Refused `KSTACK_VALIDATION_ERROR` for an unknown id. A change that took whose answer could not be read after is `KSTACK_SAVED_UNREAD`."
-  kubeRuleRemove(id: String!): PermissionSettings!
+  permissionRuleRemove(id: String!): PermissionSettings!
 
-  "Removes one of the chat's Kubernetes rules by id, and answers the rules left. Refused `KSTACK_RECORD_NOT_FOUND` for a chat or an id that is gone."
-  chatKubeRuleRemove(chatID: ChatID!, id: String!): [KubeRule!]!
+  "Removes one of the chat's rules by id, and answers the rules left. Refused `KSTACK_RECORD_NOT_FOUND` for a chat or an id that is gone."
+  chatPermissionRuleRemove(chatID: ChatID!, id: String!): [PermissionRule!]!
 
   "Grant a folder, or change the access of one granted in the same place. `Chat` writes a grant of the chat's and needs `chatID`; `Always` a grant for every chat, and ignores it. Refused `KSTACK_VALIDATION_ERROR` with the reason the folder cannot be granted, whose `rule` is `link` and whose `target` extension is the resolved path for a link; also on a machine with no sandbox. Refused `KSTACK_RECORD_NOT_FOUND` for a chat that is gone. A change that took whose answer could not be read after is `KSTACK_SAVED_UNREAD`."
   folderGrant(chatID: ChatID, path: String!, write: Boolean!, duration: GrantDuration!): SandboxFolders!

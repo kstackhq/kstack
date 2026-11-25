@@ -19,6 +19,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
@@ -42,39 +43,43 @@ func (s *Store) write(ctx context.Context, key string, fn func(stmts) error) err
 	return nil
 }
 
-// KubeRuleColumns are a kube_rules row's columns, in the order KubeRules
-// scans them and KubeRuleValues gives them: the table's one encoding, which
+// RuleColumns are a permission_rules row's columns, in the order ScanRules
+// scans them and RuleValues gives them: the table's one encoding, which
 // agent/chat reads and writes a chat's rows through.
-const KubeRuleColumns = `id, effect, class, cluster_id, namespace, verb, api_group, kind, inside`
+const RuleColumns = `id, effect, access_level, principal, target, scope, service, operation, resource`
 
 // FolderGrantColumns are a folder_grants row's columns, in the order
 // FolderGrants scans them.
 const FolderGrantColumns = `id, folder, access`
 
-// KubeRules is the rules rows hold, each row KubeRuleColumns, in their order.
-// It closes rows. A read that fails partway answers none.
-func KubeRules(rows *sql.Rows) ([]permissions.Rule, error) {
-	return scanAll(rows, func() (permissions.Rule, error) {
-		var r permissions.Rule
-		var class string
-		var cluster sql.NullString
-		if err := rows.Scan(&r.ID, &r.Effect, &class, &cluster, &r.Namespace, &r.Verb, &r.Group, &r.Kind, &r.Inside); err != nil {
-			return permissions.Rule{}, fmt.Errorf("scan rule: %w", err)
+// ScanRules is the rules rows hold, each row RuleColumns, in their order. A
+// row CheckRule refuses reads as permissions.Unread in its place, logged by
+// id, so a row Kstack cannot apply denies rather than allows. Both stand-ins
+// keep the row's id, so removing either removes the row. It closes rows. A
+// read that fails partway answers none.
+func ScanRules(rows *sql.Rows) ([]permissions.Rule, error) {
+	read, err := scanRuleRows(rows)
+	if err != nil {
+		return nil, err
+	}
+	var out []permissions.Rule
+	for _, r := range read {
+		if err := CheckRule(r); err != nil {
+			slog.Warn("settings: a rule Kstack cannot apply reads as a refusal", "id", r.ID, "reason", err.Error())
+			for _, standIn := range permissions.Unread() {
+				standIn.ID = r.ID
+				out = append(out, standIn)
+			}
+			continue
 		}
-		r.ClusterID = apimeta.ClusterID(cluster.String)
-		var ok bool
-		if r.Class, ok = permissions.ClassNamed(class); !ok { // coverage:ignore the column's CHECK holds the three names
-			return permissions.Rule{}, fmt.Errorf("scan rule: a class named %q", class)
-		}
-		return r, nil
-	})
+		out = append(out, r)
+	}
+	return out, nil
 }
 
-// KubeRuleValues is r as a row stores it, one value per column of
-// KubeRuleColumns: a rule naming no cluster stores NULL.
-func KubeRuleValues(r permissions.Rule) []any {
-	cluster := sql.NullString{String: string(r.ClusterID), Valid: r.ClusterID != ""}
-	return []any{r.ID, string(r.Effect), r.Class.Name(), cluster, r.Namespace, r.Verb, r.Group, r.Kind, r.Inside}
+// RuleValues is r as a row stores it, one value per column of RuleColumns.
+func RuleValues(r permissions.Rule) []any {
+	return []any{r.ID, string(r.Effect), string(r.AccessLevel), r.Principal, r.Target, r.Scope, r.Service, r.Operation, r.Resource}
 }
 
 // FolderGrants is the grants rows hold, each row FolderGrantColumns, in their
@@ -144,17 +149,39 @@ func requireKubeContext(ctx context.Context, st stmts, cluster apimeta.ClusterID
 	return nil
 }
 
-// selectKubeRules is the always rules in the order written.
-func selectKubeRules(ctx context.Context, st stmts) ([]permissions.Rule, error) {
-	rows, err := st.Query(ctx, stmtSelectKubeRules)
+// selectRules is the always rules in the order written.
+func selectRules(ctx context.Context, st stmts) ([]permissions.Rule, error) {
+	rows, err := st.Query(ctx, stmtSelectRules)
 	if err != nil {
 		return nil, fmt.Errorf("select rules: %w", err)
 	}
-	return KubeRules(rows)
+	return ScanRules(rows)
 }
 
-func insertKubeRule(ctx context.Context, st stmts, r permissions.Rule, at int64) error {
-	if _, err := st.Exec(ctx, stmtInsertKubeRule, append(KubeRuleValues(r), at)...); err != nil {
+// selectRuleRows is the always rules as their rows hold them, unchecked: what
+// a write compares against, since a stand-in for a row Kstack cannot read is
+// no rule the user wrote.
+func selectRuleRows(ctx context.Context, st stmts) ([]permissions.Rule, error) {
+	rows, err := st.Query(ctx, stmtSelectRules)
+	if err != nil {
+		return nil, fmt.Errorf("select rules: %w", err)
+	}
+	return scanRuleRows(rows)
+}
+
+// scanRuleRows is the rules rows hold, unchecked. It closes rows.
+func scanRuleRows(rows *sql.Rows) ([]permissions.Rule, error) {
+	return scanAll(rows, func() (permissions.Rule, error) {
+		var r permissions.Rule
+		if err := rows.Scan(&r.ID, &r.Effect, &r.AccessLevel, &r.Principal, &r.Target, &r.Scope, &r.Service, &r.Operation, &r.Resource); err != nil {
+			return permissions.Rule{}, fmt.Errorf("scan rule: %w", err)
+		}
+		return r, nil
+	})
+}
+
+func insertRule(ctx context.Context, st stmts, r permissions.Rule, at int64) error {
+	if _, err := st.Exec(ctx, stmtInsertRule, append(RuleValues(r), at, at)...); err != nil {
 		return fmt.Errorf("insert rule: %w", err)
 	}
 	return nil

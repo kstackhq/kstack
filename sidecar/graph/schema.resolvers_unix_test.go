@@ -95,8 +95,8 @@ func TestFolderGrantAndRevoke(t *testing.T) {
 	assert.Equal(t, first["id"], always[0].(map[string]any)["id"])
 	assert.Equal(t, true, always[0].(map[string]any)["write"])
 
-	got = mutate(t, srv, `{ permissionSettings { kubeRules { id } } }`)
-	assert.Empty(t, got["permissionSettings"].(map[string]any)["kubeRules"], "a folder grant is no rule")
+	got = mutate(t, srv, `{ permissionSettings { rules { id } } }`)
+	assert.Empty(t, got["permissionSettings"].(map[string]any)["rules"], "a folder grant is no rule")
 
 	got = mutate(t, srv, `mutation { folderRevoke(id: "`+first["id"].(string)+`", duration: Always) `+foldersFields+` }`)
 	assert.Empty(t, got["folderRevoke"].(map[string]any)["always"])
@@ -116,8 +116,8 @@ func TestAChatsFolderGrantIsListedAndRemoved(t *testing.T) {
 	require.Len(t, chatFolders, 1)
 	id := chatFolders[0].(map[string]any)["id"].(string)
 
-	got = mutate(t, srv, `{ chatKubeRules(chatID: "`+chat+`") { id } }`)
-	assert.Equal(t, []any{}, got["chatKubeRules"], "a folder grant is no rule")
+	got = mutate(t, srv, `{ chatPermissionRules(chatID: "`+chat+`") { id } }`)
+	assert.Equal(t, []any{}, got["chatPermissionRules"], "a folder grant is no rule")
 	got = mutate(t, srv, `{ sandboxFolders(chatID: "`+chat+`") `+foldersFields+` }`)
 	assert.Len(t, got["sandboxFolders"].(map[string]any)["chat"], 1, "the chat's folders are listed for it")
 

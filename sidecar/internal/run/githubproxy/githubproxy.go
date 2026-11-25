@@ -189,10 +189,10 @@ func (p *proxy) serveAPI(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case v.refusal != "":
 		rt.refuse(w, http.StatusForbidden, v.refusal)
-	case v.class == 0:
+	case v.act.AccessLevel == permissions.Read:
 		p.read(w, r, rt, apiHeaders)
-	case v.class == permissions.SecretRead:
-		p.ask(w, r, rt, apiRequest(r, rt.upstream.Host, v.class, nil), apiHeaders)
+	case v.act.AccessLevel == permissions.DataRead:
+		p.ask(w, r, rt, apiRequest(r, rt.upstream.Host, v.act, nil), apiHeaders)
 	default:
 		body, release, status := p.grant.Body(w, r)
 		defer release()
@@ -200,7 +200,7 @@ func (p *proxy) serveAPI(w http.ResponseWriter, r *http.Request) {
 			rt.refuse(w, status, runproxy.BodyRefusal(status))
 			return
 		}
-		p.ask(w, r, rt, apiRequest(r, rt.upstream.Host, v.class, body), apiHeaders)
+		p.ask(w, r, rt, apiRequest(r, rt.upstream.Host, v.act, body), apiHeaders)
 	}
 }
 
@@ -226,7 +226,7 @@ func (p *proxy) serveGraphQL(w http.ResponseWriter, r *http.Request) {
 		rt.refuse(w, http.StatusForbidden, refusedGraphQL)
 		return
 	}
-	if g.class() == 0 {
+	if g.action().AccessLevel == permissions.Read {
 		p.read(w, r, rt, graphQLHeaders)
 		return
 	}
@@ -297,11 +297,12 @@ func (p *proxy) read(w http.ResponseWriter, r *http.Request, rt *route, headers 
 	p.forward(w, r, rt, headers, false)
 }
 
-// ask puts req to the user through the grant and forwards it once approved.
-// An approved data read's answer may hand back a link to another host.
+// ask has the grant decide req and forwards it once it may run. A data
+// read's answer, once allowed or approved, may hand back a link to another
+// host.
 func (p *proxy) ask(w http.ResponseWriter, r *http.Request, rt *route, req runproxy.Request, headers []string) {
 	out := p.grant.Decide(r.Context(), req, func() error {
-		p.forward(w, r, rt, headers, req.Action.Class == permissions.SecretRead)
+		p.forward(w, r, rt, headers, req.Action.AccessLevel == permissions.DataRead)
 		return nil
 	})
 	if !out.Forwarded {

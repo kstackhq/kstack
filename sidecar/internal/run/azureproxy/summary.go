@@ -38,7 +38,7 @@ func summary(method string, a armPath, v verdict, sub Subscription) string {
 		in = a.group
 	}
 	switch {
-	case v.class == permissions.SecretRead:
+	case v.level == permissions.DataRead:
 		return "Azure: read " + v.reads + " of " + a.resource() + " in " + in
 	case method == http.MethodDelete && a.isGroup():
 		return "Azure: delete resource group " + a.group + " in " + sub.Name

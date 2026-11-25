@@ -20,87 +20,116 @@ import { useMutation, useQuery } from 'urql';
 import type { CombinedError } from 'urql';
 
 import { graphql } from '@/gql';
-import type { PermissionClass, PermissionEffect, PermissionMode, PermissionSettingsQuery } from '@/gql/graphql';
+import type {
+  PermissionAccessLevel,
+  PermissionEffect,
+  PermissionMode,
+  PermissionPrincipal,
+  PermissionSettingsQuery,
+  PermissionTarget,
+} from '@/gql/graphql';
 import { refusalOf, savedUnread } from '@/lib/graphql/refusal';
 
 const PermissionSettingsDocument = graphql(`
   query PermissionSettings {
     permissionSettings {
-      defaultMode
-      clusters {
-        clusterID
-        mode
-        source
+      targets {
+        target
+        defaultMode
+        accounts {
+          account
+          name
+          clusterID
+          mode
+          source
+        }
       }
-      kubeRules {
+      rules {
         id
         effect
-        class
-        clusterID
-        namespace
-        verb
-        group
-        kind
+        accessLevel
+        principal
+        target
+        scope
+        service
+        operation
+        resource
         line
       }
-      destructive
+      alwaysAsks
+      accessControl
     }
   }
 `);
 
 const DefaultModeSetMutation = graphql(`
-  mutation PermissionDefaultModeSet($mode: PermissionMode!) {
-    permissionDefaultModeSet(mode: $mode) {
-      defaultMode
+  mutation PermissionDefaultModeSet($target: PermissionTarget!, $mode: PermissionMode!) {
+    permissionDefaultModeSet(target: $target, mode: $mode) {
+      alwaysAsks
     }
   }
 `);
 
 const ModeSetMutation = graphql(`
-  mutation PermissionModeSet($clusterID: ClusterID!, $mode: PermissionMode!) {
-    permissionModeSet(clusterID: $clusterID, mode: $mode) {
-      defaultMode
+  mutation PermissionModeSet($target: PermissionTarget!, $account: String!, $mode: PermissionMode!) {
+    permissionModeSet(target: $target, account: $account, mode: $mode) {
+      alwaysAsks
     }
   }
 `);
 
 const ModeClearMutation = graphql(`
-  mutation PermissionModeClear($clusterID: ClusterID!) {
-    permissionModeClear(clusterID: $clusterID) {
-      defaultMode
+  mutation PermissionModeClear($target: PermissionTarget!, $account: String!) {
+    permissionModeClear(target: $target, account: $account) {
+      alwaysAsks
     }
   }
 `);
 
-const KubeRuleAddMutation = graphql(`
-  mutation KubeRuleAdd($input: KubeRuleInput!) {
-    kubeRuleAdd(input: $input) {
-      defaultMode
+const RuleAddMutation = graphql(`
+  mutation PermissionRuleAdd($input: PermissionRuleInput!) {
+    permissionRuleAdd(input: $input) {
+      alwaysAsks
     }
   }
 `);
 
-const KubeRuleRemoveMutation = graphql(`
-  mutation KubeRuleRemove($id: String!) {
-    kubeRuleRemove(id: $id) {
-      defaultMode
+const RuleUpdateMutation = graphql(`
+  mutation PermissionRuleUpdate($id: String!, $input: PermissionRuleInput!) {
+    permissionRuleUpdate(id: $id, input: $input) {
+      alwaysAsks
+    }
+  }
+`);
+
+const RuleRemoveMutation = graphql(`
+  mutation PermissionRuleRemove($id: String!) {
+    permissionRuleRemove(id: $id) {
+      alwaysAsks
     }
   }
 `);
 
 export type PermissionSettingsValue = PermissionSettingsQuery['permissionSettings'];
 
-export type ClusterMode = PermissionSettingsValue['clusters'][number];
+export type TargetModes = PermissionSettingsValue['targets'][number];
+
+export type AccountMode = TargetModes['accounts'][number];
+
+export type Rule = PermissionSettingsValue['rules'][number];
 
 export type RuleInput = {
   effect: PermissionEffect;
-  class: PermissionClass;
-  /** The one cluster the rule applies to; null is every cluster, which only Deny and Ask may name. */
-  clusterID: string | null;
-  namespace: string;
-  verb: string;
-  group: string;
-  kind: string;
+  accessLevel: PermissionAccessLevel;
+  /** Null is every principal. */
+  principal: PermissionPrincipal | null;
+  /** Null is every target, which only Deny and Ask may name. */
+  target: PermissionTarget | null;
+  /** A path pattern whose first segment is the account (permission-pattern.ts). */
+  scope: string;
+  service: string;
+  operation: string;
+  resource: string;
 };
 
 export type PermissionSettings = {
@@ -112,11 +141,14 @@ export type PermissionSettings = {
   retry: () => void;
   /** The last mutation's refusal, until the next mutation. */
   error: string | null;
-  setDefaultMode: (mode: PermissionMode) => void;
-  setMode: (clusterID: string, mode: PermissionMode) => void;
-  clearMode: (clusterID: string) => void;
+  setDefaultMode: (target: PermissionTarget, mode: PermissionMode) => void;
+  /** Resolves to whether the sidecar took the mode. */
+  setMode: (target: PermissionTarget, account: string, mode: PermissionMode) => Promise<boolean>;
+  clearMode: (target: PermissionTarget, account: string) => void;
   /** Resolves to whether the sidecar took the rule. */
   addRule: (input: RuleInput) => Promise<boolean>;
+  /** Resolves to whether the sidecar took the edit. */
+  updateRule: (id: string, input: RuleInput) => Promise<boolean>;
   removeRule: (id: string) => void;
 };
 
@@ -137,8 +169,9 @@ export function usePermissionSettings(): PermissionSettings {
   const [, setDefaultMode] = useMutation(DefaultModeSetMutation);
   const [, setMode] = useMutation(ModeSetMutation);
   const [, clearMode] = useMutation(ModeClearMutation);
-  const [, addRule] = useMutation(KubeRuleAddMutation);
-  const [, removeRule] = useMutation(KubeRuleRemoveMutation);
+  const [, addRule] = useMutation(RuleAddMutation);
+  const [, updateRule] = useMutation(RuleUpdateMutation);
+  const [, removeRule] = useMutation(RuleRemoveMutation);
 
   const settings = data?.permissionSettings;
   const readError = refusalOf(queryError);
@@ -157,11 +190,12 @@ export function usePermissionSettings(): PermissionSettings {
       readError,
       retry: refresh,
       error,
-      setDefaultMode: (mode) => run(setDefaultMode({ mode })),
-      setMode: (clusterID, mode) => run(setMode({ clusterID, mode })),
-      clearMode: (clusterID) => run(clearMode({ clusterID })),
+      setDefaultMode: (target, mode) => run(setDefaultMode({ target, mode })),
+      setMode: (target, account, mode) => run(setMode({ target, account, mode })),
+      clearMode: (target, account) => run(clearMode({ target, account })),
       addRule: (input) => run(addRule({ input })),
+      updateRule: (id, input) => run(updateRule({ id, input })),
       removeRule: (id) => run(removeRule({ id })),
     };
-  }, [settings, readError, refresh, error, setDefaultMode, setMode, clearMode, addRule, removeRule]);
+  }, [settings, readError, refresh, error, setDefaultMode, setMode, clearMode, addRule, updateRule, removeRule]);
 }

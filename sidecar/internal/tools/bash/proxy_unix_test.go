@@ -241,13 +241,6 @@ func clusterRuntime(t *testing.T) tools.Runtime {
 	return tools.Runtime{ClusterID: "7", Dir: testChatDir(t), Session: askSession}
 }
 
-// askSession asks for every write, as a fresh Settings does.
-var askSession = session.Session{
-	Policy: func(context.Context, apimeta.ClusterID) permissions.Policy {
-		return permissions.Policy{Mode: permissions.Ask}
-	},
-}
-
 // watchLine opens a watch in a client that outlives the run's group, waits for
 // it to be open, and prints the run's directory.
 func watchLine() string {
@@ -494,9 +487,9 @@ func TestASandboxedRunReadsASecretRedacted(t *testing.T) {
 	assert.Equal(t, "note=[redacted]\n", text)
 
 	rt := clusterRuntime(t)
-	allow := permissions.GrantRule(permissions.Action{Class: permissions.SecretRead, Context: "prod", Namespace: "web"})
-	rt.Session.Policy = func(context.Context, apimeta.ClusterID) permissions.Policy {
-		return permissions.Policy{Mode: permissions.Ask, Rules: []permissions.Rule{allow}}
+	allow := permissions.GrantRule(permissions.Action{Target: permissions.Kubernetes, AccessLevel: permissions.DataRead, Scope: "7/web"})
+	rt.Session.Policy = func(context.Context, permissions.Target, string) permissions.Policy {
+		return permissions.Policy{Mode: permissions.ModeAsk, Rules: []permissions.Rule{allow}}
 	}
 	asker := &fakeActionAsker{}
 	rt.ActionAsker = asker
@@ -547,10 +540,10 @@ func TestTheGrantDecidesByTheRecordsCluster(t *testing.T) {
 	api := newFakeAPI(t)
 	tl := proxyTool(t, &fakeLease{serverUID: "uid-1", conn: api.connection()})
 	rt := clusterRuntime(t)
-	var clusters []apimeta.ClusterID
-	rt.Session.Policy = func(_ context.Context, c apimeta.ClusterID) permissions.Policy {
-		clusters = append(clusters, c)
-		return permissions.Policy{Mode: permissions.Auto}
+	var clusters []string
+	rt.Session.Policy = func(_ context.Context, target permissions.Target, account string) permissions.Policy {
+		clusters = append(clusters, string(target)+" "+account)
+		return permissions.Policy{Mode: permissions.ModeAuto}
 	}
 	asker := &fakeActionAsker{}
 	rt.ActionAsker = asker
@@ -558,7 +551,7 @@ func TestTheGrantDecidesByTheRecordsCluster(t *testing.T) {
 	text, isError := tl.Run(t.Context(), rt, command(clientLine("delete")))
 
 	require.False(t, isError, text)
-	assert.Equal(t, []apimeta.ClusterID{"7"}, clusters)
+	assert.Equal(t, []string{"kubernetes 7"}, clusters)
 	assert.Empty(t, asker.asked, "auto mode asks nobody")
 	require.Len(t, asker.recorded, 1)
 	assert.Equal(t, "/api/v1/namespaces/web/pods/x", asker.recorded[0].Path)

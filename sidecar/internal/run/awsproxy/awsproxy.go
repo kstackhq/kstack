@@ -121,12 +121,12 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if req.op.bucket != "" && !p.up.Buckets.owns(r.Context(), cred.region, req.op.bucket, p.listBuckets) {
 		// Its owner's log would record the read, so it asks.
 		req.foreign = true
-		if req.op.class == 0 {
-			req.op.class = permissions.UpstreamWrite
+		if req.op.level == permissions.Read {
+			req.op.level, req.op.once = permissions.Write, true
 		}
 	}
 
-	if req.op.class == 0 {
+	if req.op.level == permissions.Read {
 		release, status := p.grant.Slot(r.Context())
 		defer release()
 		if status != 0 {
@@ -136,10 +136,26 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p.forward(w, req)
 		return
 	}
-	out := p.grant.Decide(r.Context(), runproxy.Request{
-		Action: permissions.Action{Class: req.op.class, Summary: req.summary()},
-		Sent:   req.sent(),
-	}, func() error { p.forward(w, req); return nil })
+	// The decision reads the account the credentials carry. The forward reads
+	// them again, since a session can expire while the user decides, and sends
+	// nothing as another account.
+	creds, err := p.up.Identity.Credentials(r.Context())
+	if err != nil {
+		refuse(w, req, http.StatusForbidden, noLoginRefusal(err))
+		return
+	}
+	out := p.grant.Decide(r.Context(), runproxy.Request{Action: req.action(creds), Sent: req.sent()}, func() error {
+		fresh, err := p.up.Identity.Credentials(r.Context())
+		switch {
+		case err != nil:
+			refuse(w, req, http.StatusForbidden, noLoginRefusal(err))
+		case fresh.AccountID != creds.AccountID:
+			refuse(w, req, http.StatusForbidden, loginChanged)
+		default:
+			p.forwardAs(w, req, fresh)
+		}
+		return nil
+	})
 	if !out.Forwarded {
 		refuse(w, req, out.Status, out.Message)
 	}

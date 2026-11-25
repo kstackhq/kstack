@@ -95,21 +95,24 @@ func TestAReadOfAnotherAccountsBucketAsks(t *testing.T) {
 	for _, r := range []*http.Request{f.list("theirs"), f.request(http.MethodHead, "/theirs/data", "s3", "")} {
 		assert.Equal(t, http.StatusForbidden, f.serve(r).Code)
 		asked := testutil.Recv(t, f.asker.asked, "the request")
-		assert.Equal(t, permissions.UpstreamWrite, asked.Action.Class)
+		assert.Equal(t, permissions.Write, asked.Action.AccessLevel)
+		assert.Empty(t, asked.Action.Scope, "another account's bucket names no account of the login's")
 		assert.Contains(t, asked.Sent.Details, runproxy.Detail{Label: labelBucketOwner, Value: notThisLogin})
 	}
 	assert.Zero(t, f.lists(), "the list is kept for a minute")
 	f.none()
 }
 
-// A data read of another account's bucket asks as class 6, drawn as such.
+// A data read of another account's bucket asks as a data read, drawn as
+// such, with no account.
 func TestAForeignBucketsDataReadDrawsItsOwner(t *testing.T) {
 	f := newFixture(t)
 	f.listing(func() []string { return []string{"mine"} })
 	f.asker.approve = false
 	f.serve(f.request(http.MethodGet, "/theirs/key", "s3", ""))
 	asked := testutil.Recv(t, f.asker.asked, "the request")
-	assert.Equal(t, permissions.SecretRead, asked.Action.Class)
+	assert.Equal(t, permissions.DataRead, asked.Action.AccessLevel)
+	assert.Empty(t, asked.Action.Scope)
 	assert.Contains(t, asked.Sent.Details, runproxy.Detail{Label: labelBucketOwner, Value: notThisLogin})
 }
 
@@ -260,13 +263,16 @@ func TestADroppedLoginForgetsItsBuckets(t *testing.T) {
 	assert.Equal(t, 1, f.lists(), "the list is made again")
 }
 
-// With no login the list fails, so a bucket read asks.
-func TestABucketListWithNoLoginAsks(t *testing.T) {
+// With no login the bucket list owns nothing, so the read would ask; it is
+// answered as a forward with no login is, before anyone is asked, since its
+// account is read from the credentials it would be signed with.
+func TestABucketListWithNoLoginIsRefusedUnasked(t *testing.T) {
 	f := newFixture(t)
 	f.id.err = errors.New("no login")
-	f.asker.approve = false
-	assert.Equal(t, http.StatusForbidden, f.serve(f.list("mine")).Code)
-	testutil.Recv(t, f.asker.asked, "the request")
+	w := f.serve(f.list("mine"))
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Contains(t, w.Body.String(), noLogin)
+	assert.Empty(t, f.asker.asked)
 	f.none()
 }
 

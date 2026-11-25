@@ -20,6 +20,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/runproxy"
 )
 
@@ -44,6 +45,18 @@ const (
 	refusedRepeatedKey refusal = "kstack: this change repeats a key in one object, so it cannot be shown as it would be read. Run the command outside the sandbox."
 	refusedQuery       refusal = "kstack: this change's query does not parse, so it cannot be shown as it would be sent."
 )
+
+// classifyRefusal is the access level of what a refusal refuses, false for a
+// refusal of anything else. Exec, a tunnel, impersonation and a token reach
+// past the API server: the boundary never allows the reach level, and the
+// handler answers each before any queue.
+func classifyRefusal(why refusal) (permissions.AccessLevel, bool) {
+	switch why {
+	case refusedReach, refusedToken:
+		return permissions.Reach, true
+	}
+	return "", false
+}
 
 // reachSubresources are the subresources that reach past the API server: into
 // a container, or through it to a pod, a service or a node.

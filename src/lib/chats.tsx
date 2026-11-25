@@ -250,12 +250,15 @@ const ChatMessageCollectionWatchDocument = graphql(`
             action {
               target
               summary
-              class
-              context
-              namespace
-              verb
-              group
-              kind
+              accessLevel
+              principal
+              scope
+              accountName
+              service
+              operation
+              resource
+              name
+              once
               grantable
               commandRule
               chatRule
@@ -352,7 +355,7 @@ export type PermissionTarget = NonNullable<ChatSandboxAction['action']>['target'
 
 /** A cloud platform's name in the user's words. */
 export const CLOUD_PLATFORM_NAMES: Record<PermissionTarget, string> = {
-  Cluster: 'Cluster',
+  Kubernetes: 'Kubernetes',
   AWS: 'AWS',
   GitHub: 'GitHub',
   GCP: 'Google Cloud',

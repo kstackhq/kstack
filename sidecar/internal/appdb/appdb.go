@@ -123,7 +123,7 @@ const (
 	// KeyMemories: a memories row was inserted, rewritten or removed by a write of
 	// the memory service. A cascade from a clusters delete notifies KeyClusters alone.
 	KeyMemories = "memories"
-	// KeyPermissions: an approval mode's settings row, or a kube_rules or
+	// KeyPermissions: a permission_modes row, or a permission_rules or
 	// folder_grants row whose chat_id is NULL, was written by the settings store.
 	KeyPermissions = "permissions"
 	// KeyExecutables: an executables row was registered or removed by the
@@ -138,7 +138,7 @@ const (
 // MessagesKey: the chat's message rows changed. Re-read and diff.
 func MessagesKey(chatID string) string { return "messages/" + chatID }
 
-// GrantsKey: the chat's kube_rules or folder_grants rows changed: a grant
+// GrantsKey: the chat's permission_rules or folder_grants rows changed: a grant
 // written or revoked. A cascade from a chat's delete notifies nothing here.
 func GrantsKey(chatID string) string { return "grants/" + chatID }
 

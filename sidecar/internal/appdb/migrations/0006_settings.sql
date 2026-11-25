@@ -26,41 +26,50 @@ CREATE TABLE settings (
 
 CREATE UNIQUE INDEX settings_scope_key ON settings (ifnull(cluster_id, ''), key);
 
--- kube_rules: the user's rules over cluster actions, each a permissions.Rule.
--- chat_id NULL is an always rule; set, the rule lasts for that chat and goes
--- with it. cluster_id NULL is a rule for every cluster; set, the rule goes
--- with its cluster. '' in a matching column matches anything.
-CREATE TABLE kube_rules (
-  id         TEXT    PRIMARY KEY CHECK (id NOT IN ('', 'refused', 'refused-secrets')),
-  chat_id    TEXT    REFERENCES chats(id) ON DELETE CASCADE,
-  effect     TEXT    NOT NULL CHECK (effect IN ('allow', 'deny', 'ask')),
-  class      TEXT    NOT NULL CHECK (class IN ('upstream-write', 'destructive', 'secret-read')),
-  cluster_id TEXT    REFERENCES clusters(id) ON DELETE CASCADE,
-  namespace  TEXT    NOT NULL DEFAULT '',
-  verb       TEXT    NOT NULL DEFAULT '',
-  api_group  TEXT    NOT NULL DEFAULT '',
-  kind       TEXT    NOT NULL DEFAULT '',
-  inside     INTEGER NOT NULL DEFAULT 0 CHECK (inside IN (0, 1)),
-  created_at INTEGER NOT NULL,
-  -- A destructive write always asks.
-  CHECK (NOT (effect = 'allow' AND class = 'destructive')),
-  -- A rule for every cluster may only restrict.
-  CHECK (cluster_id IS NOT NULL OR effect <> 'allow'),
-  -- A Secret read rule names what a Secret read is classified with.
-  CHECK (class <> 'secret-read' OR (
-    inside = 0
-    AND namespace <> '[cluster]'
-    AND verb IN ('', 'get', 'list', 'watch')
-    AND api_group IN ('', 'core')
-    AND kind IN ('', 'secrets')
-  ))
+-- permission_rules: the user's rules over the actions sandboxed commands
+-- send, each a permissions.Rule. chat_id NULL is an always rule; set, the
+-- rule lasts for that chat and goes with it. No effect, level, principal or
+-- target is enumerated here: settings.CheckRule refuses on write what Go
+-- cannot apply, and a read turns a row it cannot read into a refusal.
+CREATE TABLE permission_rules (
+  id           TEXT    PRIMARY KEY CHECK (id <> ''),
+  chat_id      TEXT    REFERENCES chats(id) ON DELETE CASCADE,
+  effect       TEXT    NOT NULL,
+  access_level TEXT    NOT NULL,
+  principal    TEXT    NOT NULL,
+  target       TEXT    NOT NULL,
+  scope        TEXT    NOT NULL,
+  service      TEXT    NOT NULL,
+  operation    TEXT    NOT NULL,
+  resource     TEXT    NOT NULL,
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL
 ) STRICT;
 
 -- A chat's rules, or the always ones, in the order they are read.
-CREATE INDEX kube_rules_chat_idx ON kube_rules (chat_id, created_at, id);
+CREATE INDEX permission_rules_chat_idx ON permission_rules (chat_id, created_at, id);
 
--- A cluster's rules, which go with it.
-CREATE INDEX kube_rules_cluster_idx ON kube_rules (cluster_id);
+-- permission_modes: an account's mode, by target. account is the account a
+-- scope's first segment names, or '*' for the target's default. A cloud
+-- account has no record, so its row stays until the user removes it.
+CREATE TABLE permission_modes (
+  target     TEXT    NOT NULL,
+  account    TEXT    NOT NULL,
+  mode       TEXT    NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (target, account)
+) STRICT;
+
+-- A cluster's mode and rules go with it: the rules whose scope is the
+-- cluster's id or starts with it and a '/'. substr, never LIKE, which reads
+-- '_' and '%' in an id as wildcards.
+CREATE TRIGGER clusters_permissions_delete AFTER DELETE ON clusters
+BEGIN
+  DELETE FROM permission_modes WHERE target = 'kubernetes' AND account = OLD.id;
+  DELETE FROM permission_rules WHERE target = 'kubernetes'
+    AND (scope = OLD.id OR substr(scope, 1, length(OLD.id) + 1) = OLD.id || '/');
+END;
 
 -- folder_grants: a folder the sandbox opens to a run. chat_id NULL is an always
 -- grant; set, the grant lasts for that chat and goes with it.

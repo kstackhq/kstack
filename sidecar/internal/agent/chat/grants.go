@@ -22,19 +22,18 @@ import (
 	"slices"
 
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
-	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 )
 
-// chatRules is the Kubernetes rules that last for chatID's life, read on
-// every decision and never cached, so one written while a command runs
-// applies to its next write. A read that fails may have hidden a Deny, so it
-// reads as permissions.Unread: the chat's cluster writes and Secret reads are
-// refused until a read succeeds.
+// chatRules is the rules that last for chatID's life, read on every decision
+// and never cached, so one written while a command runs applies to its next
+// request. A read that fails may have hidden a deny, so it reads as
+// permissions.Unread: the chat's writes and data reads are refused until a
+// read succeeds.
 func (s *service) chatRules(ctx context.Context, chatID ChatID) []permissions.Rule {
-	rules, err := readKubeRules(ctx, s.store.Stmts(), chatID)
+	rules, err := readRules(ctx, s.store.Stmts(), chatID)
 	if err != nil {
 		slog.Warn("chat rules not read", "chat", chatID, "err", err)
 		return permissions.Unread()
@@ -45,7 +44,7 @@ func (s *service) chatRules(ctx context.Context, chatID ChatID) []permissions.Ru
 // alwaysRules is the always rules for a decision: permissions.Unread when
 // their read fails.
 func (s *service) alwaysRules(ctx context.Context) []permissions.Rule {
-	rules, err := s.settings.KubeRules(ctx)
+	rules, err := s.settings.Rules(ctx)
 	if err != nil {
 		slog.Warn("always rules not read", "err", err)
 		return permissions.Unread()
@@ -53,23 +52,24 @@ func (s *service) alwaysRules(ctx context.Context) []permissions.Rule {
 	return rules
 }
 
-// modeFor is cluster's mode for a decision: read-only when its read fails.
-func (s *service) modeFor(ctx context.Context, cluster apimeta.ClusterID) permissions.Mode {
-	st, err := s.settings.ModeFor(ctx, cluster)
+// modeFor is the mode of target's account for a decision: read-only when its
+// read fails.
+func (s *service) modeFor(ctx context.Context, target permissions.Target, account string) permissions.Mode {
+	st, err := s.settings.ModeFor(ctx, target, account)
 	if err != nil {
-		slog.Warn("approval mode not read", "cluster", cluster, "err", err)
-		return permissions.ReadOnly
+		slog.Warn("approval mode not read", "target", target, "err", err)
+		return permissions.ModeReadOnly
 	}
 	return st.Mode
 }
 
-// readKubeRules is chatID's Kubernetes rules in the order written.
-func readKubeRules(ctx context.Context, st stmts, chatID ChatID) ([]permissions.Rule, error) {
-	rows, err := st.Query(ctx, stmtSelectChatKubeRules, string(chatID))
+// readRules is chatID's rules in the order written.
+func readRules(ctx context.Context, st stmts, chatID ChatID) ([]permissions.Rule, error) {
+	rows, err := st.Query(ctx, stmtSelectChatRules, string(chatID))
 	if err != nil {
 		return nil, err
 	}
-	return settings.KubeRules(rows)
+	return settings.ScanRules(rows)
 }
 
 // readFolderGrants is chatID's folder grants in the order written, unchecked.
@@ -85,18 +85,18 @@ func readFolderGrants(ctx context.Context, st stmts, chatID ChatID) ([]settings.
 // grant the settings, do not hold.
 var ErrGrantGone = errors.New("chat: no grant has this id")
 
-// ChatKubeRules is chatID's Kubernetes rules, each as Settings spells a rule;
-// none for a chat that is gone.
-func (s *service) ChatKubeRules(ctx context.Context, chatID ChatID) ([]permissions.Rule, error) {
-	return readKubeRules(ctx, s.store.Stmts(), chatID)
+// ChatRules is chatID's rules, each as Settings spells a rule; none for a chat
+// that is gone.
+func (s *service) ChatRules(ctx context.Context, chatID ChatID) ([]permissions.Rule, error) {
+	return readRules(ctx, s.store.Stmts(), chatID)
 }
 
-// addKubeRule writes rule as one of chatID's under a fresh id, and answers it
-// as written, unless the chat holds the same rule already, which it answers
+// addRule writes rule as one of chatID's under a fresh id, and answers it as
+// written, unless the chat holds the same rule already, which it answers
 // instead, unwritten and with no ping: a settings.RuleRefusal for a rule
 // Kstack cannot apply. The lookup and the write are one transaction.
-func (s *service) addKubeRule(ctx context.Context, chatID ChatID, rule permissions.Rule) (permissions.Rule, error) {
-	if err := settings.CheckKubeRule(rule); err != nil {
+func (s *service) addRule(ctx context.Context, chatID ChatID, rule permissions.Rule) (permissions.Rule, error) {
+	if err := settings.CheckRule(rule); err != nil {
 		return permissions.Rule{}, err
 	}
 	written := false
@@ -104,7 +104,7 @@ func (s *service) addKubeRule(ctx context.Context, chatID ChatID, rule permissio
 		if err := requireChat(ctx, st, chatID); err != nil {
 			return err
 		}
-		held, err := readKubeRules(ctx, st, chatID)
+		held, err := readRules(ctx, st, chatID)
 		if err != nil {
 			return err
 		}
@@ -113,8 +113,9 @@ func (s *service) addKubeRule(ctx context.Context, chatID ChatID, rule permissio
 			return nil
 		}
 		rule.ID = appdb.NewID()
-		args := append(settings.KubeRuleValues(rule), string(chatID), millis(normalizeTime(s.now())))
-		_, err = st.Exec(ctx, stmtInsertChatKubeRule, args...)
+		now := millis(normalizeTime(s.now()))
+		args := append(settings.RuleValues(rule), string(chatID), now, now)
+		_, err = st.Exec(ctx, stmtInsertChatRule, args...)
 		written = err == nil
 		return err
 	})
@@ -127,17 +128,17 @@ func (s *service) addKubeRule(ctx context.Context, chatID ChatID, rule permissio
 	return rule, nil
 }
 
-// RemoveChatKubeRule removes chatID's Kubernetes rule id, and answers the
-// rules left: ErrChatGone for a chat that is gone, ErrGrantGone for an id it
-// does not hold.
-func (s *service) RemoveChatKubeRule(ctx context.Context, chatID ChatID, id string) ([]permissions.Rule, error) {
+// RemoveChatRule removes chatID's rule id, and answers the rules left:
+// ErrChatGone for a chat that is gone, ErrGrantGone for an id it does not
+// hold.
+func (s *service) RemoveChatRule(ctx context.Context, chatID ChatID, id string) ([]permissions.Rule, error) {
 	var left []permissions.Rule
 	err := s.store.InTx(ctx, func(st stmts) error {
-		if err := deleteChatRow(ctx, st, stmtDeleteChatKubeRule, chatID, id); err != nil {
+		if err := deleteChatRow(ctx, st, stmtDeleteChatRule, chatID, id); err != nil {
 			return err
 		}
 		var err error
-		left, err = readKubeRules(ctx, st, chatID)
+		left, err = readRules(ctx, st, chatID)
 		return err
 	})
 	if err != nil {
@@ -334,9 +335,9 @@ func (s *service) RevokeFolder(ctx context.Context, chatID ChatID, id string) er
 	return nil
 }
 
-// sessionFor is a chat's session: its policy read live on every write, so a
-// mode or rule changed in Settings applies to the next one, a running turn's
-// and a running subagent's included. The mode is the action's cluster's; the
+// sessionFor is a chat's session: its policy read live on every decision, so
+// a mode or rule changed in Settings applies to the next one, a running turn's
+// and a running subagent's included. The mode is the action's account's; the
 // chat's rules come before the always rules. Its network is the chat's switch,
 // read at each command the same way, else the turn's toggle. Its folders are
 // read live too, and none applies outside the sandbox.
@@ -349,9 +350,9 @@ func (s *service) sessionFor(chatID ChatID, outside, networkThisTurn bool) sessi
 		Kind:    session.Chat,
 		Outside: outside,
 		Folders: folders,
-		Policy: func(ctx context.Context, cluster apimeta.ClusterID) permissions.Policy {
+		Policy: func(ctx context.Context, target permissions.Target, account string) permissions.Policy {
 			return permissions.Policy{
-				Mode:  s.modeFor(ctx, cluster),
+				Mode:  s.modeFor(ctx, target, account),
 				Rules: append(s.chatRules(ctx, chatID), s.alwaysRules(ctx)...),
 			}
 		},
@@ -368,10 +369,11 @@ func (s *service) sessionFor(chatID ChatID, outside, networkThisTurn bool) sessi
 }
 
 // monitorSession is the monitor's session: it reads the cluster through the
-// proxy and nothing else. Every field it leaves zero is read by something: no
-// Policy is read-only at the proxy, no Network is none, no Folders is none.
+// proxy and nothing else, which its kind's row of the boundary holds it to.
+// Every field it leaves zero is read by something: no Policy is read-only at
+// the proxy, no Network is none, no Folders is none.
 func monitorSession() session.Session {
-	return session.Session{Kind: session.Monitor, NoPrompts: true, NoSecretData: true}
+	return session.Session{Kind: session.Monitor}
 }
 
 // networkEnabled is the chat's network switch as stored now. A read that

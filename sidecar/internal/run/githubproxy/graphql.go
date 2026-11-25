@@ -26,7 +26,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 )
 
-// destructiveMutations are the mutations that are class 5.
+// destructiveMutations are the mutations that are destructive.
 var destructiveMutations = []string{"deleteRef"}
 
 // graphQL is what the proxy reads of a GraphQL request.
@@ -35,15 +35,19 @@ type graphQL struct {
 	operation string   // operationName, as sent
 }
 
-// class is the request's class: a read with no mutation, else a change.
-func (g graphQL) class() permissions.Class {
+// action is the request's action: a read with no mutation, else a change.
+// It names no scope, since a mutation names its objects in its body, and no
+// mutation is on ordinary, so each asks each time.
+func (g graphQL) action() permissions.Action {
+	act := permissions.Action{Service: "graphql", Operation: "query", Resource: "graphql", AccessLevel: permissions.Read}
 	switch {
 	case len(g.mutations) == 0:
-		return 0
 	case slices.ContainsFunc(g.mutations, func(f string) bool { return slices.Contains(destructiveMutations, f) }):
-		return permissions.Destructive
+		act.Operation, act.AccessLevel = "mutation", permissions.Destructive
+	default:
+		act.Operation, act.AccessLevel, act.Once = "mutation", permissions.Write, true
 	}
-	return permissions.UpstreamWrite
+	return act
 }
 
 // readGraphQL reads body as GitHub would, or refuses it: one JSON object, no

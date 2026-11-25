@@ -748,12 +748,12 @@ function SandboxActionLines({ call }: { call: ChatToolCall }) {
       {settled.map((a) => {
         const cluster = clusterRequestOf(a);
         const cloud = cloudRequestOf(a);
-        const target = a.action?.target ?? 'Cluster';
+        const target = a.action?.target ?? 'Kubernetes';
         let line = a.action?.summary ?? '';
         if (cluster) line = `${cluster.method} ${cluster.path}`;
         if (cloud) line = `${cloud.method} ${cloud.host}${cloud.path}`;
         const tag =
-          target === 'Cluster' ? sandboxActionTag(a) : `${CLOUD_PLATFORM_NAMES[target]} · ${sandboxActionTag(a)}`;
+          target === 'Kubernetes' ? sandboxActionTag(a) : `${CLOUD_PLATFORM_NAMES[target]} · ${sandboxActionTag(a)}`;
         return (
           <li key={a.approval.id}>
             <span className="font-mono break-all">
@@ -823,8 +823,9 @@ const DURATION_WORDS: Record<ApprovalDuration, string> = {
  */
 function sandboxActionLabel(action: ChatSandboxAction['action']): string {
   if (action === null) return 'Request awaiting approval';
-  const reads = action.class === 'SecretRead';
-  if (action.target === 'Cluster') return reads ? 'Secret read awaiting approval' : 'Cluster change awaiting approval';
+  const reads = action.accessLevel === 'DataRead';
+  if (action.target === 'Kubernetes')
+    return reads ? 'Secret read awaiting approval' : 'Cluster change awaiting approval';
   const platform = CLOUD_PLATFORM_NAMES[action.target];
   return reads ? `${platform} data read awaiting approval` : `${platform} change awaiting approval`;
 }
@@ -1344,7 +1345,7 @@ function ApprovalRequest({
             {change ? 'Approve once' : 'Approve'}
           </Button>
         )}
-        {drawn && change?.action?.grantable && change.action.target === 'Cluster' && (
+        {drawn && change?.action?.grantable && (
           <>
             <AllowAnswer
               label="Allow for this command"

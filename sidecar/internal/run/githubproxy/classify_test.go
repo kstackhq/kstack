@@ -16,11 +16,13 @@ package githubproxy
 
 import (
 	"net/http"
-	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 )
 
 // byID is path with its /repos/o/r or /orgs/o written by id, as GitHub
@@ -36,16 +38,13 @@ func byID(path string) string {
 }
 
 // classified is what classifyAPI makes of method and path, with accept, in
-// one word: refused, read, or the number of the class it asks in.
+// one word: refused, or the access level.
 func classified(method, path, accept string) string {
 	v := classifyAPI(method, path, accept)
-	switch {
-	case v.refusal != "":
+	if v.refusal != "" {
 		return "refused"
-	case v.class == 0:
-		return "read"
 	}
-	return strconv.Itoa(int(v.class))
+	return string(v.act.AccessLevel)
 }
 
 func TestEveryRequestIsClassified(t *testing.T) {
@@ -56,14 +55,14 @@ func TestEveryRequestIsClassified(t *testing.T) {
 		{http.MethodGet, "/repos/o/r/contents/README.md", "", "read"},
 		{http.MethodGet, "/repos/o/r/actions/secrets", "", "read"},
 		{http.MethodGet, "/repos/o/r/releases/assets/9", "application/json", "read"},
-		{http.MethodGet, "/repos/o/r/releases/assets/9", "application/octet-stream", "6"},
-		{http.MethodGet, "/repos/o/r/actions/runs/1/logs", "", "6"},
-		{http.MethodPost, "/repos/o/r/issues", "", "4"},
-		{http.MethodPut, "/repos/o/r/contents/a", "", "4"},
-		{http.MethodPatch, "/repos/o/r", "", "4"},
-		{http.MethodDelete, "/repos/o/r/issues/comments/1", "", "4"},
-		{http.MethodDelete, "/repos/o/r", "", "5"},
-		{http.MethodDelete, "/repos/o/r/git/refs/heads/main", "", "5"},
+		{http.MethodGet, "/repos/o/r/releases/assets/9", "application/octet-stream", "data-read"},
+		{http.MethodGet, "/repos/o/r/actions/runs/1/logs", "", "data-read"},
+		{http.MethodPost, "/repos/o/r/issues", "", "write"},
+		{http.MethodPut, "/repos/o/r/contents/a", "", "write"},
+		{http.MethodPatch, "/repos/o/r", "", "write"},
+		{http.MethodDelete, "/repos/o/r/issues/comments/1", "", "write"},
+		{http.MethodDelete, "/repos/o/r", "", "destructive"},
+		{http.MethodDelete, "/repos/o/r/git/refs/heads/main", "", "destructive"},
 		{http.MethodOptions, "/user", "", "refused"},
 		{"PROPFIND", "/user", "", "refused"},
 		{http.MethodPost, "/app/installations/1/access_tokens", "", "refused"},
@@ -129,10 +128,10 @@ func TestAPathIsMatchedInAnyCase(t *testing.T) {
 	t.Parallel()
 	assert.Equal(t, "refused", classified(http.MethodPost, "/repos/o/r/actions/runners/Registration-Token", ""))
 	assert.Equal(t, "refused", classified(http.MethodGet, "/COPILOT_INTERNAL/v2/token", ""))
-	assert.Equal(t, "6", classified(http.MethodGet, "/repos/o/r/Hooks/1/config", ""))
-	assert.Equal(t, "6", classified(http.MethodGet, "/REPOS/o/r/actions/Variables", ""))
-	assert.Equal(t, "5", classified(http.MethodDelete, "/Repos/o/r", ""))
-	assert.Equal(t, "6", classified(http.MethodGet, "/repos/o/r/releases/assets/9", "Application/Octet-Stream"), "the media type in any case")
+	assert.Equal(t, "data-read", classified(http.MethodGet, "/repos/o/r/Hooks/1/config", ""))
+	assert.Equal(t, "data-read", classified(http.MethodGet, "/REPOS/o/r/actions/Variables", ""))
+	assert.Equal(t, "destructive", classified(http.MethodDelete, "/Repos/o/r", ""))
+	assert.Equal(t, "data-read", classified(http.MethodGet, "/repos/o/r/releases/assets/9", "Application/Octet-Stream"), "the media type in any case")
 }
 
 func TestADataPathAsks(t *testing.T) {
@@ -166,15 +165,15 @@ func TestADataPathAsks(t *testing.T) {
 				continue
 			}
 			for _, method := range []string{http.MethodGet, http.MethodHead} {
-				assert.Equal(t, "6", classified(method, p, ""), "%s %s", method, p)
+				assert.Equal(t, "data-read", classified(method, p, ""), "%s %s", method, p)
 			}
 		}
 	}
 	assert.Equal(t, "read", classified(http.MethodGet, "/repos/o/r/releases/assets/9", ""), "an asset's metadata")
-	assert.Equal(t, "6", classified(http.MethodGet, "/repos/o/r/releases/assets/9", "application/octet-stream"))
-	assert.Equal(t, "6", classified(http.MethodGet, byID("/repos/o/r/releases/assets/9"), "application/octet-stream"))
+	assert.Equal(t, "data-read", classified(http.MethodGet, "/repos/o/r/releases/assets/9", "application/octet-stream"))
+	assert.Equal(t, "data-read", classified(http.MethodGet, byID("/repos/o/r/releases/assets/9"), "application/octet-stream"))
 	assert.Equal(t, "read", classified(http.MethodGet, "/repos/o/r/actions/runs/1", ""), "a run's metadata")
-	assert.Equal(t, "4", classified(http.MethodPost, "/repos/o/r/hooks", ""), "a change asks as a change")
+	assert.Equal(t, "access-control", classified(http.MethodPost, "/repos/o/r/hooks", ""), "a change to a hook is who sees every request")
 }
 
 func TestOnlyGitsSmartProtocolIsAGitRoute(t *testing.T) {
@@ -213,4 +212,192 @@ func TestOnlyGitsSmartProtocolIsAGitRoute(t *testing.T) {
 		_, _, ok := classifyGit(c.method, c.path, c.query)
 		assert.False(t, ok, "%s %s?%s", c.method, c.path, c.query)
 	}
+}
+
+func TestEveryFieldIsFilled(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		method, path                          string
+		level                                 permissions.AccessLevel
+		scope, account, service, op, resource string
+		once                                  bool
+	}{
+		{http.MethodPost, "/repos/o/r/issues", permissions.Write, "o/r", "o", "api", "post", "issues", false},
+		{http.MethodPatch, "/repos/o/r/pulls/3", permissions.Write, "o/r", "o", "api", "patch", "pulls", false},
+		{http.MethodPut, "/repos/o/r/contents/a", permissions.Write, "o/r", "o", "api", "put", "contents", true},
+		{http.MethodPatch, "/repos/o/r", permissions.Write, "o/r", "o", "api", "patch", "repos", true},
+		{http.MethodDelete, "/repos/o/r", permissions.Destructive, "o/r", "o", "api", "delete", "repos", false},
+		{http.MethodDelete, "/repos/o/r/git/refs/heads/main", permissions.Destructive, "o/r", "o", "api", "delete", "git", false},
+		{http.MethodGet, "/repos/o/r/actions/runs/1/logs", permissions.DataRead, "o/r", "o", "api", "get", "actions", false},
+		{http.MethodPut, "/orgs/o/memberships/u", permissions.AccessControl, "o", "o", "api", "put", "orgs", false},
+		{http.MethodPost, "/user/keys", permissions.AccessControl, "", "", "api", "post", "user", false},
+		{http.MethodPost, "/gists", permissions.Write, "", "", "api", "post", "gists", true},
+		{http.MethodPut, "/user/starred/o/r", permissions.Write, "", "", "api", "put", "user", true},
+	} {
+		v := classifyAPI(c.method, c.path, "")
+		want := permissions.Action{
+			Scope: c.scope, AccountName: c.account, Service: c.service, Operation: c.op, Resource: c.resource,
+			AccessLevel: c.level, Once: c.once,
+		}
+		assert.Empty(t, v.refusal, "%s %s", c.method, c.path)
+		assert.Equal(t, want, v.act, "%s %s", c.method, c.path)
+	}
+	act := gitAction("O/R", push{})
+	assert.Equal(t, permissions.Action{
+		Scope: "o/r", AccountName: "o", Service: "git", Operation: "push", Resource: "git-receive-pack",
+		AccessLevel: permissions.Write, Once: true,
+	}, act)
+	g, ok := readGraphQL([]byte(`{"query":"mutation { addStar(input: {}) { clientMutationId } }"}`))
+	require.True(t, ok)
+	assert.Equal(t, permissions.Action{
+		Service: "graphql", Operation: "mutation", Resource: "graphql", AccessLevel: permissions.Write, Once: true,
+	}, g.action())
+}
+
+func TestAScopeIsLowerCase(t *testing.T) {
+	t.Parallel()
+	v := classifyAPI(http.MethodPost, "/repos/KStackHQ/KStack/issues", "")
+	assert.Equal(t, "kstackhq/kstack", v.act.Scope)
+	assert.Equal(t, "kstackhq", v.act.AccountName)
+	v = classifyAPI(http.MethodPut, "/orgs/KStackHQ/members/u", "")
+	assert.Equal(t, "kstackhq", v.act.Scope)
+	assert.Equal(t, "kstackhq/kstack", gitAction("KStackHQ/KStack", push{}).Scope)
+}
+
+func TestAnAliasedOrForeignScopeIsEmpty(t *testing.T) {
+	t.Parallel()
+	for _, path := range []string{
+		"/repositories/42/issues",
+		"/organizations/7/members/u",
+		"/user/repos",
+		"/gists",
+		"/enterprises/e/actions/permissions",
+		"/repos/o",
+	} {
+		v := classifyAPI(http.MethodPost, path, "")
+		assert.Empty(t, v.act.Scope, path)
+		assert.Empty(t, v.act.AccountName, path)
+	}
+	g, ok := readGraphQL([]byte(`{"query":"mutation { addStar(input: {starrableId: \"x\"}) { clientMutationId } }"}`))
+	require.True(t, ok)
+	assert.Empty(t, g.action().Scope, "GraphQL names its objects in its body")
+}
+
+func TestAccessControlChanges(t *testing.T) {
+	t.Parallel()
+	var paths []string
+	for _, under := range []string{
+		"collaborators/u", "outside_collaborators/u", "teams/t", "members/u", "memberships/u", "invitations/1",
+		"keys", "hooks/1", "rulesets/2", "environments/prod", "organization-roles/3", "security-managers/teams/t",
+		"actions/permissions", "actions/permissions/workflow",
+	} {
+		paths = append(paths, "/repos/o/r/"+under, "/orgs/o/"+under)
+	}
+	paths = append(paths, "/repos/o/r/branches/main/protection", "/repos/o/r/branches/main/protection/required_status_checks",
+		"/user/keys", "/user/keys/1", "/user/gpg_keys", "/user/ssh_signing_keys/2")
+	for _, path := range paths {
+		for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
+			assert.Equal(t, "access-control", classified(method, path, ""), "%s %s", method, path)
+		}
+		if p := byID(path); p != "" {
+			assert.Equal(t, "access-control", classified(http.MethodPut, p, ""), p)
+		}
+	}
+	assert.Equal(t, "read", classified(http.MethodGet, "/orgs/o/members", ""), "a read is a read")
+	assert.Equal(t, "data-read", classified(http.MethodGet, "/repos/o/r/hooks/1/config", ""))
+	v := classifyAPI(http.MethodPut, "/repos/o/r/collaborators/u", "")
+	assert.False(t, v.act.Confined, "no GitHub access control change is confined")
+}
+
+// ordinaryCases are every change the ordinary table names, one row each.
+var ordinaryCases = []struct{ method, path string }{
+	{http.MethodPost, "/repos/o/r/issues"},
+	{http.MethodPost, "/repos/o/r/issues/1/comments"},
+	{http.MethodPost, "/repos/o/r/issues/1/labels"},
+	{http.MethodPost, "/repos/o/r/pulls"},
+	{http.MethodPost, "/repos/o/r/pulls/2/comments"},
+	{http.MethodPatch, "/repos/o/r/issues/1"},
+	{http.MethodPatch, "/repos/o/r/pulls/2"},
+}
+
+func TestOrdinaryIsExactlyTheTable(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, []ordinaryRow{
+		{http.MethodPost, "/repos/*/*/issues"},
+		{http.MethodPost, "/repos/*/*/issues/*/comments"},
+		{http.MethodPost, "/repos/*/*/issues/*/labels"},
+		{http.MethodPost, "/repos/*/*/pulls"},
+		{http.MethodPost, "/repos/*/*/pulls/*/comments"},
+		{http.MethodPatch, "/repos/*/*/issues/*"},
+		{http.MethodPatch, "/repos/*/*/pulls/*"},
+	}, ordinary)
+	for _, c := range ordinaryCases {
+		v := classifyAPI(c.method, c.path, "")
+		assert.Equal(t, permissions.Write, v.act.AccessLevel, c.path)
+		assert.False(t, v.act.Once, "%s %s", c.method, c.path)
+	}
+}
+
+func TestAChangeOffTheOrdinaryTableAsksOnce(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct{ method, path string }{
+		{http.MethodPost, "/repos/o/r/transfer"},
+		{http.MethodPost, "/repos/o/r/pulls/2/reviews"},
+		{http.MethodPut, "/repos/o/r/pulls/2/merge"},
+		{http.MethodPost, "/repos/o/r/issues/1/comments/2/reactions"},
+		{http.MethodPut, "/repos/o/r/issues/1"},
+		{http.MethodPatch, "/repos/o/r/issues"},
+		{http.MethodPost, "/repos/o/r/dispatches"},
+		{http.MethodPost, "/repositories/42/issues"},
+		{http.MethodPost, "/repos/o/r/actions/workflows/1/dispatches"},
+	} {
+		v := classifyAPI(c.method, c.path, "")
+		assert.True(t, v.act.Once, "%s %s", c.method, c.path)
+	}
+	assert.True(t, gitAction("o/r", push{}).Once, "a push")
+	g, ok := readGraphQL([]byte(`{"query":"mutation { addComment(input: {}) { clientMutationId } }"}`))
+	require.True(t, ok)
+	assert.True(t, g.action().Once, "a GraphQL mutation")
+}
+
+func TestEachCredentialRefusalIsReach(t *testing.T) {
+	t.Parallel()
+	for _, path := range []string{"/app/installations/1/access_tokens", "/repos/o/r/actions/runners/registration-token", "/copilot_internal/v2/token"} {
+		v := classifyAPI(http.MethodPost, path, "")
+		assert.Equal(t, refusedCredential, v.refusal, path)
+		assert.Equal(t, permissions.Reach, v.act.AccessLevel, path)
+		act := v.act
+		act.Principal, act.Target = permissions.Chat, permissions.GitHub
+		allow := permissions.Rule{Effect: permissions.Allow, AccessLevel: permissions.Reach, Principal: "*", Target: "*", Scope: "*", Service: "*", Operation: "*", Resource: "*"}
+		got, _ := permissions.Policy{Mode: permissions.ModeAuto, Rules: []permissions.Rule{allow}}.Authorize(act)
+		assert.Equal(t, permissions.Deny, got.Effect, path)
+	}
+	v := classifyAPI(http.MethodOptions, "/user", "")
+	assert.Equal(t, refusedMethod, v.refusal)
+	assert.Empty(t, v.act.AccessLevel, "a refusal for any other reason has no level")
+}
+
+func TestAReadIsClassifiedAsToday(t *testing.T) {
+	t.Parallel()
+	for _, path := range []string{"/user", "/repos/o/r/contents/README.md", "/repositories/42", "/orgs/o/members", "/repos/o/r/actions/runs/1"} {
+		assert.Equal(t, "read", classified(http.MethodGet, path, ""), path)
+	}
+	g, ok := readGraphQL([]byte(`{"query":"query { viewer { login } }"}`))
+	require.True(t, ok)
+	assert.Equal(t, permissions.Read, g.action().AccessLevel)
+}
+
+func TestAnUnnamedOperationAsksOnceAndIsNotGranted(t *testing.T) {
+	t.Parallel()
+	v := classifyAPI(http.MethodPost, "/repos/o/r/transfer", "")
+	act := v.act
+	act.Principal, act.Target = permissions.Chat, permissions.GitHub
+	for _, mode := range []permissions.Mode{permissions.ModeAsk, permissions.ModeAuto} {
+		for _, rules := range [][]permissions.Rule{nil, {permissions.GrantRule(act)}, {permissions.CommandRule(act)}} {
+			got, _ := permissions.Policy{Mode: mode, Rules: rules}.Authorize(act)
+			assert.Equal(t, permissions.Verdict{Effect: permissions.Ask}, got, "%s", mode)
+		}
+	}
+	got, _ := permissions.Policy{Mode: permissions.ModeReadOnly}.Authorize(act)
+	assert.Equal(t, permissions.Deny, got.Effect)
 }

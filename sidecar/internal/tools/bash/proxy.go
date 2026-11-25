@@ -73,9 +73,8 @@ func writesFor(rt tools.Runtime, background bool) (kubeproxy.Asker, string) {
 // package imports the other.
 type runtimeAsker struct{ a tools.ActionAsker }
 
-func (a runtimeAsker) Ask(ctx context.Context, r kubeproxy.Request) (kubeproxy.Answer, error) {
-	answer, err := a.a.Ask(ctx, requestOf(r))
-	return kubeproxy.Answer{Approved: answer.Approved, Duration: answer.Duration}, err
+func (a runtimeAsker) Ask(ctx context.Context, r kubeproxy.Request) (permissions.Answer, error) {
+	return a.a.Ask(ctx, requestOf(r))
 }
 
 func (a runtimeAsker) Record(ctx context.Context, r kubeproxy.Request, d permissions.Decision, reason string) error {
@@ -226,7 +225,7 @@ type doorRoute struct {
 func newDoor(cluster http.Handler, mounts []CloudMount) (*door, error) {
 	d := &door{routes: map[routeKey]doorRoute{}}
 	if cluster != nil {
-		d.routes[routeKey{host: kubeproxy.Host}] = doorRoute{handler: cluster, target: permissions.Cluster}
+		d.routes[routeKey{host: kubeproxy.Host}] = doorRoute{handler: cluster, target: permissions.Kubernetes}
 	}
 	for _, m := range mounts {
 		for _, r := range m.Routes {
@@ -259,7 +258,7 @@ func (d *door) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// No cloud platform's proxy forwards a stream past HTTP, so none is asked to
 	// remember refusing one. The cluster's grant refuses its own, in the
 	// API server's shape kubectl prints.
-	if route.target != permissions.Cluster && runproxy.Upgrades(r.Header) {
+	if route.target != permissions.Kubernetes && runproxy.Upgrades(r.Header) {
 		http.Error(w, refusedUpgrade, http.StatusForbidden)
 		return
 	}

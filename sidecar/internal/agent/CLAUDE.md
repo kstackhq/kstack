@@ -116,7 +116,7 @@ can commit before `Start`.
 
 **Ten tables**, the migrations the only schema authority: `clusters`, `chats`, `messages`,
 `agent_runs`, `llm_calls`, `tool_calls`, `approvals`, `background_tasks` (`0001_init.sql`), and a
-chat's rows of `kube_rules` and `folder_grants` (`0006_settings.sql`).
+chat's rows of `permission_rules` and `folder_grants` (`0006_settings.sql`).
 
 - `mode` and `cluster_id` are fixed at creation; each mode and cluster lists only its own chats.
 - `sandbox_disabled` and `network_enabled` are the user's switches; leaving the sandbox clears
@@ -212,18 +212,19 @@ A refused journal write sends the command a 403 and the change is not sent.
 ask](../../../docs/security/2026-09-29-cluster-writes-ask.md).
 
 **A decision claims its waiter first** (`service.Approve`, `waiter.decide`): a call's own approval,
-and an action whose `Grantable` is false, take `Once` and `Deny` alone. A `Chat` or `Always` rule is
-written **before the decision is delivered**, outside `turnsMu`; a failed write puts the waiter
-back. An `Always` rule goes to `settings.AddKubeRule`. A chat's rules are its `kube_rules` rows and
-its folder grants its `folder_grants` rows (`grants.go`), read through `settings.KubeRules` on
-every decision, never cached; `agent/chat` writes no row whose `chat_id` is NULL. Each write or
-revoke pings `grants/<chatID>` after its commit (`ListenForGrantChanges`), which `sandboxFoldersStateWatch` re-reads
-on. **A session's policy is read live** (`sessionFor`): the action's cluster's mode (a failed read
-is read-only), then the chat's rules and the always rules (a failed read is `permissions.Unread`).
+and an action whose `Grantable` is false, take `Once` and `Deny` alone; a grantable one, any
+duration. A `Chat` or `Always` rule is written **before the decision is delivered**, outside
+`turnsMu`; a failed write puts the waiter back. An `Always` rule goes to `settings.AddRule`. A
+chat's rules are its `permission_rules` rows and its folder grants its `folder_grants` rows
+(`grants.go`), read on every decision (`settings.ScanRules`); `agent/chat`
+writes no row whose `chat_id` is NULL. Each write or revoke notifies `grants/<chatID>` after its
+commit (`ListenForGrantChanges`); `sandboxFoldersStateWatch` re-reads on it. **A session's policy is
+read live** (`sessionFor`): the account's mode (a failed read is read-only), then the chat's and
+the always rules (a failed read is `permissions.Unread`). The boundary limits the monitor.
 **`foldersFor` is the one builder of a session's folders**, the chat's then the always ones,
 re-checking each; a failed read is an error, which fails the run, the file tool or the send.
 `FoldersFor(ctx, "")` is the always folders alone, for a run with no chat. `GrantFolder`,
-`RevokeFolder(ctx, chatID, id)`, `FolderGrants`, `ChatKubeRules` and `RemoveChatKubeRule` are the
+`RevokeFolder(ctx, chatID, id)`, `FolderGrants`, `ChatRules` and `RemoveChatRule` are the
 wire's. → [ADR: a prompt names the action and offers a
 duration](../../../docs/adr/2026-10-04-a-prompt-names-the-action-and-offers-a-duration.md), [ADR: a folder
 grant is its own row](../../../docs/adr/2026-11-24-a-folder-grant-is-its-own-row-and-a-mode-and-a-rule-belong-to-a-cluster.md),

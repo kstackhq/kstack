@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// A chat's own Kubernetes rules: the ones an approval answered "Allow for this
+// A chat's own rules: the ones an approval answered "Allow for this
 // chat" wrote, which the composer lists and removes. The one reader of the
 // query and the mutation. Another window can add or remove one, so the query
 // is asked again on focus and after a removal; an approval in this window
@@ -21,20 +21,20 @@ import { useCallback, useEffect, useState } from 'react';
 import { useMutation, useQuery } from 'urql';
 
 import { graphql } from '@/gql';
-import type { ChatKubeRulesQuery } from '@/gql/graphql';
+import type { ChatPermissionRulesQuery } from '@/gql/graphql';
 
-const ChatKubeRulesDocument = graphql(`
-  query ChatKubeRules($chatID: ChatID!) {
-    chatKubeRules(chatID: $chatID) {
+const ChatPermissionRulesDocument = graphql(`
+  query ChatPermissionRules($chatID: ChatID!) {
+    chatPermissionRules(chatID: $chatID) {
       id
       line
     }
   }
 `);
 
-const ChatKubeRuleRemoveMutation = graphql(`
-  mutation ChatKubeRuleRemove($chatID: ChatID!, $id: String!) {
-    chatKubeRuleRemove(chatID: $chatID, id: $id) {
+const ChatPermissionRuleRemoveMutation = graphql(`
+  mutation ChatPermissionRuleRemove($chatID: ChatID!, $id: String!) {
+    chatPermissionRuleRemove(chatID: $chatID, id: $id) {
       id
     }
   }
@@ -43,12 +43,12 @@ const ChatKubeRuleRemoveMutation = graphql(`
 /**
  * The operation context that ties the chat's rules to urql's cache: the query
  * carries it, and so does a mutation that writes a rule, so the list is asked
- * again. A list holding no rule carries no KubeRule for the cache to key on,
+ * again. A list holding no rule carries no PermissionRule for the cache to key on,
  * so the type is named.
  */
-export const chatGrantsContext = { additionalTypenames: ['KubeRule'] };
+export const chatGrantsContext = { additionalTypenames: ['PermissionRule'] };
 
-export type ChatGrant = ChatKubeRulesQuery['chatKubeRules'][number];
+export type ChatGrant = ChatPermissionRulesQuery['chatPermissionRules'][number];
 
 export type ChatGrants = {
   /** Undefined until the sidecar has answered. */
@@ -62,12 +62,12 @@ export type ChatGrants = {
 
 export function useChatGrants(chatID: string): ChatGrants {
   const [{ data }, reexecute] = useQuery({
-    query: ChatKubeRulesDocument,
+    query: ChatPermissionRulesDocument,
     variables: { chatID },
     context: chatGrantsContext,
     requestPolicy: 'cache-and-network',
   });
-  const [, removeMutation] = useMutation(ChatKubeRuleRemoveMutation);
+  const [, removeMutation] = useMutation(ChatPermissionRuleRemoveMutation);
   const [removing, setRemoving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -89,5 +89,5 @@ export function useChatGrants(chatID: string): ChatGrants {
     [askAgain, chatID, removeMutation],
   );
 
-  return { rules: data?.chatKubeRules, removing, error, remove };
+  return { rules: data?.chatPermissionRules, removing, error, remove };
 }

@@ -687,12 +687,8 @@ type ActionRequest struct {
 	DiffError string `json:"diffError"`
 }
 
-// Answer is the user's decision on an action: approved or not, and for how
-// long.
-type Answer struct {
-	Approved bool
-	Duration permissions.Duration
-}
+// Answer is the user's decision on an action.
+type Answer = permissions.Answer
 
 // ActionAsker puts an action to the user, as a request of the call that is
 // running, and records one the proxy decided with nobody asked against that

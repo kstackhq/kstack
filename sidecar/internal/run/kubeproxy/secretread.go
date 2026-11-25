@@ -72,7 +72,7 @@ func (g *Grant) serveSecretRead(w http.ResponseWriter, r *http.Request, p apiPat
 // write lock.
 func (g *Grant) decideSecretRead(r *http.Request, p apiPath) bool {
 	ctx := r.Context()
-	act := classify(r, p, nil, g.cluster, g.context)
+	act := g.classify(r, p, nil)
 	v, reason := g.policy(ctx).Authorize(act)
 	req := newRequest(act, v, &Write{Method: r.Method, Path: r.URL.RequestURI(), Subresource: p.subresource})
 	switch d := v.Outcome(); d {

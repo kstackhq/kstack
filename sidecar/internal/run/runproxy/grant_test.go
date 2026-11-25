@@ -41,9 +41,16 @@ const noAsker = "kstack: this sandbox reads AWS and changes nothing."
 // switchedOn is a cloud platform's switch that is always on.
 func switchedOn(context.Context) bool { return true }
 
+// policySession is a session of kind whose every account has mode.
+func policySession(kind session.Kind, mode permissions.Mode) session.Session {
+	return session.Session{Kind: kind, Policy: func(context.Context, permissions.Target, string) permissions.Policy {
+		return permissions.Policy{Mode: mode}
+	}}
+}
+
 func newTestGrant(t *testing.T, asker Asker, limits Limits) *Grant {
 	t.Helper()
-	g := NewGrant(permissions.AWS, switchedOn, session.Session{Kind: session.Chat}, asker, noAsker, limits)
+	g := NewGrant(permissions.AWS, switchedOn, policySession(session.Chat, permissions.ModeAsk), asker, noAsker, limits)
 	t.Cleanup(g.End)
 	return g
 }
@@ -141,7 +148,7 @@ func TestAGrantWithNoSwitchPanics(t *testing.T) {
 }
 
 func TestAGrantForTheClusterPanics(t *testing.T) {
-	assert.Panics(t, func() { NewGrant(permissions.Cluster, switchedOn, session.Session{}, nil, noAsker, testLimits) })
+	assert.Panics(t, func() { NewGrant(permissions.Kubernetes, switchedOn, session.Session{}, nil, noAsker, testLimits) })
 }
 
 // A limit below one would refuse every request the user approves.

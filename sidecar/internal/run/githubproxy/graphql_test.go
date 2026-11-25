@@ -48,7 +48,7 @@ func TestAQueryIsARead(t *testing.T) {
 		g, ok := readGraphQL(graphQLBody(t, q, ""))
 		require.True(t, ok, q)
 		assert.Empty(t, g.mutations, q)
-		assert.Zero(t, g.class(), q)
+		assert.Equal(t, permissions.Read, g.action().AccessLevel, q)
 	}
 }
 
@@ -63,7 +63,7 @@ func TestAnyMutationIsAChange(t *testing.T) {
 		require.True(t, ok, op)
 		assert.Equal(t, []string{"createIssue", "addComment"}, g.mutations, op)
 		assert.Equal(t, op, g.operation)
-		assert.Equal(t, permissions.UpstreamWrite, g.class(), op)
+		assert.Equal(t, permissions.Write, g.action().AccessLevel, op)
 	}
 }
 
@@ -81,7 +81,7 @@ func TestAMutationIsReadThroughFragmentsAndAliases(t *testing.T) {
 		g, ok := readGraphQL(graphQLBody(t, q, ""))
 		require.True(t, ok, q)
 		assert.Contains(t, g.mutations, "deleteRef", q)
-		assert.Equal(t, permissions.Destructive, g.class(), q)
+		assert.Equal(t, permissions.Destructive, g.action().AccessLevel, q)
 	}
 }
 

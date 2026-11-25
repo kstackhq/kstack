@@ -272,7 +272,7 @@ var errNotRecorded = errors.New("chat: only an allowed or denied action is recor
 
 // ApprovalDecision is the user's answer to a request: Once and Deny answer it
 // alone; Command also allows the same change for the rest of the command; Chat
-// and Always also write an Allow rule for the action's class and scope.
+// and Always also write an Allow rule for the action's access level and scope.
 type ApprovalDecision string
 
 const (
@@ -312,10 +312,10 @@ type waiter struct {
 }
 
 // decide is the decision d is on w, or ErrBadRequest for one w does not take:
-// a call's own, an action no rule may allow, and every cloud platform's action
-// take Once and Deny alone, since a rule is always a cluster's.
+// a call's own, and an action no rule may allow, take Once and Deny alone. A
+// grantable action takes every duration, whatever its target.
 func (w *waiter) decide(d ApprovalDecision) (decision, error) {
-	grantable := w.request != nil && w.request.Grantable && w.request.Action.Target == permissions.Cluster
+	grantable := w.request != nil && w.request.Grantable
 	switch d {
 	case DecisionDeny:
 		return decision{status: ApprovalDenied}, nil
@@ -396,9 +396,9 @@ func (s *service) Approve(ctx context.Context, id ApprovalID, d ApprovalDecision
 // unless the same rule is held there already.
 func (s *service) writeRule(ctx context.Context, chatID ChatID, rule permissions.Rule, d ApprovalDecision) error {
 	if d == DecisionChat {
-		_, err := s.addKubeRule(ctx, chatID, rule)
+		_, err := s.addRule(ctx, chatID, rule)
 		return err
 	}
-	_, err := s.settings.AddKubeRule(ctx, rule)
+	_, err := s.settings.AddRule(ctx, rule)
 	return err
 }

@@ -26,23 +26,36 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 )
 
-// classifyURL classifies method on a service's path and query.
+// classifyURL classifies method on a service's path and query, with no body.
 func classifyURL(t *testing.T, service, method, target string) verdict {
+	t.Helper()
+	return classifyBody(t, service, method, target, "")
+}
+
+// classifyBody classifies method on a service's path and query, carrying
+// body.
+func classifyBody(t *testing.T, service, method, target, body string) verdict {
 	t.Helper()
 	path, query, _ := strings.Cut(target, "?")
 	segs, why := checkPath(serviceNamed(service), path)
 	require.Empty(t, why, target)
 	q, err := url.ParseQuery(query)
 	require.NoError(t, err)
-	return classify(service, method, segs, q)
+	return classify(service, method, segs, q, []byte(body))
 }
 
-func TestEveryRequestIsClassified(t *testing.T) {
+// level is the verdict of a request that asks at l.
+func level(l permissions.AccessLevel) verdict { return verdict{kind: asks, level: l} }
+
+// TestAReadIsClassifiedAsToday pins every kind and level the classifier
+// answers, reads and refusals as before.
+func TestAReadIsClassifiedAsToday(t *testing.T) {
 	isRefused := verdict{kind: refused}
-	isData := verdict{kind: asks, class: permissions.SecretRead}
-	isRead := verdict{kind: read}
-	isChange := verdict{kind: asks, class: permissions.UpstreamWrite}
-	isDestructive := verdict{kind: asks, class: permissions.Destructive}
+	isData := level(permissions.DataRead)
+	isRead := verdict{kind: read, level: permissions.Read}
+	isChange := level(permissions.Write)
+	isDestructive := level(permissions.Destructive)
+	isPermissions := level(permissions.AccessControl)
 	cases := []struct {
 		name, service, method, target string
 		want                          verdict
@@ -86,11 +99,13 @@ func TestEveryRequestIsClassified(t *testing.T) {
 		{"a cluster's delete", "container", http.MethodDelete, "/v1/projects/p/locations/us-central1/clusters/dev", isDestructive},
 		{"a zonal cluster's delete", "container", http.MethodDelete, "/v1/projects/p/zones/us-central1-a/clusters/dev", isDestructive},
 		{"a bucket's delete", "storage", http.MethodDelete, "/storage/v1/b/bkt", isDestructive},
-		{"a service account's delete", "iam", http.MethodDelete, "/v1/projects/p/serviceAccounts/sa@p.iam.gserviceaccount.com", isDestructive},
-		{"a setIamPolicy", "compute", http.MethodPost, "/compute/v1/projects/p/zones/z/instances/i/setIamPolicy", isDestructive},
-		{"a :setIamPolicy", "cloudresourcemanager", http.MethodPost, "/v1/projects/p:setIamPolicy", isDestructive},
-		{"a bucket's IAM PUT", "storage", http.MethodPut, "/storage/v1/b/bkt/iam", isDestructive},
-		{"a managed folder's IAM PUT", "storage", http.MethodPut, "/storage/v1/b/bkt/managedFolders/f/iam", isDestructive},
+		{"a service account's delete", "iam", http.MethodDelete, "/v1/projects/p/serviceAccounts/sa@p.iam.gserviceaccount.com", isPermissions},
+		{"a setIamPolicy", "compute", http.MethodPost, "/compute/v1/projects/p/zones/z/instances/i/setIamPolicy", isPermissions},
+		{"a :setIamPolicy", "cloudresourcemanager", http.MethodPost, "/v1/projects/p:setIamPolicy", isPermissions},
+		{"a bucket's IAM PUT", "storage", http.MethodPut, "/storage/v1/b/bkt/iam", isPermissions},
+		{"a managed folder's IAM PUT", "storage", http.MethodPut, "/storage/v1/b/bkt/managedFolders/f/iam", isPermissions},
+		{"a service account's create", "iam", http.MethodPost, "/v1/projects/p/serviceAccounts", isPermissions},
+		{"a role's patch", "iam", http.MethodPatch, "/v1/projects/p/roles/r", isPermissions},
 		{"a bucket's delete under /upload/", "storage", http.MethodDelete, "/upload/storage/v1/b/bkt", isDestructive},
 		{"an object named iam's update", "storage", http.MethodPut, "/storage/v1/b/bkt/o/iam", isChange},
 		{"an instance's delete", "compute", http.MethodDelete, "/compute/v1/projects/p/zones/z/instances/i", isChange},
@@ -103,9 +118,176 @@ func TestEveryRequestIsClassified(t *testing.T) {
 	for _, tc := range cases {
 		got := classifyURL(t, tc.service, tc.method, tc.target)
 		assert.Equal(t, tc.want.kind, got.kind, tc.name)
-		assert.Equal(t, tc.want.class, got.class, tc.name)
+		if tc.want.kind != refused {
+			assert.Equal(t, tc.want.level, got.level, tc.name)
+		}
 		if tc.want.kind == refused {
 			assert.True(t, strings.HasPrefix(got.why, "kstack: "), tc.name)
 		}
 	}
+}
+
+const project = "/compute/v1/projects/my-project"
+
+// TestEveryFieldIsFilled reads each field of a change's action off its path.
+func TestEveryFieldIsFilled(t *testing.T) {
+	for _, c := range []struct {
+		name, service, method, target         string
+		scope, account, operation, res, named string
+	}{
+		{"an instance start", "compute", http.MethodPost, project + "/zones/us-central1-a/instances/vm-1/start",
+			"my-project/us-central1-a", "my-project", "start", "instances", "vm-1"},
+		{"an instance create", "compute", http.MethodPost, project + "/zones/us-central1-a/instances",
+			"my-project/us-central1-a", "my-project", "post", "instances", ""},
+		{"a global network's delete", "compute", http.MethodDelete, project + "/global/networks/n",
+			"my-project", "my-project", "delete", "networks", "n"},
+		{"a regional address", "compute", http.MethodPost, project + "/regions/europe-west1/addresses",
+			"my-project/europe-west1", "my-project", "post", "addresses", ""},
+		{"a node pool's setSize", "container", http.MethodPost, "/v1/projects/my-project/locations/us-central1/clusters/dev/nodePools/np:setSize",
+			"my-project/us-central1", "my-project", "setsize", "clusters/nodepools", "np"},
+		{"a zonal cluster's delete", "container", http.MethodDelete, "/v1/projects/my-project/zones/us-central1-a/clusters/dev",
+			"my-project/us-central1-a", "my-project", "delete", "clusters", "dev"},
+		{"a project's setIamPolicy", "cloudresourcemanager", http.MethodPost, "/v1/projects/my-project:setIamPolicy",
+			"my-project", "my-project", "setiampolicy", "projects", "my-project"},
+		{"a service account's patch", "iam", http.MethodPatch, "/v1/projects/my-project/serviceAccounts/sa@x",
+			"my-project", "my-project", "patch", "serviceaccounts", "sa@x"},
+		{"a log sink's create", "logging", http.MethodPost, "/v2/projects/my-project/sinks",
+			"my-project", "my-project", "post", "sinks", ""},
+		{"an object's delete", "storage", http.MethodDelete, "/storage/v1/b/bkt/o/x",
+			"", "", "delete", "b/o", "x"},
+	} {
+		v := classifyURL(t, c.service, c.method, c.target)
+		require.Equal(t, asks, v.kind, c.name)
+		act := v.act
+		assert.Equal(t, c.scope, act.Scope, c.name)
+		assert.Equal(t, c.account, act.AccountName, c.name)
+		assert.Equal(t, c.service, act.Service, c.name)
+		assert.Equal(t, c.operation, act.Operation, c.name)
+		assert.Equal(t, c.res, act.Resource, c.name)
+		assert.Equal(t, c.named, act.Name, c.name)
+		assert.Equal(t, v.level, act.AccessLevel, c.name)
+		assert.NotEmpty(t, act.Summary, c.name)
+	}
+}
+
+func TestAScopeIsLowerCase(t *testing.T) {
+	v := classifyURL(t, "compute", http.MethodPost, "/compute/v1/projects/My-Project/zones/US-Central1-A/instances/vm/start")
+	assert.Equal(t, "my-project/us-central1-a", v.act.Scope)
+	assert.Equal(t, "my-project", v.act.AccountName)
+}
+
+func TestAnAliasedOrForeignScopeIsEmpty(t *testing.T) {
+	for _, c := range []struct{ name, service, method, target, body string }{
+		{"a project number", "compute", http.MethodPost, "/compute/v1/projects/123456789012/zones/z/instances/vm/start", ""},
+		{"projects/-", "container", http.MethodPost, "/v1/projects/-/locations/l/clusters", "{}"},
+		{"a project too short", "compute", http.MethodPost, "/compute/v1/projects/p/zones/z/instances/vm/start", ""},
+		{"a storage object", "storage", http.MethodPost, "/upload/storage/v1/b/bkt/o?uploadType=media&name=x", "hello"},
+		{"a path naming no project", "logging", http.MethodPost, "/v2/entries:write", `{"logName":"projects/my-project/logs/x"}`},
+		{"another project in a body", "compute", http.MethodPost, project + "/zones/z/instances",
+			`{"name":"vm","networkInterfaces":[{"network":"projects/other-project/global/networks/default"}]}`},
+		{"another project in a key", "compute", http.MethodPost, project + "/zones/z/instances", `{"projects/other-project":1}`},
+		{"a project number in a body", "compute", http.MethodPost, project + "/zones/z/instances", `{"network":"projects/123456789/global/networks/n"}`},
+		{"a body that is not JSON", "compute", http.MethodPost, project + "/zones/z/instances", `name=vm`},
+		{"a body cut short", "compute", http.MethodPost, project + "/zones/z/instances", `{"name":`},
+	} {
+		v := classifyBody(t, c.service, c.method, c.target, c.body)
+		require.Equal(t, asks, v.kind, c.name)
+		assert.Empty(t, v.act.Scope, c.name)
+	}
+	for _, body := range []string{"", `{"name":"vm","network":"projects/my-project/global/networks/default"}`, `{"labels":{"a":"b"}}`} {
+		v := classifyBody(t, "compute", http.MethodPost, project+"/zones/z/instances", body)
+		assert.Equal(t, "my-project/z", v.act.Scope, body)
+	}
+}
+
+func TestAccessControlChanges(t *testing.T) {
+	for _, c := range []struct{ name, service, method, target string }{
+		{"a project's setIamPolicy", "cloudresourcemanager", http.MethodPost, "/v3/projects/my-project:setIamPolicy"},
+		{"an instance's setIamPolicy", "compute", http.MethodPost, project + "/zones/z/instances/i/setIamPolicy"},
+		{"a bucket's IAM PUT", "storage", http.MethodPut, "/storage/v1/b/bkt/iam"},
+		{"a service account's create", "iam", http.MethodPost, "/v1/projects/my-project/serviceAccounts"},
+		{"a service account's delete", "iam", http.MethodDelete, "/v1/projects/my-project/serviceAccounts/sa"},
+		{"a role's undelete", "iam", http.MethodPost, "/v1/projects/my-project/roles/r:undelete"},
+		{"a policy's change", "iam", http.MethodPut, "/v2/policies/x/y/denypolicies/p"},
+	} {
+		v := classifyURL(t, c.service, c.method, c.target)
+		assert.Equal(t, permissions.AccessControl, v.act.AccessLevel, c.name)
+		assert.False(t, v.act.Confined, c.name)
+	}
+}
+
+// setIamPolicy asks each time under every mode and every rule, and no
+// answer to it writes a rule.
+func TestOnlyAConfinedAccessControlActionIsGrantable(t *testing.T) {
+	act := classifyURL(t, "cloudresourcemanager", http.MethodPost, "/v3/projects/my-project:setIamPolicy").act
+	act.Principal, act.Target = permissions.Chat, permissions.GCP
+	for _, mode := range []permissions.Mode{permissions.ModeAsk, permissions.ModeAuto} {
+		for _, rules := range [][]permissions.Rule{nil, {permissions.GrantRule(act)}, {permissions.CommandRule(act)}} {
+			v, _ := permissions.Policy{Mode: mode, Rules: rules}.Authorize(act)
+			assert.Equal(t, permissions.Verdict{Effect: permissions.Ask}, v, mode)
+		}
+	}
+}
+
+// TestOrdinaryIsExactlyTheTable pins the changes a mode or a rule may allow.
+func TestOrdinaryIsExactlyTheTable(t *testing.T) {
+	assert.Equal(t, map[string]map[string][]string{
+		"compute": {"instances": {"start", "reset", "setlabels"}},
+	}, ordinary)
+	for _, op := range []string{"start", "reset", "setLabels"} {
+		v := classifyURL(t, "compute", http.MethodPost, project+"/zones/z/instances/vm/"+op)
+		assert.Equal(t, permissions.Write, v.act.AccessLevel, op)
+		assert.False(t, v.act.Once, op)
+	}
+}
+
+func TestAChangeOffTheOrdinaryTableAsksOnce(t *testing.T) {
+	for _, c := range []struct{ name, service, method, target string }{
+		{"an instance's stop", "compute", http.MethodPost, project + "/zones/z/instances/vm/stop"},
+		{"an instance's suspend", "compute", http.MethodPost, project + "/zones/z/instances/vm/suspend"},
+		{"an instance group's resize", "compute", http.MethodPost, project + "/zones/z/instanceGroupManagers/g/resize"},
+		{"a node pool's setSize", "container", http.MethodPost, "/v1/projects/my-project/locations/l/clusters/c/nodePools/np:setSize"},
+		{"an instance's create", "compute", http.MethodPost, project + "/zones/z/instances"},
+		{"start on another collection", "compute", http.MethodPost, project + "/zones/z/disks/d/start"},
+		{"a log write", "logging", http.MethodPost, "/v2/projects/my-project/logs/l:write"},
+	} {
+		v := classifyURL(t, c.service, c.method, c.target)
+		assert.Equal(t, permissions.Write, v.act.AccessLevel, c.name)
+		assert.True(t, v.act.Once, c.name)
+	}
+}
+
+// A change no table names asks each time under every mode and rule; read-only
+// and a deny still stop it.
+func TestAnUnnamedOperationAsksOnceAndIsNotGranted(t *testing.T) {
+	act := classifyURL(t, "compute", http.MethodPost, project+"/zones/z/instances/vm/stop").act
+	act.Principal, act.Target = permissions.Chat, permissions.GCP
+	for _, mode := range []permissions.Mode{permissions.ModeAsk, permissions.ModeAuto} {
+		for _, rules := range [][]permissions.Rule{nil, {permissions.GrantRule(act)}, {permissions.CommandRule(act)}} {
+			v, _ := permissions.Policy{Mode: mode, Rules: rules}.Authorize(act)
+			assert.Equal(t, permissions.Verdict{Effect: permissions.Ask}, v, mode)
+		}
+	}
+	v, _ := permissions.Policy{Mode: permissions.ModeReadOnly}.Authorize(act)
+	assert.Equal(t, permissions.Deny, v.Effect)
+}
+
+// Each refusal of a request whose answer is a credential is the reach level;
+// a refusal for anything else has none. The texts are as before.
+func TestEachCredentialRefusalIsReach(t *testing.T) {
+	for _, target := range []string{
+		"/v1/projects/p/serviceAccounts/sa@p.iam.gserviceaccount.com/keys",
+		"/v1/projects/-/serviceAccounts/sa:signBlob",
+		"/v1/projects/-/serviceAccounts/sa:generateAccessToken",
+		"/v1/projects/p/locations/global/oauthClients/c/credentials",
+	} {
+		v := classifyURL(t, "iam", http.MethodPost, target)
+		assert.Equal(t, refused, v.kind, target)
+		assert.Equal(t, permissions.Reach, v.level, target)
+		assert.Equal(t, refusedCredential, v.why, target)
+	}
+	v := classifyURL(t, "storage", http.MethodPost, "/upload/storage/v1/b/bkt/o?uploadType=resumable")
+	assert.Equal(t, refused, v.kind)
+	assert.Empty(t, v.level)
+	assert.Equal(t, refusedResumable, v.why)
 }

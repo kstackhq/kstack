@@ -49,16 +49,17 @@ func (c call) classify() operation {
 }
 
 const (
-	read      = permissions.Class(0)
-	change    = permissions.UpstreamWrite
+	read      = permissions.Read
+	change    = permissions.Write
 	destroy   = permissions.Destructive
-	secret    = permissions.SecretRead
-	refusedOp = permissions.Class(-1)
+	perms     = permissions.AccessControl
+	secret    = permissions.DataRead
+	refusedOp = permissions.AccessLevel("refused")
 )
 
-// Every operation this spec names, and each prefix, lands in its class.
+// Every operation this spec names, and each prefix, lands in its level.
 func TestEveryRowsOperationsAreClassed(t *testing.T) {
-	for want, calls := range map[permissions.Class][]call{
+	for want, calls := range map[permissions.AccessLevel][]call{
 		read: {
 			{service: "sts", form: "Action=GetCallerIdentity&Version=2011-06-15"},
 			{service: "ec2", form: "Action=DescribeInstances"},
@@ -99,13 +100,24 @@ func TestEveryRowsOperationsAreClassed(t *testing.T) {
 			{service: "ec2", form: "Action=TerminateInstances"},
 			{service: "ec2", form: "Action=DeleteVpc"},
 			{service: "logs", target: "Logs_20140328.DeleteLogGroup", body: `{}`},
+			{service: "s3", method: "DELETE", path: "/bucket/key"},
+			{service: "s3", method: "DELETE", path: "/bucket?policy"},
+			{service: "s3", method: "POST", path: "/bucket?delete"},
+			{service: "eks", method: "DELETE", path: "/clusters/c"},
+		},
+		perms: {
 			{service: "iam", form: "Action=AttachRolePolicy"},
 			{service: "iam", form: "Action=PutUserPolicy"},
 			{service: "iam", form: "Action=UpdateAssumeRolePolicy"},
 			{service: "iam", form: "Action=CreateLoginProfile"},
-			{service: "s3", method: "DELETE", path: "/bucket/key"},
-			{service: "s3", method: "POST", path: "/bucket?delete"},
-			{service: "eks", method: "DELETE", path: "/clusters/c"},
+			{service: "iam", form: "Action=CreateRole"},
+			{service: "iam", form: "Action=DeleteRole"},
+			{service: "iam", form: "Action=TagRole"},
+			{service: "logs", target: "Logs_20140328.PutResourcePolicy", body: `{}`},
+			{service: "logs", target: "Logs_20140328.DeleteResourcePolicy", body: `{}`},
+			{service: "ecr", target: "AmazonEC2ContainerRegistry_V20150921.SetRepositoryPolicy", body: `{}`},
+			{service: "ec2", form: "Action=CreateNetworkInterfacePermission"},
+			{service: "ec2", form: "Action=CreateCapacityReservationGrant"},
 		},
 		secret: {
 			{service: "s3", method: "GET", path: "/bucket/key"},
@@ -127,6 +139,7 @@ func TestEveryRowsOperationsAreClassed(t *testing.T) {
 			{service: "logs", target: "Logs_20140328.StartQuery", body: `{"queryString":"fields UNMASK (@message)"}`},
 			{service: "logs", target: "Logs_20140328.StartQuery", body: `{"queryLanguage":"SQL","queryString":"SELECT Unmask(x)"}`},
 			{service: "logs", target: "Logs_20140328.GetLogRecord", body: `not json`},
+			{service: "logs", target: "Logs_20140328.GetLogEvents", body: `{"logGroupName":`},
 			{service: "logs", target: "Logs_20140328.GetQueryResults", body: `{"queryId":"q"}`},
 		},
 		refusedOp: {
@@ -143,7 +156,7 @@ func TestEveryRowsOperationsAreClassed(t *testing.T) {
 	} {
 		for _, c := range calls {
 			op := c.classify()
-			got := op.class
+			got := op.level
 			if op.refusal != "" {
 				got = refusedOp
 			}
@@ -199,4 +212,141 @@ func TestAnS3RequestNamesItsBucket(t *testing.T) {
 		assert.Equal(t, want, call{service: "s3", method: "GET", path: path}.classify().bucket, path)
 	}
 	assert.Empty(t, call{service: "ec2", form: "Action=DescribeInstances"}.classify().bucket)
+}
+
+// Each refusal of an operation whose answer is a credential is reach, which
+// the boundary never allows; a refusal for anything else has no level.
+func TestEachCredentialRefusalIsReach(t *testing.T) {
+	for _, c := range []call{
+		{service: "sts", form: "Action=AssumeRole"},
+		{service: "sts", form: "Action=GetSessionToken"},
+		{service: "ec2", form: "Action=CreateKeyPair"},
+		{service: "ec2", form: "Action=GetPasswordData"},
+		{service: "iam", form: "Action=CreateAccessKey"},
+		{service: "ecr", target: "AmazonEC2ContainerRegistry_V20150921.GetAuthorizationToken", body: `{}`},
+		{service: "s3", method: "GET", path: "/bucket?session"},
+	} {
+		op := c.classify()
+		assert.Contains(t, op.refusal, "answers a credential", "%+v", c)
+		assert.Equal(t, permissions.Reach, op.level, "%+v", c)
+		act := permissions.Action{Principal: permissions.Chat, Target: permissions.AWS, Scope: "123456789012/eu-west-1", AccessLevel: op.level}
+		allow := permissions.Rule{Effect: permissions.Allow, AccessLevel: permissions.Reach, Principal: "*", Target: "aws",
+			Scope: "123456789012/**", Service: "*", Operation: "*", Resource: "*"}
+		v, _ := permissions.Policy{Mode: permissions.ModeAuto, Rules: []permissions.Rule{allow}}.Authorize(act)
+		assert.Equal(t, permissions.Deny, v.Effect, "%+v", c)
+	}
+	op := call{service: "ec2", form: "Action=DescribeInstances&Action=TerminateInstances"}.classify()
+	assert.NotEmpty(t, op.refusal)
+	assert.Empty(t, op.level, "a request named twice has no level")
+}
+
+// The changes a mode or a rule may allow.
+func TestOrdinaryIsExactlyTheTable(t *testing.T) {
+	assert.Equal(t, map[string][]string{
+		"ec2":                  {"StartInstances", "CreateTags", "CreateVolume", "CreateSnapshot"},
+		"elasticloadbalancing": {"RegisterTargets", "AddTags"},
+		"ecr":                  {"InitiateLayerUpload", "UploadLayerPart", "CompleteLayerUpload", "PutImage"},
+		"logs":                 {"CreateLogGroup", "CreateLogStream", "PutLogEvents"},
+	}, ordinary)
+	for service, ops := range ordinary {
+		for _, name := range ops {
+			c := call{service: service, form: "Action=" + name}
+			if services[service].protocol == protocolJSON {
+				c = call{service: service, target: "X." + name, body: `{}`}
+			}
+			op := c.classify()
+			assert.Equal(t, permissions.Write, op.level, "%s:%s", service, name)
+			assert.False(t, op.once, "%s:%s", service, name)
+		}
+	}
+	// S3's one row: a PUT of an object, with no query but x-id and no ACL,
+	// grant or copy source.
+	for _, path := range []string{"/bucket/key", "/bucket/a/b?x-id=PutObject"} {
+		op := call{service: "s3", method: "PUT", path: path}.classify()
+		assert.Equal(t, permissions.Write, op.level, path)
+		assert.False(t, op.once, path)
+	}
+}
+
+// A change off the table asks each time, under every mode and rule.
+func TestAChangeOffTheOrdinaryTableAsksOnce(t *testing.T) {
+	for _, c := range []call{
+		{service: "s3", method: "PUT", path: "/bucket?policy"},
+		{service: "s3", method: "PUT", path: "/bucket"},
+		{service: "s3", method: "PUT", path: "/bucket/key?tagging"},
+		{service: "s3", method: "POST", path: "/bucket/key?restore"},
+		{service: "eks", method: "POST", path: "/clusters/c/access-entries"},
+		{service: "eks", method: "POST", path: "/clusters/c/node-groups/n/update-config"},
+		{service: "cloudformation", form: "Action=CreateStack&StackName=s"},
+		{service: "ec2", form: "Action=StopInstances&InstanceId.1=i-1"},
+		{service: "ec2", form: "Action=RunInstances"},
+		{service: "autoscaling", form: "Action=SetDesiredCapacity&DesiredCapacity=0"},
+		{service: "autoscaling", form: "Action=UpdateAutoScalingGroup&MaxSize=0"},
+		{service: "elasticloadbalancing", form: "Action=DeregisterTargets"},
+		{service: "route53", method: "POST", path: "/2013-04-01/hostedzone/Z/rrset"},
+		{service: "monitoring", form: "Action=PutMetricAlarm"},
+	} {
+		op := c.classify()
+		assert.Equal(t, permissions.Write, op.level, "%+v", c)
+		assert.True(t, op.once, "%+v", c)
+	}
+}
+
+func TestAnS3PutWithAnACLOrACopySourceAsksOnce(t *testing.T) {
+	for _, header := range []string{"X-Amz-Acl", "X-Amz-Grant-Read", "X-Amz-Grant-Full-Control", "X-Amz-Copy-Source"} {
+		r := httptest.NewRequest(http.MethodPut, "/bucket/key", nil)
+		r.Header.Set(header, "x")
+		op := classify("s3", r, nil)
+		assert.Equal(t, permissions.Write, op.level, header)
+		assert.True(t, op.once, header)
+	}
+	op := call{service: "s3", method: "PUT", path: "/bucket/key?acl"}.classify()
+	assert.True(t, op.once, "an ACL put")
+}
+
+func TestAccessControlChanges(t *testing.T) {
+	for _, c := range []call{
+		{service: "iam", form: "Action=CreateUser"},
+		{service: "iam", form: "Action=AttachRolePolicy"},
+		{service: "iam", form: "Action=DeleteRolePolicy"},
+		{service: "cloudformation", form: "Action=SetStackPolicy"},
+	} {
+		assert.Equal(t, permissions.AccessControl, c.classify().level, "%+v", c)
+	}
+	// The words are read in the operation's name alone.
+	op := call{service: "ec2", form: "Action=ModifyImageAttribute&LaunchPermission.Add.1.UserId=1"}.classify()
+	assert.Equal(t, permissions.Write, op.level)
+	for _, c := range []call{
+		{service: "iam", form: "Action=GetRolePolicy"},
+		{service: "iam", form: "Action=ListPolicies"},
+		{service: "iam", form: "Action=SimulatePrincipalPolicy"},
+		{service: "s3", method: "PUT", path: "/bucket?policy"},
+	} {
+		assert.NotEqual(t, permissions.AccessControl, c.classify().level, "%+v", c)
+	}
+}
+
+// Each field a request reaches the decision with: service, operation (a
+// REST row's method), resource and level.
+func TestEveryFieldIsFilled(t *testing.T) {
+	for _, c := range []struct {
+		call               call
+		op, resource, name string
+		level              permissions.AccessLevel
+	}{
+		{call{service: "ec2", form: "Action=StartInstances"}, "StartInstances", "", "", permissions.Write},
+		{call{service: "logs", target: "Logs_20140328.PutLogEvents", body: `{}`}, "PutLogEvents", "", "", permissions.Write},
+		{call{service: "s3", method: "PUT", path: "/bucket/a/b"}, "PUT", "object", "bucket/a/b", permissions.Write},
+		{call{service: "s3", method: "GET", path: "/bucket/a/b"}, "GET", "object", "bucket/a/b", permissions.DataRead},
+		{call{service: "s3", method: "PUT", path: "/bucket?policy"}, "PUT", "bucket", "bucket", permissions.Write},
+		{call{service: "s3", method: "DELETE", path: "/bucket"}, "DELETE", "bucket", "bucket", permissions.Destructive},
+		{call{service: "eks", method: "DELETE", path: "/clusters/c"}, "DELETE", "", "", permissions.Destructive},
+		{call{service: "iam", form: "Action=CreateRole"}, "CreateRole", "", "", permissions.AccessControl},
+	} {
+		op := c.call.classify()
+		assert.Equal(t, c.op, op.operation, "%+v", c.call)
+		assert.Equal(t, c.resource, op.resource, "%+v", c.call)
+		assert.Equal(t, c.name, op.object, "%+v", c.call)
+		assert.Equal(t, c.level, op.level, "%+v", c.call)
+	}
 }

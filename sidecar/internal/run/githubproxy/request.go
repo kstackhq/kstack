@@ -28,13 +28,11 @@ import (
 // name; the user has the commits in the workspace.
 const unshownPack = "a Git pack of the commits pushed; an update may rewrite history"
 
-// apiRequest is an API request that asks, as the user is shown it: its
-// method and path, and body, the bytes sent.
-func apiRequest(r *http.Request, host string, class permissions.Class, body []byte) runproxy.Request {
-	return runproxy.Request{
-		Action: permissions.Action{Class: class, Summary: "GitHub: " + r.Method + " " + r.URL.Path},
-		Sent:   sentOf(r, host, body, headerDetails(r.Header)),
-	}
+// apiRequest is an API request that is decided, as the user is shown it:
+// its method and path, and body, the bytes sent.
+func apiRequest(r *http.Request, host string, act permissions.Action, body []byte) runproxy.Request {
+	act.Summary = "GitHub: " + r.Method + " " + r.URL.Path
+	return runproxy.Request{Action: act, Sent: sentOf(r, host, body, headerDetails(r.Header))}
 }
 
 // graphQLRequest is a GraphQL mutation as the user is shown it: each
@@ -51,25 +49,19 @@ func graphQLRequest(r *http.Request, host string, g graphQL, body []byte) runpro
 	if v := r.Header.Get("GraphQL-Features"); v != "" {
 		details = append(details, runproxy.Detail{Label: "Features", Value: v})
 	}
-	return runproxy.Request{
-		Action: permissions.Action{Class: g.class(), Summary: "GitHub: GraphQL " + strings.Join(g.mutations, ", ")},
-		Sent:   sentOf(r, host, body, details),
-	}
+	act := g.action()
+	act.Summary = "GitHub: GraphQL " + strings.Join(g.mutations, ", ")
+	return runproxy.Request{Action: act, Sent: sentOf(r, host, body, details)}
 }
 
 // pushRequest is a push as the user is shown it: the repository and each
 // ref and option, its pack unshown.
 func pushRequest(r *http.Request, host, repo string, p push) runproxy.Request {
-	class := permissions.UpstreamWrite
-	if p.deletes() {
-		class = permissions.Destructive
-	}
+	act := gitAction(repo, p)
+	act.Summary = "GitHub: push to " + repo
 	sent := sentOf(r, host, nil, p.details(repo))
 	sent.Unshown = unshownPack
-	return runproxy.Request{
-		Action: permissions.Action{Class: class, Summary: "GitHub: push to " + repo},
-		Sent:   sent,
-	}
+	return runproxy.Request{Action: act, Sent: sent}
 }
 
 func sentOf(r *http.Request, host string, body []byte, details []runproxy.Detail) runproxy.Sent {

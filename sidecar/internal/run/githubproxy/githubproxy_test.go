@@ -110,28 +110,46 @@ func (f *fakeTokens) Refused(token string) {
 	}
 }
 
-// fakeAsker hands each request asked to the test and waits for its answer.
+// fakeAsker hands each request asked to the test and waits for its answer,
+// an approval holding for duration, and hands each record to the test.
 type fakeAsker struct {
-	asked   chan runproxy.Request
-	answers chan bool
+	asked    chan runproxy.Request
+	answers  chan bool
+	recorded chan record
+	duration permissions.Duration
+}
+
+// record is one request recorded with nobody asked.
+type record struct {
+	req    runproxy.Request
+	d      permissions.Decision
+	reason string
 }
 
 func newFakeAsker() *fakeAsker {
-	return &fakeAsker{asked: make(chan runproxy.Request, 4), answers: make(chan bool, 4)}
+	return &fakeAsker{asked: make(chan runproxy.Request, 4), answers: make(chan bool, 4), recorded: make(chan record, 8), duration: permissions.DurationOnce}
 }
 
-func (a *fakeAsker) Ask(ctx context.Context, r runproxy.Request) (bool, error) {
+func (a *fakeAsker) Ask(ctx context.Context, r runproxy.Request) (permissions.Answer, error) {
 	a.asked <- r
 	select {
 	case ok := <-a.answers:
-		return ok, nil
+		return permissions.Answer{Approved: ok, Duration: a.duration}, nil
 	case <-ctx.Done():
-		return false, ctx.Err()
+		return permissions.Answer{}, ctx.Err()
 	}
 }
 
-func (*fakeAsker) Record(context.Context, runproxy.Request, permissions.Decision, string) error {
+func (a *fakeAsker) Record(_ context.Context, r runproxy.Request, d permissions.Decision, reason string) error {
+	a.recorded <- record{r, d, reason}
 	return nil
+}
+
+// sessionIn is a chat's session whose every account has mode, under rules.
+func sessionIn(mode permissions.Mode, rules ...permissions.Rule) session.Session {
+	return session.Session{Kind: session.Chat, Policy: func(context.Context, permissions.Target, string) permissions.Policy {
+		return permissions.Policy{Mode: mode, Rules: rules}
+	}}
 }
 
 // harness is a proxy over a fake GitHub, served on plain HTTP as the run's
@@ -150,8 +168,13 @@ func newHarness(t *testing.T, asker runproxy.Asker) *harness {
 }
 
 func newHarnessWith(t *testing.T, asker runproxy.Asker, limits runproxy.Limits) *harness {
+	return newHarnessIn(t, asker, limits, sessionIn(permissions.ModeAsk))
+}
+
+// newHarnessIn is a proxy whose grant runs under sess.
+func newHarnessIn(t *testing.T, asker runproxy.Asker, limits runproxy.Limits, sess session.Session) *harness {
 	h := &harness{git: newUpstream(t), api: newUpstream(t), tokens: &fakeTokens{token: "users-own-token"}}
-	h.grant = runproxy.NewGrant(permissions.GitHub, func(context.Context) bool { return !h.off.Load() }, session.Session{Kind: session.Chat}, asker, "kstack: nobody can be asked.", limits)
+	h.grant = runproxy.NewGrant(permissions.GitHub, func(context.Context) bool { return !h.off.Load() }, sess, asker, "kstack: nobody can be asked.", limits)
 	t.Cleanup(h.grant.End)
 	client := h.git.srv.Client()
 	pool := client.Transport.(*http.Transport).TLSClientConfig.RootCAs
@@ -407,7 +430,7 @@ func TestACredentialPathIsRefusedUnasked(t *testing.T) {
 	assert.Empty(t, h.api.seen)
 }
 
-// A data read asks in class 6, and once approved its answer's link to
+// A data read asks under ask mode, and once approved its answer's link to
 // another host passes; a read's never does.
 func TestARedirectToAnotherHostNeedsAnApprovedDataRead(t *testing.T) {
 	t.Parallel()
@@ -427,8 +450,10 @@ func TestARedirectToAnotherHostNeedsAnApprovedDataRead(t *testing.T) {
 	a.answers <- true
 	resp, _ = h.do(t, http.MethodGet, apiURL+"/repos/o/r/actions/runs/1/logs", "", nil)
 	asked := testutil.Recv(t, a.asked, "the data read")
-	assert.Equal(t, permissions.Action{Target: permissions.GitHub, Class: permissions.SecretRead,
-		Summary: "GitHub: GET /repos/o/r/actions/runs/1/logs"}, asked.Action)
+	assert.Equal(t, permissions.Action{
+		Principal: permissions.Chat, Target: permissions.GitHub, Scope: "o/r", AccountName: "o", Service: "api", Operation: "get",
+		Resource: "actions", AccessLevel: permissions.DataRead, Summary: "GitHub: GET /repos/o/r/actions/runs/1/logs",
+	}, asked.Action)
 	assert.Equal(t, http.StatusFound, resp.StatusCode)
 	assert.Equal(t, "https://results.example/signed?sig=x", resp.Header.Get("Location"))
 	assert.Equal(t, "/repos/o/r/actions/runs/1/logs", testutil.Recv(t, h.api.seen, "the approved read").uri)
@@ -552,7 +577,13 @@ func TestAnAPIChangeShowsWhatIsSent(t *testing.T) {
 	})
 	asked := testutil.Recv(t, a.asked, "the change")
 	assert.Equal(t, runproxy.Request{
-		Action: permissions.Action{Target: permissions.GitHub, Class: permissions.UpstreamWrite, Summary: "GitHub: POST /repos/o/r/issues"},
+		Action: permissions.Action{
+			Principal: permissions.Chat, Target: permissions.GitHub, Scope: "o/r", AccountName: "o", Service: "api", Operation: "post",
+			Resource: "issues", AccessLevel: permissions.Write, Summary: "GitHub: POST /repos/o/r/issues",
+		},
+		Grantable:   true,
+		CommandRule: "Allow post of api issues in GitHub o / r for this command",
+		ChatRule:    "Allow writes in GitHub o / r",
 		Sent: runproxy.Sent{
 			Host: h.api.srv.Listener.Addr().String(), Method: http.MethodPost, Path: "/repos/o/r/issues?x=1",
 			ContentType: "application/json", Body: []byte(body),
@@ -567,7 +598,10 @@ func TestAnAPIChangeShowsWhatIsSent(t *testing.T) {
 	doc := `{"query":"mutation M { gone: deleteRef(input: {refId: \"x\"}) { clientMutationId } }","operationName":"M"}`
 	h.do(t, http.MethodPost, apiURL+"/graphql", doc, http.Header{"Content-Type": {"application/json"}, "Graphql-Features": {"preview"}})
 	asked = testutil.Recv(t, a.asked, "the mutation")
-	assert.Equal(t, permissions.Action{Target: permissions.GitHub, Class: permissions.Destructive, Summary: "GitHub: GraphQL deleteRef"}, asked.Action)
+	assert.Equal(t, permissions.Action{
+		Principal: permissions.Chat, Target: permissions.GitHub, Service: "graphql", Operation: "mutation", Resource: "graphql",
+		AccessLevel: permissions.Destructive, Summary: "GitHub: GraphQL deleteRef",
+	}, asked.Action)
 	assert.Equal(t, []runproxy.Detail{{Label: "Mutation", Value: "deleteRef"}, {Label: "Operation", Value: "M"}, {Label: "Features", Value: "preview"}}, asked.Sent.Details)
 	assert.Equal(t, doc, string(asked.Sent.Body))
 	assert.Equal(t, doc, testutil.Recv(t, h.api.seen, "the mutation").body)
@@ -611,7 +645,7 @@ func TestOnlyAnApprovedChangeReachesGitHub(t *testing.T) {
 	h := newHarness(t, a)
 	a.answers <- false
 	resp, body := h.do(t, http.MethodDelete, apiURL+"/repos/o/r", "", nil)
-	assert.Equal(t, permissions.Destructive, testutil.Recv(t, a.asked, "the delete").Action.Class)
+	assert.Equal(t, permissions.Destructive, testutil.Recv(t, a.asked, "the delete").Action.AccessLevel)
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
 	assert.Contains(t, message(t, body), "did not approve")
 
@@ -629,7 +663,7 @@ func TestOnlyAnApprovedChangeReachesGitHub(t *testing.T) {
 }
 
 // A ref deleted by push, by REST under either form of its path, or by
-// GraphQL asks in class 5.
+// GraphQL is destructive.
 func TestADeletedRefIsDestructive(t *testing.T) {
 	t.Parallel()
 	a := newFakeAsker()
@@ -642,7 +676,7 @@ func TestADeletedRefIsDestructive(t *testing.T) {
 	} {
 		a.answers <- false
 		resp, _ := h.do(t, c.method, c.url, c.body, jsonType)
-		assert.Equal(t, permissions.Destructive, testutil.Recv(t, a.asked, name).Action.Class, name)
+		assert.Equal(t, permissions.Destructive, testutil.Recv(t, a.asked, name).Action.AccessLevel, name)
 		assert.Equal(t, http.StatusForbidden, resp.StatusCode, name)
 	}
 	assert.Empty(t, h.api.seen)
@@ -660,7 +694,10 @@ func TestAPushAsksAndIsForwardedWhole(t *testing.T) {
 	resp, _ := h.do(t, http.MethodPost, gitURL+"/o/r.git/git-receive-pack", body, http.Header{"Content-Type": {"application/x-git-receive-pack-request"}})
 	asked := testutil.Recv(t, a.asked, "the push")
 	assert.Equal(t, runproxy.Request{
-		Action: permissions.Action{Target: permissions.GitHub, Class: permissions.UpstreamWrite, Summary: "GitHub: push to o/r"},
+		Action: permissions.Action{
+			Principal: permissions.Chat, Target: permissions.GitHub, Scope: "o/r", AccountName: "o", Service: "git", Operation: "push",
+			Resource: "git-receive-pack", AccessLevel: permissions.Write, Once: true, Summary: "GitHub: push to o/r",
+		},
 		Sent: runproxy.Sent{
 			Host: h.git.srv.Listener.Addr().String(), Method: http.MethodPost, Path: "/o/r.git/git-receive-pack",
 			ContentType: "application/x-git-receive-pack-request", Unshown: unshownPack,
@@ -916,4 +953,107 @@ func TestATruncatedAnswerIsNotCompleted(t *testing.T) {
 	body, err := io.ReadAll(resp.Body)
 	assert.Error(t, err, "the client sees the answer broken off")
 	assert.Equal(t, "the first half", string(body))
+}
+
+// limits are a harness's default limits.
+var limits = runproxy.Limits{QPS: 1000, Burst: 1000, Open: 8, Bodies: 8, Challenges: true}
+
+// githubRule is a GitHub rule of effect at level in scope, naming everything
+// else by "*".
+func githubRule(effect permissions.Effect, level permissions.AccessLevel, scope string) permissions.Rule {
+	return permissions.Rule{ID: string(effect), Effect: effect, AccessLevel: level, Principal: "*", Target: "github",
+		Scope: scope, Service: "*", Operation: "*", Resource: "*"}
+}
+
+func TestARuleAndAModeDecideAGitHubAction(t *testing.T) {
+	t.Parallel()
+	const issue = "/repos/o/r/issues"
+	t.Run("auto forwards a write unasked and records it", func(t *testing.T) {
+		t.Parallel()
+		a := newFakeAsker()
+		h := newHarnessIn(t, a, limits, sessionIn(permissions.ModeAuto))
+		resp, _ := h.do(t, http.MethodPost, apiURL+issue, "{}", jsonType)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		rec := testutil.Recv(t, a.recorded, "the record")
+		assert.Equal(t, permissions.Allowed, rec.d)
+		assert.Equal(t, "auto mode", rec.reason)
+		testutil.Recv(t, h.api.seen, "the write")
+		assert.Empty(t, a.asked)
+	})
+	t.Run("read-only denies", func(t *testing.T) {
+		t.Parallel()
+		a := newFakeAsker()
+		h := newHarnessIn(t, a, limits, sessionIn(permissions.ModeReadOnly))
+		resp, body := h.do(t, http.MethodPost, apiURL+issue, "{}", jsonType)
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+		assert.Contains(t, message(t, body), "this account is read-only")
+		assert.Equal(t, permissions.Denied, testutil.Recv(t, a.recorded, "the record").d)
+		assert.Empty(t, h.api.seen)
+	})
+	t.Run("an allow rule forwards", func(t *testing.T) {
+		t.Parallel()
+		a := newFakeAsker()
+		h := newHarnessIn(t, a, limits, sessionIn(permissions.ModeAsk, githubRule(permissions.Allow, permissions.Write, "o/**")))
+		resp, _ := h.do(t, http.MethodPost, apiURL+issue, "{}", jsonType)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.Equal(t, "a rule allows it: Allow writes anywhere in GitHub o", testutil.Recv(t, a.recorded, "the record").reason)
+		assert.Empty(t, a.asked)
+
+		// A change off the ordinary table still asks.
+		a.answers <- false
+		resp, _ = h.do(t, http.MethodPost, apiURL+"/repos/o/r/transfer", "{}", jsonType)
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+		assert.False(t, testutil.Recv(t, a.asked, "the transfer").Grantable)
+	})
+	t.Run("a deny rule refuses", func(t *testing.T) {
+		t.Parallel()
+		a := newFakeAsker()
+		h := newHarnessIn(t, a, limits, sessionIn(permissions.ModeAuto, githubRule(permissions.Deny, permissions.Write, "*")))
+		resp, body := h.do(t, http.MethodPost, apiURL+issue, "{}", jsonType)
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+		assert.Contains(t, message(t, body), "a rule denies it")
+		assert.Empty(t, h.api.seen)
+	})
+	t.Run("a command answer allows the next", func(t *testing.T) {
+		t.Parallel()
+		a := newFakeAsker()
+		a.duration = permissions.DurationCommand
+		h := newHarness(t, a)
+		a.answers <- true
+		resp, _ := h.do(t, http.MethodPost, apiURL+issue, "{}", jsonType)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		testutil.Recv(t, a.asked, "the first")
+		resp, _ = h.do(t, http.MethodPost, apiURL+issue, "{}", jsonType)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.Equal(t, permissions.Allowed, testutil.Recv(t, a.recorded, "the second's record").d)
+		assert.Empty(t, a.asked)
+	})
+	t.Run("a data read in the account runs under auto; one by id asks", func(t *testing.T) {
+		t.Parallel()
+		a := newFakeAsker()
+		h := newHarnessIn(t, a, limits, sessionIn(permissions.ModeAuto))
+		resp, _ := h.do(t, http.MethodGet, apiURL+"/repos/o/r/actions/runs/1/logs", "", nil)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.Equal(t, permissions.Allowed, testutil.Recv(t, a.recorded, "the record").d)
+		testutil.Recv(t, h.api.seen, "the read")
+
+		a.answers <- false
+		h.do(t, http.MethodGet, apiURL+"/repositories/42/actions/runs/1/logs", "", nil)
+		asked := testutil.Recv(t, a.asked, "the read by id")
+		assert.False(t, asked.Grantable)
+	})
+}
+
+// What the classifier read is what is recorded: no field is dropped on the
+// way to the decision.
+func TestNoProxyDropsAFieldBeforeTheDecision(t *testing.T) {
+	t.Parallel()
+	a := newFakeAsker()
+	h := newHarnessIn(t, a, limits, sessionIn(permissions.ModeAuto))
+	h.do(t, http.MethodPatch, apiURL+"/repos/O/R/issues/3", "{}", jsonType)
+	rec := testutil.Recv(t, a.recorded, "the record")
+	want := classifyAPI(http.MethodPatch, "/repos/O/R/issues/3", "").act
+	want.Principal, want.Target, want.Summary = permissions.Chat, permissions.GitHub, "GitHub: PATCH /repos/O/R/issues/3"
+	assert.Equal(t, want, rec.req.Action)
+	assert.Equal(t, "o/r", rec.req.Action.Scope)
 }

@@ -92,7 +92,7 @@ func (p *fakePlatform) Mount(_ context.Context, run CloudRun) (CloudMount, error
 			return
 		}
 		out := g.Decide(r.Context(), runproxy.Request{
-			Action: permissions.Action{Class: permissions.UpstreamWrite, Summary: "change " + string(p.target)},
+			Action: permissions.Action{AccessLevel: permissions.Write, Scope: "account/place", AccountName: "account", Service: "svc", Operation: "change", Resource: "thing", Summary: "change " + string(p.target)},
 			Sent:   runproxy.Sent{Host: "upstream.example", Method: r.Method, Path: r.URL.RequestURI()},
 		}, func() error {
 			_, err := fmt.Fprint(w, "changed")
@@ -117,6 +117,14 @@ func (p *fakePlatform) Mount(_ context.Context, run CloudRun) (CloudMount, error
 	}
 	p.mounts <- fakeMount{run, g}
 	return CloudMount{Routes: routes, Env: env, Grant: g}, nil
+}
+
+// askSession is a chat's, asking for every change, as a fresh Settings does.
+var askSession = session.Session{
+	Kind: session.Chat,
+	Policy: func(context.Context, permissions.Target, string) permissions.Policy {
+		return permissions.Policy{Mode: permissions.ModeAsk}
+	},
 }
 
 // switchedOn is a cloud platform's switch that is always on.
@@ -235,18 +243,19 @@ func TestACloudRequestReachesTheAskerWhole(t *testing.T) {
 	a := newAnsweringAsker()
 	a.answers <- true
 	req := runproxy.Request{
-		Action: permissions.Action{Target: permissions.AWS, Class: permissions.UpstreamWrite, Summary: "AWS: call ec2:X"},
+		Action:    permissions.Action{Target: permissions.AWS, AccessLevel: permissions.Write, Scope: "123456789012/eu-west-1", Service: "ec2", Operation: "X", Summary: "AWS: call ec2:X"},
+		Grantable: true, CommandRule: "Allow X of ec2 \"\" in AWS 123456789012 / eu-west-1 for this command", ChatRule: "Allow writes in AWS 123456789012 / eu-west-1",
 		Sent: runproxy.Sent{
 			Host: "ec2.amazonaws.com", Method: "POST", Path: "/?a=1", ContentType: "text/plain",
 			Body: []byte("Action=X"), Unshown: "", Details: []runproxy.Detail{{Label: "Region", Value: "eu-west-1"}},
 		},
 	}
-	approved, err := cloudAsker{a}.Ask(t.Context(), req)
+	answer, err := cloudAsker{a}.Ask(t.Context(), req)
 	require.NoError(t, err)
-	assert.True(t, approved)
+	assert.Equal(t, permissions.Answer{Approved: true, Duration: permissions.DurationOnce}, answer, "the answer carries its duration")
 	got := testutil.Recv(t, a.asked, "the request")
 	assert.Equal(t, tools.ActionRequest{
-		Action: req.Action,
+		Action: req.Action, Grantable: true, CommandRule: req.CommandRule, ChatRule: req.ChatRule,
 		Cloud: &tools.CloudRequest{
 			Host: "ec2.amazonaws.com", Method: "POST", Path: "/?a=1", ContentType: "text/plain",
 			Body: "Action=X", Details: []tools.Detail{{Label: "Region", Value: "eu-west-1"}},
@@ -301,4 +310,18 @@ func assertNoUserCanSet(t *testing.T, env []string) {
 		name, _, _ := strings.Cut(kv, "=")
 		assert.Error(t, envvars.Check(name, "", envvars.Sandbox), "the user could set %s", name)
 	}
+}
+
+// durationAsker answers every Ask approved for the command.
+type durationAsker struct{ *answeringAsker }
+
+func (durationAsker) Ask(context.Context, tools.ActionRequest) (tools.Answer, error) {
+	return tools.Answer{Approved: true, Duration: permissions.DurationCommand}, nil
+}
+
+// The user's duration reaches the grant, so a command answer adds its rule.
+func TestACloudAnswerCarriesItsDuration(t *testing.T) {
+	answer, err := cloudAsker{durationAsker{newAnsweringAsker()}}.Ask(t.Context(), runproxy.Request{})
+	require.NoError(t, err)
+	assert.Equal(t, permissions.Answer{Approved: true, Duration: permissions.DurationCommand}, answer)
 }

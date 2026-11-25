@@ -21,6 +21,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 )
 
 // policyCase is one request and what the policy answers it.
@@ -164,5 +166,26 @@ func TestThePathParse(t *testing.T) {
 		"/openapi/v3": {kind: nonResourcePath},
 	} {
 		assert.Equal(t, want, parsePath(path), path)
+	}
+}
+
+// Each refusal of something that reaches past the API server, a credential
+// included, is the reach level, which the boundary never allows; every other
+// refusal has no level.
+func TestEachRefusalIsReach(t *testing.T) {
+	for _, why := range []refusal{refusedReach, refusedToken} {
+		level, ok := classifyRefusal(why)
+		assert.True(t, ok, why)
+		assert.Equal(t, permissions.Reach, level, why)
+		for _, principal := range permissions.Principals {
+			act := permissions.Action{Principal: principal, Target: permissions.Kubernetes, Scope: "c1", AccessLevel: level}
+			allow := permissions.Rule{Effect: permissions.Allow, AccessLevel: level, Principal: "*", Target: "*", Scope: "*", Service: "*", Operation: "*", Resource: "*"}
+			v, _ := permissions.Policy{Mode: permissions.ModeAuto, Rules: []permissions.Rule{allow}}.Authorize(act)
+			assert.Equal(t, permissions.Deny, v.Effect, "%s %s", why, principal)
+		}
+	}
+	for _, why := range []refusal{pass, refusedMethod, refusedPath, refusedDenied, refusedQuery} {
+		_, ok := classifyRefusal(why)
+		assert.False(t, ok, why)
 	}
 }
