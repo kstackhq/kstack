@@ -76,6 +76,9 @@ type Grant struct {
 	// is forwarded; waiters bounds the requests waiting for it.
 	lock    *semaphore.Weighted
 	waiters *semaphore.Weighted
+	// waitersMoved, when set, is told each request that starts or stops waiting
+	// for lock, so a test can count them.
+	waitersMoved func(delta int)
 	// commandRules are the rules the command's answers added, for the rest of
 	// the command. Guarded by lock.
 	commandRules []permissions.Rule
