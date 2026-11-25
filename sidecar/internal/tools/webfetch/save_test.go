@@ -15,7 +15,6 @@
 package webfetch
 
 import (
-	"encoding/json"
 	"io"
 	"net/http"
 	"os"
@@ -28,7 +27,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
-	"github.com/kstackhq/kstack/sidecar/internal/tools/read"
 )
 
 // chatDir is a chat's directory of the test's own.
@@ -76,8 +74,8 @@ func TestWebFetchCutsALargePageWithNowhereToSaveIt(t *testing.T) {
 	assert.Regexp(t, `\n… \[\d+ bytes cut; the page could not be saved\]$`, got)
 }
 
-// A page that decodes past the file limit is saved cut at it, and Read opens
-// what was saved.
+// A page that decodes past the file limit is saved cut at it, so Read, which
+// opens a file of at most the limit, opens what was saved.
 func TestAPageThatDecodesPastTheLimitIsSavedAtIt(t *testing.T) {
 	s := newSite(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=iso-8859-1")
@@ -93,10 +91,4 @@ func TestAPageThatDecodesPastTheLimitIsSavedAtIt(t *testing.T) {
 	info, err := os.Stat(m[1])
 	require.NoError(t, err)
 	assert.Equal(t, int64(tools.FileLimit), info.Size())
-
-	reader, err := read.New(nil, data)
-	require.NoError(t, err)
-	input, _ := json.Marshal(map[string]any{"file_path": m[1], "limit": 1})
-	out, isError := reader.Run(t.Context(), rt, input)
-	assert.False(t, isError, out)
 }

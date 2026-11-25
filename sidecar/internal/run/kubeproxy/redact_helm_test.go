@@ -35,15 +35,21 @@ func releaseValue(t *testing.T, release string, zipped bool) string {
 	t.Helper()
 	body := []byte(release)
 	if zipped {
-		var buf bytes.Buffer
-		zw := gzip.NewWriter(&buf)
-		_, err := zw.Write(body)
-		require.NoError(t, err)
-		require.NoError(t, zw.Close())
-		body = buf.Bytes()
+		body = gzipped(t, body)
 	}
 	helm := base64.StdEncoding.EncodeToString(body)
 	return base64.StdEncoding.EncodeToString([]byte(helm))
+}
+
+// gzipped is body as one gzip stream.
+func gzipped(t *testing.T, body []byte) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	_, err := zw.Write(body)
+	require.NoError(t, err)
+	require.NoError(t, zw.Close())
+	return buf.Bytes()
 }
 
 // releaseBytes is a data.release value's JSON, read as helm's decodeRelease
@@ -180,17 +186,12 @@ func TestAHelmReleasesSecretsAreRedacted(t *testing.T) {
 // cannot read, fails closed.
 func TestAReleaseThatDoesNotDecodeFailsClosed(t *testing.T) {
 	b64 := func(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
-	var bomb bytes.Buffer
-	zw := gzip.NewWriter(&bomb)
-	_, err := zw.Write(make([]byte, maxRelease+1))
-	require.NoError(t, err)
-	require.NoError(t, zw.Close())
+	zipped := gzipped(t, make([]byte, 1<<10))
 
 	for name, value := range map[string]string{
 		"bad outer base64":      "not base64!",
 		"bad inner base64":      b64("not base64!"),
 		"bad gzip":              b64(b64("\x1f\x8b\x08garbage")),
-		"past the limit":        b64(base64.StdEncoding.EncodeToString(bomb.Bytes())),
 		"bad JSON":              releaseValue(t, `{"name":`, true),
 		"not an object":         releaseValue(t, `null`, true),
 		"config not object":     releaseValue(t, `{"config":["hunter2"]}`, true),
@@ -208,13 +209,25 @@ func TestAReleaseThatDoesNotDecodeFailsClosed(t *testing.T) {
 		"a bad SecretList item": releaseValue(t, `{"manifest":`+marshaled("kind: SecretList\nitems:\n- data: x\n")+`}`, true),
 		"a null hook":           releaseValue(t, `{"hooks":[null]}`, true),
 		"a bad hook manifest":   releaseValue(t, `{"hooks":[{"manifest":`+marshaled("kind: [Secret")+`}]}`, true),
-		"a cut gzip":            b64(base64.StdEncoding.EncodeToString(bomb.Bytes()[:40])),
+		"a cut gzip":            b64(base64.StdEncoding.EncodeToString(zipped[:len(zipped)/2])),
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := redactRelease(value)
 			assert.ErrorIs(t, err, errUnredactable)
 		})
 	}
+}
+
+// A release that inflates past the limit fails closed; one at it inflates.
+func TestAReleasePastTheLimitFailsClosed(t *testing.T) {
+	const size = 1 << 10
+	zipped := gzipped(t, make([]byte, size))
+
+	_, err := gunzip(zipped, size-1)
+	assert.ErrorIs(t, err, errUnredactable)
+	out, err := gunzip(zipped, size)
+	require.NoError(t, err)
+	assert.Len(t, out, size)
 }
 
 // The walk redacts a helm release Secret's data.release inside, and its other

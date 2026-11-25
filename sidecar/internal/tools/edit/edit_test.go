@@ -637,18 +637,19 @@ func TestEditReadsItsInput(t *testing.T) {
 		assert.ErrorIs(t, err, errInput, raw)
 	}
 
-	full := strings.Repeat("x", tools.FileLimit)
+	const limit = 16
+	full := strings.Repeat("x", limit)
 	over := full + "x"
 	for _, c := range []struct {
 		old, new string
 		ok       bool
 	}{{full, "y", true}, {"y", full, true}, {over, "y", false}, {"y", over, false}} {
 		raw, _ := json.Marshal(map[string]string{"file_path": "/a", "old_string": c.old, "new_string": c.new})
-		_, err := parse(raw)
+		_, err := parseWithin(raw, limit)
 		if c.ok {
-			assert.NoError(t, err, "FileLimit bytes")
+			assert.NoError(t, err, "limit bytes")
 		} else {
-			assert.ErrorIs(t, err, errInput, "past FileLimit")
+			assert.ErrorIs(t, err, errInput, "past the limit")
 		}
 	}
 }

@@ -308,13 +308,20 @@ func TestALongResultIsSaved(t *testing.T) {
 // whole rows, and says rows were left out.
 func TestARenderPastTheFileLimitStopsAtARow(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "c1")
-	text, _ := New(wide(9, 1<<20)).Run(t.Context(), tools.Runtime{ClusterID: "7", Dir: chatDir(dir)},
+	tool := New(wide(9, 8<<10))
+	tool.fileLimit = 60 << 10
+	text, _ := tool.Run(t.Context(), tools.Runtime{ClusterID: "7", Dir: chatDir(dir)},
 		json.RawMessage(`{"sql":"SELECT body FROM objects"}`))
 
 	res, raw := savedResult(t, text)
 	assert.Len(t, res["rows"], 7)
 	assert.Equal(t, true, res["more"])
-	assert.LessOrEqual(t, len(raw), tools.FileLimit)
+	assert.LessOrEqual(t, len(raw), tool.fileLimit)
+}
+
+// A saved answer is bounded by the file limit, the largest file Read opens.
+func TestASavedAnswerIsBoundedByTheFileLimit(t *testing.T) {
+	assert.Equal(t, tools.FileLimit, New(nil).fileLimit)
 }
 
 // With nowhere to save, the answer is the render again within the inline limit: whole

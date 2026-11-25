@@ -1112,16 +1112,15 @@ func TestTheSavedFileIsRedactedWhole(t *testing.T) {
 	assert.Contains(t, k.saved, "-----BEGIN RSA PRIVATE KEY-----[redacted]")
 }
 
-// Output past the file limit keeps the limit's worth, and the block says how
-// much the command wrote that the file lacks.
+// Output the command wrote past the file limit is named in the block. Fit's own
+// test checks the cut at the limit.
 func TestOutputPastTheFileLimitSaysWhatWasNotKept(t *testing.T) {
-	r := result{Output: strings.Repeat("x", tools.FileLimit), Discarded: 100}
+	r := result{Output: strings.Repeat("x", tools.InlineLimit+100), Discarded: 100}
 	var k keep
 
 	got := resultText(r, time.Minute, k.save, unconfined)
 
-	assert.Len(t, k.saved, tools.FileLimit)
-	assert.Contains(t, got, "Output too large (8MB). Full output saved to: /results/c1/X.txt; 100 bytes past the limit were not kept\n")
+	assert.Contains(t, got, "Output too large (29.5KB). Full output saved to: /results/c1/X.txt; 100 bytes past the limit were not kept\n")
 }
 
 // A save that failed falls back to the cut, with a note in words of the

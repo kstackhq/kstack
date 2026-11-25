@@ -516,11 +516,15 @@ type input struct {
 	All  bool
 }
 
-// parse reads an object whose keys are file_path, old_string, new_string and
-// replace_all, each spelled exactly and at most once, with nothing after it, as
-// write's parse does. Each value's type is checked off its token, since a
-// typed decode takes null as the zero value.
-func parse(raw json.RawMessage) (input, error) {
+// parse is parseWithin tools.FileLimit, the bound a call's strings take.
+func parse(raw json.RawMessage) (input, error) { return parseWithin(raw, tools.FileLimit) }
+
+// parseWithin reads an object whose keys are file_path, old_string, new_string
+// and replace_all, each spelled exactly and at most once, with nothing after
+// it, as write's does, and whose strings are each at most limit bytes. Each
+// value's type is checked off its token, since a typed decode takes null as
+// the zero value.
+func parseWithin(raw json.RawMessage, limit int) (input, error) {
 	var in input
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
@@ -563,7 +567,7 @@ func parse(raw json.RawMessage) (input, error) {
 		return input{}, errInput
 	}
 	if in.Path == "" || !seen["old_string"] || !seen["new_string"] ||
-		len(in.Old) > tools.FileLimit || len(in.New) > tools.FileLimit {
+		len(in.Old) > limit || len(in.New) > limit {
 		return input{}, errInput
 	}
 	return in, nil

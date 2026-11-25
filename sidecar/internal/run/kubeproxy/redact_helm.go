@@ -66,7 +66,7 @@ func decodeRelease(value string) (map[string]json.RawMessage, error) {
 		return nil, fmt.Errorf("%w: a release that is not base64", errUnredactable)
 	}
 	if bytes.HasPrefix(body, gzipMagic) {
-		if body, err = gunzip(body); err != nil {
+		if body, err = gunzip(body, maxRelease); err != nil {
 			return nil, err
 		}
 	}
@@ -77,18 +77,18 @@ func decodeRelease(value string) (map[string]json.RawMessage, error) {
 	return release, nil
 }
 
-// gunzip inflates body, refusing one past maxRelease.
-func gunzip(body []byte) ([]byte, error) {
+// gunzip inflates body, refusing one past limit bytes.
+func gunzip(body []byte, limit int) ([]byte, error) {
 	zr, err := gzip.NewReader(bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("%w: a release that is not gzip", errUnredactable)
 	}
-	out, err := io.ReadAll(io.LimitReader(zr, maxRelease+1))
+	out, err := io.ReadAll(io.LimitReader(zr, int64(limit)+1))
 	if err != nil {
 		return nil, fmt.Errorf("%w: a release that is not gzip", errUnredactable)
 	}
-	if len(out) > maxRelease {
-		return nil, fmt.Errorf("%w: a release past %d bytes", errUnredactable, maxRelease)
+	if len(out) > limit {
+		return nil, fmt.Errorf("%w: a release past %d bytes", errUnredactable, limit)
 	}
 	return out, nil
 }
