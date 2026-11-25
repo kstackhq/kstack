@@ -177,9 +177,15 @@ type fakeIssuer struct {
 	tokens     []string
 }
 
+// issuerKey is the signing key every fake issuer shares: generating one is
+// slow, and no test needs two issuers' keys to differ.
+var issuerKey = sync.OnceValues(func() (*rsa.PrivateKey, error) {
+	return rsa.GenerateKey(rand.Reader, 2048)
+})
+
 func newFakeIssuer(t *testing.T) *fakeIssuer {
 	t.Helper()
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	key, err := issuerKey()
 	require.NoError(t, err)
 	f := &fakeIssuer{
 		t: t, key: key,
