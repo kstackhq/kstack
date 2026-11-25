@@ -1,6 +1,6 @@
 # src/components/settings — the settings dialog
 
-The settings dialog and the folder-grant form. Also owns `src/lib/`'s `sandbox-*.tsx`, `cluster-scope.ts`, `env-vars.tsx`, `permission-settings.tsx`, `provider-credentials.tsx`, `tool-settings.tsx` and `settings-tab.ts`. The webview-wide rules, security invariants first, are [`src/CLAUDE.md`](../../CLAUDE.md), which also covers the color-scheme picker (*Theming & storage*).
+The settings dialog and the folder-grant form. Also owns `src/lib/`'s `sandbox-*.tsx`, `cluster-scope.ts`, `env-vars.tsx`, `permission-settings.tsx`, `permission-pattern.ts`, `provider-credentials.tsx`, `tool-settings.tsx` and `settings-tab.ts`. The webview-wide rules, security invariants first, are [`src/CLAUDE.md`](../../CLAUDE.md), which also covers the color-scheme picker (*Theming & storage*).
 
 Every subscription here is named for its kind: [`docs/subscriptions.md`](../../../docs/subscriptions.md).
 
