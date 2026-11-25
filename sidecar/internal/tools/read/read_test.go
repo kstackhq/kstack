@@ -117,7 +117,8 @@ func TestNumberedStripsCRAndABOM(t *testing.T) {
 // first line, to the last, nothing cut and nothing stripped.
 func TestNumberedSaysWhetherItShowedEveryByte(t *testing.T) {
 	long := strings.Repeat("x", maxLineRunes+1)
-	many := strings.Repeat(strings.Repeat("x", 100)+"\n", defaultLimit)
+	// Past InlineLimit in fewer lines than defaultLimit, so the result is cut.
+	many := strings.Repeat(strings.Repeat("x", 100)+"\n", tools.InlineLimit/100)
 	for name, c := range map[string]struct {
 		text          string
 		offset, limit int
@@ -224,7 +225,8 @@ func TestReadStripsCRAndABOM(t *testing.T) {
 // Only a read that showed every byte as it is stamps Whole.
 func TestReadStampsWholeOnlyForEveryByte(t *testing.T) {
 	_, tl, rt, st := chatStamps(t)
-	many := strings.Repeat(strings.Repeat("x", 100)+"\n", defaultLimit)
+	// Past InlineLimit in fewer lines than defaultLimit, so the result is cut.
+	many := strings.Repeat(strings.Repeat("x", 100)+"\n", tools.InlineLimit/100)
 	for name, c := range map[string]struct {
 		body          string
 		offset, limit int

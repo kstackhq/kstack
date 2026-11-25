@@ -47,7 +47,7 @@ import (
 // test binary as both.
 func TestMain(m *testing.M) {
 	if code, ok := sandbox.Main(os.Args); ok {
-		os.Exit(code)
+		testutil.ExitHelper(code)
 	}
 	os.Exit(m.Run())
 }

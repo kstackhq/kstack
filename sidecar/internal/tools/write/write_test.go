@@ -508,12 +508,13 @@ func TestWriteReadsItsInput(t *testing.T) {
 		assert.ErrorIs(t, err, errInput, raw)
 	}
 
-	full, _ := json.Marshal(map[string]string{"file_path": "/a", "content": strings.Repeat("x", tools.FileLimit)})
-	_, err := parse(full)
-	assert.NoError(t, err, "FileLimit bytes")
-	over, _ := json.Marshal(map[string]string{"file_path": "/a", "content": strings.Repeat("x", tools.FileLimit+1)})
-	_, err = parse(over)
-	assert.ErrorIs(t, err, errInput, "past FileLimit")
+	const limit = 16
+	full, _ := json.Marshal(map[string]string{"file_path": "/a", "content": strings.Repeat("x", limit)})
+	_, err := parseWithin(full, limit)
+	assert.NoError(t, err, "limit bytes")
+	over, _ := json.Marshal(map[string]string{"file_path": "/a", "content": strings.Repeat("x", limit+1)})
+	_, err = parseWithin(over, limit)
+	assert.ErrorIs(t, err, errInput, "past the limit")
 }
 
 // ActionOf is the path and the content as the call named them, and refuses

@@ -19,11 +19,11 @@ package sandbox
 import "golang.org/x/sys/unix"
 
 // setTimeAndFiles sets each of a's CPU and open-files limits that is set. The
-// CPU limit's hard one is cpuGrace above its soft one. Setting the open-files
+// CPU limit's hard one is a.cpuGrace above its soft one. Setting the open-files
 // limit also keeps exec from restoring the one the Go runtime raised.
 func setTimeAndFiles(a shellArgs) error {
 	if a.cpu > 0 {
-		if err := setClamped(unix.RLIMIT_CPU, a.cpu, cpuGrace); err != nil { // coverage:ignore setClamped fails only on a resource the kernel does not know, and RLIMIT_CPU is one it knows
+		if err := setClamped(unix.RLIMIT_CPU, a.cpu, a.cpuGrace); err != nil { // coverage:ignore setClamped fails only on a resource the kernel does not know, and RLIMIT_CPU is one it knows
 			return err
 		}
 	}

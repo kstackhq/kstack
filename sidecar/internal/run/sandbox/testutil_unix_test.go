@@ -17,19 +17,16 @@
 package sandbox
 
 import (
-	"os"
 	"path/filepath"
+	"strings"
 	"testing"
-
-	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/realpath"
 )
 
-// unnameable is a path the kernel cannot name: one through a link to itself.
+// unnameable is a path the kernel cannot name: one through a name longer than
+// any a folder holds, refused at its first lookup.
 func unnameable(t *testing.T) string {
 	t.Helper()
-	loop := filepath.Join(realpath.Resolved(t.TempDir()), "loop")
-	require.NoError(t, os.Symlink(loop, loop))
-	return filepath.Join(loop, "svc")
+	return filepath.Join(realpath.Resolved(t.TempDir()), strings.Repeat("x", 256), "svc")
 }

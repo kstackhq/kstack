@@ -36,6 +36,8 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/agent/catalog"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/oskeyring/oskeyringtest"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/providercredentials"
 )
 
@@ -48,7 +50,11 @@ func TestMain(m *testing.M) {
 	case "main":
 		main()
 	case "scrub":
-		os.Exit(scrubChild())
+		testutil.ExitHelper(scrubChild())
+	}
+	// run's sandbox probe starts this binary as sandbox-init and sandbox-shell.
+	if code, ok := sandbox.Main(os.Args); ok {
+		testutil.ExitHelper(code)
 	}
 	os.Exit(m.Run())
 }

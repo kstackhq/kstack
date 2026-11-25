@@ -317,13 +317,13 @@ func TestACommandSeesKstacksOwnVariables(t *testing.T) {
 // run starts it as any of them.
 func TestMain(m *testing.M) {
 	if ready := os.Getenv("KSTACK_BASH_HELPER_READY"); ready != "" {
-		os.Exit(holdThePipe(ready, os.Getenv("KSTACK_BASH_HELPER_RELEASE")))
+		testutil.ExitHelper(holdThePipe(ready, os.Getenv("KSTACK_BASH_HELPER_RELEASE")))
 	}
 	if code, ok := sandbox.Main(os.Args); ok {
-		os.Exit(code)
+		testutil.ExitHelper(code)
 	}
 	if len(os.Args) > 1 && os.Args[1] == clientCommand {
-		os.Exit(runClient(os.Args[2:]))
+		testutil.ExitHelper(runClient(os.Args[2:]))
 	}
 	dir, err := os.MkdirTemp("", "bash-cover")
 	if err != nil {

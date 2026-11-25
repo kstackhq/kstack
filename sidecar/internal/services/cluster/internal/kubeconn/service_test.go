@@ -49,6 +49,9 @@ type fakeKubeconfig struct {
 	onRead func()
 	// reads names each context read, for a test counting them rather than their answers.
 	reads *testutil.Probe[string]
+	// startQuiet hands Start a subscription that has read the current config already, so only
+	// a change wakes a probe: a test that counts runs has none of its own from startup.
+	startQuiet bool
 }
 
 // resolving is a kubeconfig where each context resolves to the key beside it, aimed at an
@@ -131,7 +134,11 @@ func (f *fakeKubeconfig) WatchConfigState() kubeconfig.ConfigStateWatch {
 	if f.hub == nil {
 		f.hub = watch.New[*api.Config](nil)
 	}
-	return f.hub.Receiver()
+	rx := f.hub.Receiver()
+	if f.startQuiet {
+		_, _ = rx.TryRecv()
+	}
+	return rx
 }
 
 // changed is the user saving their file: the watch reports it moving.
@@ -1000,7 +1007,11 @@ func TestRetryAndWaitGivesUpOnARunThatNeverFinishes(t *testing.T) {
 
 	c := serveCluster(t)
 	dialing, gate := parkDials(t, c)
-	s := New(serving(c.Server, "prod", "key-1"))
+	// Start's own wake would otherwise put a second run in flight before the ask: its dial
+	// parks, and the run the ask buys waits behind it for the probe's own timeout.
+	cfg := serving(c.Server, "prod", "key-1")
+	cfg.startQuiet = true
+	s := New(cfg)
 	startService(t, s)
 	t.Cleanup(func() { close(gate) })
 	lease := s.Acquire("prod")

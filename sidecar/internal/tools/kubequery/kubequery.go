@@ -70,10 +70,14 @@ var (
 )
 
 // Tool is KubeQuery, over the cluster service whose caches it reads.
-type Tool struct{ svc cluster.Service }
+type Tool struct {
+	svc cluster.Service
+	// fileLimit bounds a rendered answer in bytes: tools.FileLimit, or a test's.
+	fileLimit int
+}
 
 // New is the tool over svc.
-func New(svc cluster.Service) *Tool { return &Tool{svc: svc} }
+func New(svc cluster.Service) *Tool { return &Tool{svc: svc, fileLimit: tools.FileLimit} }
 
 func (t *Tool) Definition() llm.ToolDefinition {
 	return llm.ToolDefinition{Name: Name, Description: description, InputSchema: json.RawMessage(inputSchema)}
@@ -132,7 +136,7 @@ func (t *Tool) Run(ctx context.Context, rt tools.Runtime, raw json.RawMessage) (
 		return readFailed, true
 	}
 
-	text, err := render(ctx, res, tools.FileLimit)
+	text, err := render(ctx, res, t.fileLimit)
 	if err != nil {
 		return renderFailed(err), true
 	}

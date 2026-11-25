@@ -21,11 +21,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The command follows a --, and there must be one.
+// The command follows a --, and there must be one. With no --cpu-grace, the
+// grace is cpuGrace.
 func TestParseShellArgs(t *testing.T) {
 	got, err := parseShellArgs([]string{"--", "/bin/sh", "-c", "true"})
 	require.NoError(t, err)
-	assert.Equal(t, shellArgs{argv: []string{"/bin/sh", "-c", "true"}}, got)
+	assert.Equal(t, shellArgs{cpuGrace: cpuGrace, argv: []string{"/bin/sh", "-c", "true"}}, got)
 	for _, args := range [][]string{nil, {"--"}, {"/bin/sh"}, {"--memory", "1", "/bin/sh"}} {
 		_, err := parseShellArgs(args)
 		assert.Error(t, err, args)
@@ -34,10 +35,10 @@ func TestParseShellArgs(t *testing.T) {
 
 func TestShellArgsReadTheLimits(t *testing.T) {
 	got, err := parseShellArgs([]string{
-		"--cpu", "7", "--files", "64", "--memory", "536870912", "--processes", "128", "--", "/bin/sh", "--memory", "1",
+		"--cpu", "7", "--cpu-grace", "5", "--files", "64", "--memory", "536870912", "--processes", "128", "--", "/bin/sh", "--memory", "1",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, shellArgs{cpu: 7, files: 64, memory: 536870912, processes: 128, argv: []string{"/bin/sh", "--memory", "1"}}, got)
+	assert.Equal(t, shellArgs{cpu: 7, cpuGrace: 5, files: 64, memory: 536870912, processes: 128, argv: []string{"/bin/sh", "--memory", "1"}}, got)
 
 	for _, args := range [][]string{
 		{"--memory", "-1", "--", "x"}, {"--processes", "x", "--", "x"}, {"--memory", "0x10", "--", "x"}, {"--cpu", "", "--", "x"},
@@ -52,11 +53,11 @@ func TestShellArgsReadTheLimits(t *testing.T) {
 // back to them, the process limit holding forwarderTasks more, since the
 // forwarder starts before it is set.
 func TestShellCommandRoundTrip(t *testing.T) {
-	assert.Equal(t, []string{ShellCommand, "--"}, shellCommand(Limits{}))
+	assert.Equal(t, []string{ShellCommand, "--"}, shellCommand(Limits{}, 3))
 
-	args := shellCommand(Limits{CPUSeconds: 7, MemoryBytes: 1 << 30, OpenFiles: 64, Processes: 9})
+	args := shellCommand(Limits{CPUSeconds: 7, MemoryBytes: 1 << 30, OpenFiles: 64, Processes: 9}, 3)
 	require.Equal(t, ShellCommand, args[0])
 	got, err := parseShellArgs(append(args[1:], "/bin/sh"))
 	require.NoError(t, err)
-	assert.Equal(t, shellArgs{cpu: 7, files: 64, memory: 1 << 30, processes: 9 + forwarderTasks, argv: []string{"/bin/sh"}}, got)
+	assert.Equal(t, shellArgs{cpu: 7, cpuGrace: 3, files: 64, memory: 1 << 30, processes: 9 + forwarderTasks, argv: []string{"/bin/sh"}}, got)
 }

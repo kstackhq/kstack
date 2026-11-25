@@ -483,7 +483,7 @@ func TestEveryRunStartsAsTheForwarder(t *testing.T) {
 	r.Policy.Limits = Limits{CPUSeconds: 7, OpenFiles: 64, Processes: 512}
 	_, args = s.argv(r)
 	assert.Equal(t, []string{
-		InitCommand, "--", "/bin/kstack-sidecar", ShellCommand, "--cpu", "7", "--files", "64", "--processes", "513", "--", "/bin/sh", "-c", "--port 1",
+		InitCommand, "--", "/bin/kstack-sidecar", ShellCommand, "--cpu", "7", "--cpu-grace", "5", "--files", "64", "--processes", "513", "--", "/bin/sh", "-c", "--port 1",
 	}, args)
 }
 

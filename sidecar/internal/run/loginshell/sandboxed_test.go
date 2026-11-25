@@ -185,7 +185,7 @@ func TestAShellWithNoHomeStartsAtTheRoot(t *testing.T) {
 func TestMain(m *testing.M) {
 	// A sandboxed run's forwarder and shell launcher are this binary.
 	if code, ok := sandbox.Main(os.Args); ok {
-		os.Exit(code)
+		testutil.ExitHelper(code)
 	}
 	os.Exit(m.Run())
 }

@@ -138,6 +138,8 @@ type Sandbox struct {
 	stat             func(string) (os.FileInfo, error)
 	buildProfile     func(Run, []rule) (text string, params []string)
 	buildProbePolicy func(shell, dir, home string) Policy
+	// testCPUGrace is a test's stand-in for cpuGrace; 0 runs under cpuGrace.
+	testCPUGrace int
 	// lifeline is the read end of a pipe every run inherits, and held its
 	// write end: a bare descriptor, not an os.File, so no finalizer closes
 	// it and only this process's end does, however it ends, or Close. A run
