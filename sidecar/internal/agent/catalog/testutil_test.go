@@ -71,7 +71,7 @@ func newKeys(t *testing.T, keys, baseURLs map[string]string) *providercredential
 // sessionConnector is a connector with a session for its whole life.
 type sessionConnector struct{ planSigner }
 
-func (sessionConnector) WatchSession() (<-chan uint64, func()) {
+func (sessionConnector) WatchSessionGenerationState() (<-chan uint64, func()) {
 	rx := watch.New[uint64](1).Receiver()
 	return rx.Chan(), rx.Close
 }
@@ -129,7 +129,7 @@ func (*switchConnector) Restored() <-chan struct{} { return restored }
 // RestoredSession is 0: the test connects after the restore.
 func (*switchConnector) RestoredSession() uint64 { return 0 }
 
-func (c *switchConnector) WatchSession() (<-chan uint64, func()) {
+func (c *switchConnector) WatchSessionGenerationState() (<-chan uint64, func()) {
 	rx := c.sessions.Receiver()
 	return rx.Chan(), rx.Close
 }

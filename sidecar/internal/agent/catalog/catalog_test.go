@@ -215,7 +215,7 @@ func TestTheConnectorRowsFollowTheirConnection(t *testing.T) {
 	svc := llm.New(New(Config{Credentials: creds, BaseURLs: baseURLs, VertexBaseURL: vertexBase}).Providers()...)
 	stop := creds.SyncCatalogs(poke.New(), svc, Models(baseURLs, vertexBase))
 	defer stop()
-	frames, cancel := svc.Subscribe()
+	frames, cancel := svc.WatchProvidersState()
 	defer cancel()
 	listed := func(id string) []llm.Model {
 		p, _ := svc.Provider(id)

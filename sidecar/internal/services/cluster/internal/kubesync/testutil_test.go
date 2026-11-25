@@ -192,19 +192,19 @@ func (l *fakeLease) ConnFor(ctx context.Context, serverUID string) (*kubeconn.Co
 
 func (l *fakeLease) State() kubeconn.State { return kubeconn.State{} }
 
-func (l *fakeLease) WatchState() kubeconn.StateSubscription {
+func (l *fakeLease) WatchState() *kubeconn.StateWatch {
 	l.mu.Lock()
 	l.watches++
 	l.mu.Unlock()
-	return l.hub.Watch(l.contextName)
+	return kubeconn.NewStateWatch(l.State(), l.hub.Watch(l.contextName))
 }
 
 func (l *fakeLease) Departed() bool { return false }
 
-// DataRates and WatchDataRates are the data-rate stream's, which nothing here reads.
+// DataRates and ListenForDataRateChanges are the data-rate stream's, which nothing here reads.
 func (l *fakeLease) DataRates() []kubeconn.DataRateSample { return nil }
 
-func (l *fakeLease) WatchDataRates() kubeconn.Subscription { return nil }
+func (l *fakeLease) ListenForDataRateChanges() kubeconn.ConnectionChangeNotifications { return nil }
 
 func (l *fakeLease) Release() {
 	l.mu.Lock()
@@ -800,7 +800,7 @@ func awaitKindOpen(t *testing.T, svc *Service, cacheID int64, k kubestore.Kind) 
 // a later read is a different answer rather than the same one again.
 func awaitKindState(t *testing.T, svc *Service, cacheID int64, k kubestore.Kind, what string, match func(KindState) bool) KindState {
 	t.Helper()
-	news := svc.WatchKindNews()
+	news := svc.ListenForKindChanges()
 	defer news.Close()
 
 	var last KindState
@@ -930,7 +930,7 @@ func awaitDiscovered(t *testing.T, svc *Service, cacheID int64) {
 
 func awaitReason(t *testing.T, svc *Service, cacheID int64, reason string) {
 	t.Helper()
-	news := svc.WatchDiscoveryNews()
+	news := svc.ListenForDiscoveryChanges()
 	defer news.Close()
 	for {
 		if state, ok := svc.GetDiscoveryState(cacheID); ok && state.Reason == reason {
@@ -949,7 +949,7 @@ func awaitReason(t *testing.T, svc *Service, cacheID int64, reason string) {
 // cache that never settles fails on the deadline rather than mid-burst.
 func awaitNewsQuiet(t *testing.T, svc *Service) {
 	t.Helper()
-	news := svc.WatchDiscoveryNews()
+	news := svc.ListenForDiscoveryChanges()
 	defer news.Close()
 	deadline := time.After(testutil.Timeout)
 	for {

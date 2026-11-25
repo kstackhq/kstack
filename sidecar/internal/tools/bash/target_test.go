@@ -42,7 +42,7 @@ type fakeService struct {
 	acquireErr error
 	// frames is what the record's watch sends, the watch failing once it is
 	// closed; nil sends nothing. watchErr is why Watch refuses.
-	frames   chan cluster.ClusterWatchFrame
+	frames   chan cluster.ClusterCollectionWatchFrame
 	watchErr error
 }
 
@@ -67,11 +67,11 @@ func (fc fakeClusters) Get(_ context.Context, id apimeta.ClusterID) (*cluster.Cl
 	return fc.f.clusters[id], fc.f.err
 }
 
-func (fc fakeClusters) Watch(ctx context.Context, _ apimeta.ClusterID) (*cluster.Stream[cluster.ClusterWatchFrame], error) {
+func (fc fakeClusters) WatchCollectionByID(ctx context.Context, _ apimeta.ClusterID) (*cluster.Stream[cluster.ClusterCollectionWatchFrame], error) {
 	if fc.f.watchErr != nil {
 		return nil, fc.f.watchErr
 	}
-	return cluster.NewStream(ctx, func(ctx context.Context, out chan<- cluster.ClusterWatchFrame) error {
+	return cluster.NewStream(ctx, func(ctx context.Context, out chan<- cluster.ClusterCollectionWatchFrame) error {
 		for {
 			select {
 			case <-ctx.Done():

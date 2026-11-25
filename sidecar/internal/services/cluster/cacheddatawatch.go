@@ -47,7 +47,7 @@ import (
 // resurrect a cache being torn down as an orphan nothing will ever name again.
 type cachedDataWatchStores interface {
 	OpenExisting(cacheID int64) (*kubestore.Store, bool, error)
-	WatchOpen(cacheID int64) kubestore.OpenSubscription
+	ListenForCacheOpenChanges(cacheID int64) kubestore.CacheOpenChangeNotifications
 }
 
 // changesRead is what one collection answers about a cursor. The store's own type, since
@@ -80,7 +80,7 @@ type cachedDataWatchSpec[T comparable, F any] struct {
 
 	// frame builds one frame, and is handed the store so a watch can fetch what the diff
 	// deliberately did not read — the objects watch's body. The other two ignore both.
-	frame    func(ctx context.Context, s *kubestore.Store, t DeltaFrameType, row T) F
+	frame    func(ctx context.Context, s *kubestore.Store, t CollectionWatchFrameType, row T) F
 	bookmark F
 }
 
@@ -251,16 +251,16 @@ func (w cachedDataWatchSpec[T, F]) apply(ctx context.Context, out chan<- F, stor
 			// here would be a departure it would have to invent a row for.
 			continue
 		}
-		if !sendFrame(ctx, out, w.frame(ctx, store, DeltaFrameDeleted, old)) {
+		if !sendFrame(ctx, out, w.frame(ctx, store, CollectionWatchFrameDeleted, old)) {
 			return false
 		}
 		delete(prev, uid)
 	}
 	for _, r := range c.Written {
 		k := w.key(r)
-		t := DeltaFrameAdded
+		t := CollectionWatchFrameAdded
 		if _, held := prev[k]; held {
-			t = DeltaFrameModified
+			t = CollectionWatchFrameModified
 		}
 		if !sendFrame(ctx, out, w.frame(ctx, store, t, r)) {
 			return false
@@ -281,18 +281,18 @@ func (w cachedDataWatchSpec[T, F]) sendDiff(ctx context.Context, out chan<- F, s
 		old, held := prev[k]
 		switch {
 		case !held:
-			if !sendFrame(ctx, out, w.frame(ctx, store, DeltaFrameAdded, r)) {
+			if !sendFrame(ctx, out, w.frame(ctx, store, CollectionWatchFrameAdded, r)) {
 				return next, false
 			}
 		case old != r:
-			if !sendFrame(ctx, out, w.frame(ctx, store, DeltaFrameModified, r)) {
+			if !sendFrame(ctx, out, w.frame(ctx, store, CollectionWatchFrameModified, r)) {
 				return next, false
 			}
 		}
 	}
 	for k, old := range prev {
 		if _, held := next[k]; !held {
-			if !sendFrame(ctx, out, w.frame(ctx, store, DeltaFrameDeleted, old)) {
+			if !sendFrame(ctx, out, w.frame(ctx, store, CollectionWatchFrameDeleted, old)) {
 				return next, false
 			}
 		}
@@ -300,7 +300,7 @@ func (w cachedDataWatchSpec[T, F]) sendDiff(ctx context.Context, out chan<- F, s
 	return next, true
 }
 
-// bind claims the cache's store and subscribes to its change feed, or answers nil when the
+// bind claims the cache's store and subscribes to its change notifications, or answers nil when the
 // cache has no file yet. It never waits and never creates: waiting is awaitOpen's.
 //
 // **It claims rather than borrowing an already-open file**, because nothing holds a cache
@@ -312,9 +312,9 @@ func (w cachedDataWatchSpec[T, F]) sendDiff(ctx context.Context, out chan<- F, s
 //
 // A nil store with a nil error is a cache with no file yet, which awaitOpen waits for. Any
 // error is terminal — cacheGone tells the expected endings from the broken ones — because
-// no wait resolves them: WatchOpen fires when a file is CREATED, so a cache whose file is
+// no wait resolves them: ListenForCacheOpenChanges fires when a file is CREATED, so a cache whose file is
 // already there and will not open would park on a signal that never comes.
-func (w cachedDataWatchSpec[T, F]) bind() (*kubestore.Store, kubestore.Subscription, error) {
+func (w cachedDataWatchSpec[T, F]) bind() (*kubestore.Store, kubestore.ChangeNotifications, error) {
 	store, ok, err := w.stores.OpenExisting(w.cacheID)
 	if err != nil {
 		return nil, nil, err
@@ -322,7 +322,7 @@ func (w cachedDataWatchSpec[T, F]) bind() (*kubestore.Store, kubestore.Subscript
 	if !ok {
 		return nil, nil, nil
 	}
-	sub, err := store.Subscribe(w.busKeys...)
+	sub, err := store.ListenForChanges(w.busKeys...)
 	if err != nil {
 		// The file went between the two calls — a clear, a teardown. Terminal, and
 		// cacheGone reads it as the clean ending it is.
@@ -336,8 +336,8 @@ func (w cachedDataWatchSpec[T, F]) bind() (*kubestore.Store, kubestore.Subscript
 // error means ctx ended or the manager shut down first. Binding is re-tried after
 // registering and after every open signal, so a file that opens (or opens and closes
 // again) at any point in between is never missed.
-func (w cachedDataWatchSpec[T, F]) awaitOpen(ctx context.Context) (*kubestore.Store, kubestore.Subscription, error) {
-	opens := w.stores.WatchOpen(w.cacheID)
+func (w cachedDataWatchSpec[T, F]) awaitOpen(ctx context.Context) (*kubestore.Store, kubestore.ChangeNotifications, error) {
+	opens := w.stores.ListenForCacheOpenChanges(w.cacheID)
 	defer opens.Close()
 	for {
 		store, sub, err := w.bind()

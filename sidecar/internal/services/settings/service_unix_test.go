@@ -109,7 +109,7 @@ func TestARefreshRetakesTheZones(t *testing.T) {
 	z := newZones(t)
 	s := newTestService(t, z, nil)
 	dir := z.dir(t, "open/bin")
-	rx := s.WatchSandboxPath()
+	rx := s.ListenForSandboxPathChanges()
 	t.Cleanup(rx.Close)
 
 	_, err := s.SetShellPath(t.Context(), []string{dir})

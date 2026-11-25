@@ -52,25 +52,18 @@ import (
 // the credentials, and is what tells a rotation from a write that changed nothing.
 type kubeconfigService interface {
 	RESTConfig(contextName string) (*rest.Config, string, error)
-	Subscribe() kubeconfig.Subscription
+	WatchConfigState() kubeconfig.ConfigStateWatch
 }
 
-// Subscription reports the contexts whose news changed, one event per context, for a reader
-// whose reaction to any of them is the same: re-read that claim. A keyed, coalescing bus, so a
-// fleet changing at once neither loses a context behind a busier one nor overflows a buffer.
-// The value carries nothing — the key is the news.
-type Subscription = *conflate.Receiver[string, struct{}]
+// ConnectionChangeNotifications reports the contexts whose connection changed, one notice per
+// context, for a reader whose reaction to any of them is the same: re-read that claim. A keyed,
+// coalescing bus, so a fleet changing at once neither loses a context behind a busier one nor
+// overflows a buffer. The notice carries nothing but its key.
+type ConnectionChangeNotifications = *conflate.Receiver[string, struct{}]
 
-// StateSubscription carries each State published for one claim. Close it when done — an
-// abandoned one keeps its slot.
-//
-// Keyed by context, not by the credentials behind it: a receiver is bound to its key for life,
-// and credentials move under a context that never does.
-//
-// Nothing is delivered on attach — a watcher reads Lease.State for what is known now and this
-// for what comes after. Every value is a level, never an edge: the hub keeps only the latest
-// per key, so a reader that falls behind skips what came between.
-type StateSubscription = *watch.Receiver[string, State]
+// DataRateChangeNotifications reports a new data-rate sample for one claim's context. Each
+// notice carries nothing but its key; the reader re-reads the rate.
+type DataRateChangeNotifications = *conflate.Receiver[string, struct{}]
 
 // Lease is a claim on one kube-context: what keeps the pool tracking it, and how a holder hears
 // about it. An interface because it crosses out of this package, where a caller's test has to
@@ -90,24 +83,24 @@ type Lease interface {
 	// it, so a fresh connection sits beside the previous one's UID until that probe re-runs.
 	// A connection nobody has identified yet is refused for the same reason.
 	ConnFor(ctx context.Context, serverUID string) (*Connection, error)
-	// WatchState carries every State published for this claim. It delivers nothing on attach,
-	// so a watcher pairs it with State for what is known now.
+	// WatchState is a state watch of this claim: its State now, then every State published
+	// for it.
 	//
-	// **The caller closes it**, as with Subscribe. Release does not: the receiver is keyed by
-	// context, so one that outlives its claim keeps a hub slot and goes on reporting whatever
-	// claims that name next.
-	WatchState() StateSubscription
+	// **The caller closes it**, as with ListenForConnectionChanges. Release does not: the
+	// watch is keyed by context, so one that outlives its claim keeps a hub slot and goes on
+	// reporting whatever claims that name next.
+	WatchState() *StateWatch
 	// DataRates is the context's last samples, oldest first: up to DataRateWindow of them at
 	// DataRateInterval. Empty until the second tick after the context was first claimed.
 	DataRates() []DataRateSample
-	// WatchDataRates fires after each tick adds a sample. It carries no value: the reader
+	// ListenForDataRateChanges fires after each tick adds a sample. It carries no value: the reader
 	// calls DataRates for the samples, so one that falls behind loses nothing. The caller
 	// closes it, as with WatchState.
-	WatchDataRates() Subscription
+	ListenForDataRateChanges() DataRateChangeNotifications
 	// Departed reports that the kubeconfig no longer names this claim's context.
 	//
 	// Not an error and not final: the file may name it again, and this claim is how the
-	// holder hears about that. Subscribe and WatchState both fire when this flips.
+	// holder hears about that. ListenForConnectionChanges and WatchState both fire when this flips.
 	Departed() bool
 	// Release drops the claim, and the entry with it once nothing else holds the context.
 	// Idempotent, so it is safe to defer.
@@ -121,13 +114,13 @@ type Service struct {
 	// supervisor runs the five probes of probe.go over the claimed contexts; probes is what
 	// registering them returned.
 	supervisor *supervisor.Supervisor
-	// signalHub names the contexts whose news changed; stateHub carries what the probes read.
+	// connectionChangeHub names the contexts whose news changed; stateHub carries what the probes read.
 	// Both keyed by context, both fed by publish.
-	signalHub *conflate.Hub[string, struct{}]
-	stateHub  *watch.Hub[string, State]
-	// rateHub names the contexts the sampler added a sample for. Apart from signalHub, so a
+	connectionChangeHub *conflate.Hub[string, struct{}]
+	stateHub            *watch.Hub[string, State]
+	// dataRateChangeHub names the contexts the sampler added a sample for. Apart from connectionChangeHub, so a
 	// tick never wakes a reconcile.
-	rateHub *conflate.Hub[string, struct{}]
+	dataRateChangeHub *conflate.Hub[string, struct{}]
 
 	// mu guards claimed and published together: what publish announces is measured against
 	// who still holds the claim, and nothing may see one without the other.
@@ -171,14 +164,14 @@ func New(kubecfgSvc kubeconfigService, opts ...Option) *Service {
 	configureHTTP2Keepalive()
 
 	s := &Service{
-		kubecfgSvc: kubecfgSvc,
-		supervisor: supervisor.New(),
-		signalHub:  conflate.New[string, struct{}](),
-		stateHub:   watch.New[string, State](),
-		rateHub:    conflate.New[string, struct{}](),
-		claimed:    map[string]*entry{},
-		published:  map[string]news{},
-		now:        time.Now,
+		kubecfgSvc:          kubecfgSvc,
+		supervisor:          supervisor.New(),
+		connectionChangeHub: conflate.New[string, struct{}](),
+		stateHub:            watch.New[string, State](),
+		dataRateChangeHub:   conflate.New[string, struct{}](),
+		claimed:             map[string]*entry{},
+		published:           map[string]news{},
+		now:                 time.Now,
 		dataRateTicker: func() (<-chan time.Time, func()) {
 			return newTicker(DataRateInterval)
 		},
@@ -265,11 +258,11 @@ func (s *Service) retryAndWait(ctx context.Context, contextName string, ceiling 
 
 	// The caller's context is the only bound until the run begins.
 	for {
-		ev, err := sub.RecvContext(ctx)
+		st, err := sub.RecvContext(ctx)
 		if err != nil {
 			return fmt.Errorf("retry %q: %w", contextName, err)
 		}
-		conn := ev.Value.Connection
+		conn := st.Connection
 		if answers(conn, askedAt) {
 			return nil
 		}
@@ -284,18 +277,18 @@ func (s *Service) retryAndWait(ctx context.Context, contextName string, ceiling 
 
 // awaitRun waits out the run that has begun, under the ceiling. A run that outlives the probe's
 // own timeout is not going to end on its own.
-func awaitRun(ctx context.Context, sub StateSubscription, contextName string, askedAt time.Time, ceiling time.Duration) error {
+func awaitRun(ctx context.Context, sub *StateWatch, contextName string, askedAt time.Time, ceiling time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, ceiling)
 	defer cancel()
 
 	for {
-		ev, err := sub.RecvContext(ctx)
+		st, err := sub.RecvContext(ctx)
 		if err != nil {
 			// Nothing cancels the run: the deadline is this caller's, the run is the
 			// supervisor's, and a Wake is not a Restart.
 			return fmt.Errorf("retry %q: %w", contextName, err)
 		}
-		if answers(ev.Value.Connection, askedAt) {
+		if answers(st.Connection, askedAt) {
 			return nil
 		}
 	}
@@ -308,9 +301,11 @@ func answers(conn Observation[string], askedAt time.Time) bool {
 	return !conn.LastRunAt.Before(askedAt)
 }
 
-// Subscribe reports every context whose news changed, for a reader whose reaction to any of them
-// is the same. A holder that cares about one claim watches that claim instead.
-func (s *Service) Subscribe() Subscription { return s.signalHub.Receiver() }
+// ListenForConnectionChanges reports every context whose connection changed, for a reader whose
+// reaction to any of them is the same. A holder that cares about one claim watches that claim instead.
+func (s *Service) ListenForConnectionChanges() ConnectionChangeNotifications {
+	return s.connectionChangeHub.Receiver()
+}
 
 // Start runs the supervisor, the kubeconfig watch and the data-rate sampler. The kubeconfig
 // subscription is taken before Start returns, so nothing it says in between is dropped; the
@@ -329,7 +324,7 @@ func (s *Service) Start(ctx context.Context) (func(context.Context) error, error
 	// the stop func cancels it.
 	loopCtx, stopLoop := context.WithCancel(context.Background())
 
-	cfgs := s.kubecfgSvc.Subscribe()
+	cfgs := s.kubecfgSvc.WatchConfigState()
 	s.wg.Go(func() {
 		defer cfgs.Close()
 		s.watchKubeconfig(loopCtx, cfgs)
@@ -384,7 +379,7 @@ func (s *Service) Close() error {
 //
 // Cancellation ends the wait: the service behind the feed is the app's and is not required to
 // close its channel when released.
-func (s *Service) watchKubeconfig(ctx context.Context, cfgs kubeconfig.Subscription) {
+func (s *Service) watchKubeconfig(ctx context.Context, cfgs kubeconfig.ConfigStateWatch) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -419,7 +414,7 @@ func (s *Service) publish(contextName string, v supervisor.Snapshot) {
 
 	s.stateHub.Sender().Send(contextName, st)
 	if changed {
-		s.signalHub.Sender().Send(contextName, struct{}{})
+		s.connectionChangeHub.Sender().Send(contextName, struct{}{})
 
 		// A connection whose server was replaced is rebuilt by the connection probe, which
 		// would otherwise wait out its interval — nothing about the file moved, so no watch
@@ -532,8 +527,8 @@ type claim struct {
 }
 
 // Conn never dials: the connection is whatever the last run of the connection probe built.
-// A holder that wants to wait for one pairs State with WatchState, as it does for everything
-// else — a connection whose last probe failed is still handed out, since only the holder can
+// A holder that wants to wait for one reads WatchState, as it does for everything else — a
+// connection whose last probe failed is still handed out, since only the holder can
 // tell a revoked credential from a control plane mid-restart.
 func (c *claim) Conn(context.Context) (*Connection, error) {
 	v, ok := c.svc.read(c.contextName, c.entry)
@@ -596,15 +591,14 @@ func (s *Service) read(contextName string, held *entry) (supervisor.Snapshot, bo
 	return v, valid && tracked
 }
 
-// WatchState takes no baseline: the hub compares against one only through an Accept, and this
-// one has none, so every value is delivered. What a baseline is for — reading and registering in
-// one critical section, so a publish landing between the two is not skipped — is worth having
-// once a probe can land at all.
+// WatchState registers before it reads, so the first State and every later pass both reach
+// the watch.
 //
-// Not tracked for the caller. The receiver is the caller's to close, and closing it here on
+// Not tracked for the caller. The watch is the caller's to close, and closing it here on
 // Release would take one out from under a caller that is still reading it.
-func (c *claim) WatchState() StateSubscription {
-	return c.svc.stateHub.Watch(c.contextName)
+func (c *claim) WatchState() *StateWatch {
+	rx := c.svc.stateHub.Watch(c.contextName)
+	return NewStateWatch(c.State(), rx)
 }
 
 // Release gives the claim back, dropping the entry — and the supervisor's subject with it — once

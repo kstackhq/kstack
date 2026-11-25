@@ -89,7 +89,7 @@ func TestDeleteFallsBack(t *testing.T) {
 	s := newService(t, Config{Keyring: k, EnvKeys: map[string]string{twinID: envKey}})
 	require.NoError(t, s.Save(twinID, savedKey))
 	require.NoError(t, s.Save(routerID, otherKey))
-	credential, cancel := s.WatchCredential(routerID)
+	credential, cancel := s.WatchCredentialGenerationState(routerID)
 	defer cancel()
 	assert.Equal(t, uint64(1), testutil.Recv(t, credential, "the credential"))
 

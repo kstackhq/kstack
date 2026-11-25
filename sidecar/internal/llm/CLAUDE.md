@@ -6,6 +6,8 @@ turn gets is `internal/agent/catalog` (`internal/agent/CLAUDE.md`).
 → [ADR: the llm package wires itself](../../../docs/adr/2026-09-21-llm-is-one-package.md),
 [ADR: the catalog is its own package](../../../docs/adr/2026-09-24-the-catalog-is-its-own-package.md).
 
+Every subscription here is named for its kind: [`docs/subscriptions.md`](../../../docs/subscriptions.md).
+
 ```
 internal/llm/
   dialect.go service.go      Dialect; Service, New, Target (Stream: the switch on Dialect)
@@ -42,7 +44,7 @@ internal/llm/
   with no efforts takes `""`). The agent never builds a `Request`; `Target.Stream` does.
   `Model.ContextWindow` 0 is unstated, and such a model is never refused ahead.
 - **The provider list is fixed; a provider's catalog is not.** `SetCatalog` replaces one
-  provider's models, and `Subscribe` is a gauge of the list (`modelsWatch`).
+  provider's models, and `WatchProvidersState` is a state watch of the list (`modelsStateWatch`).
 
 ## Credentials: a key or a signer
 

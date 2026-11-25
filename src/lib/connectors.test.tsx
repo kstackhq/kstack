@@ -29,12 +29,12 @@ const { watch, mutations } = vi.hoisted(() => ({
   watch: { frames: {} } as { frames: Record<string, unknown[]>; options?: unknown },
   mutations: {} as Record<string, ReturnType<typeof vi.fn>>,
 }));
-vi.mock('@/lib/graphql/use-watch-subscription', () => ({
+vi.mock('@/lib/graphql/use-folded-subscription', () => ({
   perFrame:
     <D, R>(step: (prev: R | undefined, frame: D) => R) =>
     (prev: R | undefined, frames: D[]) =>
       frames.reduce<R | undefined>(step, prev),
-  useWatchSubscription: (
+  useFoldedSubscription: (
     args: { query: { name: string } },
     reduce: (prev: unknown, frames: unknown[]) => unknown,
     options: unknown,
@@ -86,11 +86,11 @@ function serve(
   googleFrames: GoogleConnection[] = [google()],
 ) {
   watch.frames = {
-    ChatGPTConnectionWatch: chatgpt.map((c) => ({ chatGPTConnectionWatch: c })),
-    OpenRouterConnectionWatch: openrouter.map((c) => ({ openRouterConnectionWatch: c })),
-    AWSConnectionWatch: awsFrames.map((c) => ({ awsConnectionWatch: c })),
-    GitHubConnectionWatch: github.map((c) => ({ gitHubConnectionWatch: c })),
-    GoogleConnectionWatch: googleFrames.map((c) => ({ googleConnectionWatch: c })),
+    ChatGPTConnectionStateWatch: chatgpt.map((c) => ({ chatGPTConnectionStateWatch: c })),
+    OpenRouterConnectionStateWatch: openrouter.map((c) => ({ openRouterConnectionStateWatch: c })),
+    AWSConnectionStateWatch: awsFrames.map((c) => ({ awsConnectionStateWatch: c })),
+    GitHubConnectionStateWatch: github.map((c) => ({ gitHubConnectionStateWatch: c })),
+    GoogleConnectionStateWatch: googleFrames.map((c) => ({ googleConnectionStateWatch: c })),
   };
 }
 
@@ -103,7 +103,7 @@ describe('useConnectors', () => {
   it('lists the planned connectors and has not loaded before the first frame', () => {
     const { result } = renderHook(() => useConnectors());
 
-    expect(result.current.loaded).toBe(false);
+    expect(result.current.snapshotComplete).toBe(false);
     expect(result.current.connectors).toEqual([
       { id: 'github', name: 'GitHub', detail: 'Repositories for git and gh in the sandbox', connected: false },
       { id: 'aws', name: 'AWS', detail: 'Cloud resources and Bedrock models', connected: false },
@@ -143,7 +143,7 @@ describe('useConnectors', () => {
 
     const { result } = renderHook(() => useConnectors());
 
-    expect(result.current.loaded).toBe(true);
+    expect(result.current.snapshotComplete).toBe(true);
     const chatgpt = result.current.connectors.find((c) => c.id === 'chatgpt')!;
     expect(chatgpt).toMatchObject({ connected: true, detail: 'ada@example.com' });
     expect(chatgpt.chatgpt?.connection).toBe(live);
@@ -189,16 +189,16 @@ describe('useConnectors', () => {
   it('has not loaded until every watch has its first frame', () => {
     const { result, rerender } = renderHook(() => useConnectors());
     for (const missing of [
-      'ChatGPTConnectionWatch',
-      'OpenRouterConnectionWatch',
-      'AWSConnectionWatch',
-      'GitHubConnectionWatch',
-      'GoogleConnectionWatch',
+      'ChatGPTConnectionStateWatch',
+      'OpenRouterConnectionStateWatch',
+      'AWSConnectionStateWatch',
+      'GitHubConnectionStateWatch',
+      'GoogleConnectionStateWatch',
     ]) {
       serve([connection({})]);
       delete watch.frames[missing];
       rerender();
-      expect(result.current.loaded, missing).toBe(false);
+      expect(result.current.snapshotComplete, missing).toBe(false);
       expect(result.current.connectors.some((c) => c.chatgpt ?? c.openrouter ?? c.aws ?? c.github ?? c.google)).toBe(
         false,
       );

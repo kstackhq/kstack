@@ -22,7 +22,7 @@ import { useMemo } from 'react';
 import { useClusterCachedDataKinds } from '@/lib/cluster-cached-data-kinds';
 import { buildDashboardNav, navPlaceOf } from '@/lib/dashboard-resources';
 import type { DashboardNav, DashboardResource, NavPlace, NavSection, ServerKind } from '@/lib/dashboard-resources';
-import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
+import type { SubscriptionPhase } from '@/lib/graphql/use-folded-subscription';
 
 // A pinned page's icon, by its id; a kind has none of its own.
 export const PINNED_ICON: Partial<Record<DashboardResource, LucideIcon>> = { overview: Compass, events: List };
@@ -33,7 +33,7 @@ export const SECTION_ICON: Record<NavSection['id'], LucideIcon> = { cluster: Glo
 // While paused (`active` false), `phase`'s `connected` is meaninglessly false — a
 // "reconnecting/loading" affordance must gate on `active`, not `phase` alone, to
 // stay silent on the curated-only fallback.
-export function useDashboardNav(): { nav: DashboardNav; active: boolean; phase: WatchPhase } {
+export function useDashboardNav(): { nav: DashboardNav; active: boolean; phase: SubscriptionPhase } {
   const { kinds, active, phase } = useClusterCachedDataKinds();
   // Undefined stands for the curated kinds.
   const landed = catalogLanded(active, phase) ? kinds : undefined;
@@ -50,6 +50,6 @@ export function useDashboardNavPlace(id: DashboardResource, kind?: ServerKind): 
   return navPlaceOf(catalogLanded(active, phase) ? [] : undefined, id);
 }
 
-function catalogLanded(active: boolean, phase: WatchPhase): boolean {
+function catalogLanded(active: boolean, phase: SubscriptionPhase): boolean {
   return active && phase !== 'connecting';
 }

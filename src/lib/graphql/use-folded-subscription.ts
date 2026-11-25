@@ -44,7 +44,7 @@ type FlushScheduler = (flush: () => void) => () => void;
 const HIDDEN_FLUSH_MS = 250;
 
 // Paces on the display, with a timer underneath it: a minimized or hidden window gets
-// no animation frames at all, and every watch's queue would grow until it came back.
+// no animation frames at all, and every subscription's queue would grow until it came back.
 export const scheduleFlush: FlushScheduler = (flush) => {
   // Declared before `run` so a scheduler that calls back synchronously (a stub, a
   // polyfill) reads initialized handles rather than hitting the temporal dead zone.
@@ -65,8 +65,8 @@ export const scheduleFlush: FlushScheduler = (flush) => {
 
 let schedule: FlushScheduler = scheduleFlush;
 
-// Test seam: `flushWatchesSynchronously()` in `@/test-utils` makes every frame visible at once.
-export function setWatchFlushScheduler(next: FlushScheduler) {
+// Test seam: `flushSubscriptionsSynchronously()` in `@/test-utils` makes every frame visible at once.
+export function setSubscriptionFlushScheduler(next: FlushScheduler) {
   schedule = next;
 }
 
@@ -80,21 +80,21 @@ type Store<Data, Result> = {
   listeners: Set<() => void>;
 };
 
-export type UseWatchSubscriptionResponse<Result> = {
+export type UseFoldedSubscriptionResponse<Result> = {
   data: Result | undefined;
   connected: boolean;
   /** The connection the data folded under; it moves on every reconnect, a restarted sidecar's included. */
   generation: number;
 };
 
-export type WatchOptions = {
+export type SubscriptionOptions = {
   // Give this instance its own stream instead of sharing one with every other
-  // consumer of the same watch. urql keys an operation on query + variables alone,
+  // consumer of the same subscription. urql keys an operation on query + variables alone,
   // so consumers share — and one that mounts into a stream already running never
   // sees the snapshot that opened it, leaving it to fold deltas onto nothing. Costs
   // a second cold list and a second connection per extra consumer, so it is the
-  // caller's call: set it where a watch has more than one and one can mount late (a
-  // popover reopening), unless a provider above them all can hold the one watch.
+  // caller's call: set it where a subscription has more than one and one can mount late (a
+  // popover reopening), unless a provider above them all can hold the one subscription.
   unshared?: boolean;
 };
 
@@ -104,43 +104,20 @@ export type WatchOptions = {
 let nextInstance = 0;
 
 // Folds the frames received since the last flush — never empty — onto `prev`.
-export type WatchReducer<Data, Result> = (prev: Result | undefined, frames: Data[]) => Result;
+export type SubscriptionReducer<Data, Result> = (prev: Result | undefined, frames: Data[]) => Result;
 
-// Lifts a per-frame step to a batch, for folds that are cheap per frame (a gauge
-// keeping its last value, a text stream appending).
+// Lifts a per-frame step to a batch, for folds that are cheap per frame.
 export function perFrame<Data, Result>(
   step: (prev: Result | undefined, data: Data) => Result,
-): WatchReducer<Data, Result> {
+): SubscriptionReducer<Data, Result> {
   return (prev, frames) => frames.slice(1).reduce<Result>(step, step(prev, frames[0]));
 }
 
-// One frame of a series: the whole retained window first, then the points since.
-export type SeriesFrame<Point> = { intervalSeconds: number; windowSeconds: number; samples: Point[] };
-
-// How many points a series holds: its window at its interval, and never fewer than one, so a
-// chart and the fold agree on the count.
-export function seriesSlots({ intervalSeconds, windowSeconds }: SeriesFrame<unknown>): number {
-  return Math.max(1, Math.floor(windowSeconds / intervalSeconds));
-}
-
-// The fold every series shares: append each frame's points and keep the last seriesSlots.
-// It reads no timestamps, so a wall clock that steps cannot drop or reorder a point. The
-// first frame folds to a series even when empty, which is how a reader tells "empty" from
-// "not yet".
-export function seriesReducer<Data, Point>(
-  frameOf: (data: Data) => SeriesFrame<Point>,
-): WatchReducer<Data, SeriesFrame<Point>> {
-  return perFrame((prev, data) => {
-    const frame = frameOf(data);
-    return { ...frame, samples: [...(prev?.samples ?? []), ...frame.samples].slice(-seriesSlots(frame)) };
-  });
-}
-
-export function useWatchSubscription<Data, Result, Variables extends AnyVariables = AnyVariables>(
+export function useFoldedSubscription<Data, Result, Variables extends AnyVariables = AnyVariables>(
   args: UseSubscriptionArgs<Variables, Data>,
-  reduce: WatchReducer<Data, Result>,
-  { unshared = false }: WatchOptions = {},
-): UseWatchSubscriptionResponse<Result> {
+  reduce: SubscriptionReducer<Data, Result>,
+  { unshared = false }: SubscriptionOptions = {},
+): UseFoldedSubscriptionResponse<Result> {
   const client = useClient();
 
   // Fixed for this instance's lifetime, so its key still moves with the variables.
@@ -235,17 +212,17 @@ export function useWatchSubscription<Data, Result, Variables extends AnyVariable
   return { data, connected: status.connected, generation: status.generation };
 }
 
-// A watch's rendering state. `connecting` covers everything before the collection
-// is known — transport still dialing, or its snapshot still arriving — so a
+// A subscription's rendering state. `connecting` covers everything before the first
+// delivery is complete — transport still dialing, or its snapshot still arriving — so a
 // consumer renders an empty state only from `live`/`reconnecting`, where empty
 // means empty. `reconnecting` is a drop with last-known data held.
-export type WatchPhase = 'connecting' | 'reconnecting' | 'live';
+export type SubscriptionPhase = 'connecting' | 'reconnecting' | 'live';
 
-// `synced` means the snapshot's Bookmark has landed. Deriving it from "any data
-// yet" instead would report a populated collection as empty for the whole time the
-// server spends listing it — `connected` flips on the transport's open frame, which
-// precedes the first row.
-export function watchPhase(synced: boolean, connected: boolean): WatchPhase {
-  if (!synced) return 'connecting';
+// `snapshotComplete` means the first delivery has arrived: a collection watch's or an
+// event feed's Bookmark. Deriving it from "any data yet" instead would report a populated
+// collection as empty for the whole time the server spends listing it — `connected` flips
+// on the transport's open frame, which precedes the first row.
+export function subscriptionPhase(snapshotComplete: boolean, connected: boolean): SubscriptionPhase {
+  if (!snapshotComplete) return 'connecting';
   return connected ? 'live' : 'reconnecting';
 }

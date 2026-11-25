@@ -19,12 +19,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ChatCitation, ChatSandboxAction, ChatToolCall } from './chats';
 
-// Same seam as the cached-data hooks' suites: stand in for useWatchSubscription,
+// Same seam as the cached-data hooks' suites: stand in for useFoldedSubscription,
 // capture the reducer it was handed, and fold frames through it directly.
-const { useWatchSubscriptionMock } = vi.hoisted(() => ({ useWatchSubscriptionMock: vi.fn() }));
-vi.mock('@/lib/graphql/use-watch-subscription', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/graphql/use-watch-subscription')>()),
-  useWatchSubscription: useWatchSubscriptionMock,
+const { useFoldedSubscriptionMock } = vi.hoisted(() => ({ useFoldedSubscriptionMock: vi.fn() }));
+vi.mock('@/lib/graphql/use-folded-subscription', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/graphql/use-folded-subscription')>()),
+  useFoldedSubscription: useFoldedSubscriptionMock,
 }));
 
 const {
@@ -59,7 +59,7 @@ function push(wrapper: string, ...frames: unknown[]) {
 }
 
 function render<T>(hook: () => T, connected = true) {
-  useWatchSubscriptionMock.mockImplementation((args, reduce, options) => {
+  useFoldedSubscriptionMock.mockImplementation((args, reduce, options) => {
     lastArgs = args;
     lastReducer = reduce;
     lastOptions = options;
@@ -82,7 +82,7 @@ describe('useChats', () => {
     createdAt: '2026-09-01T00:00:00Z',
     updatedAt,
   });
-  const pushChats = (...frames: { type: string; chat: unknown }[]) => push('chatsWatch', ...frames);
+  const pushChats = (...frames: { type: string; chat: unknown }[]) => push('chatCollectionWatch', ...frames);
   const renderChats = () => render(() => useChats());
 
   // The composer's sandbox button reads the chat's switch off the list, so every
@@ -223,7 +223,8 @@ describe('useChatMessages', () => {
     error: '',
     ...over,
   });
-  const pushMessages = (...frames: { type: string; message: unknown }[]) => push('chatMessagesWatch', ...frames);
+  const pushMessages = (...frames: { type: string; message: unknown }[]) =>
+    push('chatMessageCollectionWatch', ...frames);
   const renderMessages = () => render(() => useChatMessages('chat-1'));
 
   it('watches the chat it was given, on a connection of its own', () => {

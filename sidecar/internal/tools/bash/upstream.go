@@ -53,7 +53,7 @@ func (t *Tool) claim(ctx context.Context, id apimeta.ClusterID, serverUID string
 	}
 	// The run can outlive the call that started it.
 	watchCtx, stop := context.WithCancel(context.WithoutCancel(ctx))
-	stream, err := t.clusterSvc.Clusters().Watch(watchCtx, id)
+	stream, err := t.clusterSvc.Clusters().WatchCollectionByID(watchCtx, id)
 	if err != nil {
 		stop()
 		lease.Release()
@@ -67,9 +67,9 @@ func (t *Tool) claim(ctx context.Context, id apimeta.ClusterID, serverUID string
 // watchRevoked closes revoked once stream shows the cluster Kstack no longer
 // connects to, or ends before ctx does, since a claim nothing watches could
 // outlive either.
-func watchRevoked(ctx context.Context, stream *cluster.Stream[cluster.ClusterWatchFrame], revoked chan<- struct{}) {
+func watchRevoked(ctx context.Context, stream *cluster.Stream[cluster.ClusterCollectionWatchFrame], revoked chan<- struct{}) {
 	for f := range stream.Frames {
-		if f.Type == cluster.DeltaFrameDeleted || f.Cluster != nil && !connectable(f.Cluster) {
+		if f.Type == cluster.CollectionWatchFrameDeleted || f.Cluster != nil && !connectable(f.Cluster) {
 			close(revoked)
 			return
 		}

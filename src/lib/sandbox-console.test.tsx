@@ -15,15 +15,15 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 
-const { useWatchSubscriptionMock, useMutationMock, mutations } = vi.hoisted(() => ({
-  useWatchSubscriptionMock: vi.fn(),
+const { useFoldedSubscriptionMock, useMutationMock, mutations } = vi.hoisted(() => ({
+  useFoldedSubscriptionMock: vi.fn(),
   useMutationMock: vi.fn(),
   mutations: {} as Record<string, Mock<(variables: unknown) => Promise<unknown>>>,
 }));
 vi.mock('urql', () => ({ useMutation: useMutationMock }));
-vi.mock('@/lib/graphql/use-watch-subscription', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/graphql/use-watch-subscription')>()),
-  useWatchSubscription: useWatchSubscriptionMock,
+vi.mock('@/lib/graphql/use-folded-subscription', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/graphql/use-folded-subscription')>()),
+  useFoldedSubscription: useFoldedSubscriptionMock,
 }));
 // Each document is its name, so the mock can tell the mutations apart.
 vi.mock('@/gql', () => ({ graphql: (source: string) => /(?:subscription|mutation) (\w+)/.exec(source)![1] }));
@@ -51,7 +51,7 @@ let lastReducer: ((prev: unknown, frames: unknown[]) => unknown) | undefined;
 function pushFrames(...runs: (ReturnType<typeof run> | null)[]) {
   folded = lastReducer!(
     folded,
-    runs.map((r) => ({ sandboxConsoleWatch: { run: r } })),
+    runs.map((r) => ({ sandboxConsoleStateWatch: { run: r } })),
   );
 }
 
@@ -59,7 +59,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   folded = undefined;
   generation = 1;
-  useWatchSubscriptionMock.mockImplementation((_args, reduce) => {
+  useFoldedSubscriptionMock.mockImplementation((_args, reduce) => {
     lastReducer = reduce;
     return { data: folded, connected: true, generation };
   });
@@ -86,7 +86,7 @@ const startedAs = (number: number) => ({ data: { sandboxConsoleRun: number } });
 describe('useSandboxConsole', () => {
   it('holds the watch paused while the console is closed', () => {
     renderHook(() => useSandboxConsole(false));
-    expect(useWatchSubscriptionMock.mock.calls[0][0]).toMatchObject({ pause: true });
+    expect(useFoldedSubscriptionMock.mock.calls[0][0]).toMatchObject({ pause: true });
   });
 
   it('folds each command by its number, oldest first, its latest frame winning', () => {

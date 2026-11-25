@@ -52,9 +52,9 @@ func awaitToolCall(t *testing.T, s *service, chatID ChatID, id MessageID, status
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	st, err := s.WatchMessages(ctx, chatID)
+	st, err := s.WatchMessageCollection(ctx, chatID)
 	require.NoError(t, err)
-	f := awaitFrame(t, st.Frames, func(f ChatMessageWatchFrame) bool {
+	f := awaitFrame(t, st.Frames, func(f ChatMessageCollectionWatchFrame) bool {
 		if f.Message == nil || f.Message.ID != id {
 			return false
 		}
@@ -1015,11 +1015,11 @@ func TestAWaitingAgentMarksItsChat(t *testing.T) {
 	subagentFake(s, "List the pods.").SetToolCalls(bashCall("kubectl get pods"))
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	list, err := s.WatchList(ctx)
+	list, err := s.WatchCollection(ctx)
 	require.NoError(t, err)
 
 	msg := send(t, s, nil, "k", "which pods?")
-	awaitFrame(t, list.Frames, func(f ChatWatchFrame) bool {
+	awaitFrame(t, list.Frames, func(f ChatCollectionWatchFrame) bool {
 		return f.Chat != nil && f.Chat.ID == msg.ChatID && f.Chat.AwaitingApproval
 	})
 	awaitSettled(t, s, msg.ChatID, msg.ID)
@@ -1027,7 +1027,7 @@ func TestAWaitingAgentMarksItsChat(t *testing.T) {
 
 	_, err = s.StopBackgroundTask(t.Context(), ToolCallID(taskRows(t, s.db)[0].toolCallID))
 	require.NoError(t, err)
-	awaitFrame(t, list.Frames, func(f ChatWatchFrame) bool {
+	awaitFrame(t, list.Frames, func(f ChatCollectionWatchFrame) bool {
 		return f.Chat != nil && f.Chat.ID == msg.ChatID && !f.Chat.AwaitingApproval
 	})
 }
@@ -1048,12 +1048,12 @@ func TestAStrandedWaitClearsTheChatsMark(t *testing.T) {
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	list, err := s.WatchList(ctx)
+	list, err := s.WatchCollection(ctx)
 	require.NoError(t, err)
-	awaitFrame(t, list.Frames, func(f ChatWatchFrame) bool { return f.Chat != nil && f.Chat.AwaitingApproval })
+	awaitFrame(t, list.Frames, func(f ChatCollectionWatchFrame) bool { return f.Chat != nil && f.Chat.AwaitingApproval })
 	startPrepared(t, s)
 
-	awaitFrame(t, list.Frames, func(f ChatWatchFrame) bool {
+	awaitFrame(t, list.Frames, func(f ChatCollectionWatchFrame) bool {
 		return f.Chat != nil && f.Chat.ID == c.ID && !f.Chat.AwaitingApproval
 	})
 }
@@ -1126,9 +1126,9 @@ func awaitWrite(t *testing.T, s *service, msg ChatMessage, status ApprovalStatus
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	st, err := s.WatchMessages(ctx, msg.ChatID)
+	st, err := s.WatchMessageCollection(ctx, msg.ChatID)
 	require.NoError(t, err)
-	f := awaitFrame(t, st.Frames, func(f ChatMessageWatchFrame) bool {
+	f := awaitFrame(t, st.Frames, func(f ChatMessageCollectionWatchFrame) bool {
 		if f.Message == nil || f.Message.ID != msg.ID {
 			return false
 		}
@@ -1570,7 +1570,7 @@ func startTwoRequests(t *testing.T, w twoRequestsTool) (*service, ChatMessage, f
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 	msg := send(t, s, nil, "1", "hi")
-	st, err := s.WatchMessages(ctx, msg.ChatID)
+	st, err := s.WatchMessageCollection(ctx, msg.ChatID)
 	require.NoError(t, err)
 	withN := func(n int) <-chan ChatMessage {
 		out := make(chan ChatMessage, 1)

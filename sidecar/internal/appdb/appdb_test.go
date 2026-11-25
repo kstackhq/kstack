@@ -536,7 +536,7 @@ func TestMigration0004AddsTheUsersVariables(t *testing.T) {
 // arrives as one ping.
 func TestNotifyReachesASubscriberAndConflates(t *testing.T) {
 	h, _ := openTestDB(t)
-	rx := h.Subscribe("a", "b")
+	rx := h.ListenForChanges("a", "b")
 	defer rx.Close()
 
 	for range 3 {
@@ -563,7 +563,7 @@ func TestNotifyReachesASubscriberAndConflates(t *testing.T) {
 func TestSubscriptionsEndOnClose(t *testing.T) {
 	h, err := Open(filepath.Join(t.TempDir(), "app.db"), 0)
 	require.NoError(t, err)
-	rx := h.Subscribe("a")
+	rx := h.ListenForChanges("a")
 
 	done := make(chan error, 1)
 	go func() {
@@ -578,9 +578,9 @@ func TestSubscriptionsEndOnClose(t *testing.T) {
 }
 
 // A subscription to no keys would wait forever: a caller error.
-func TestSubscribeWithNoKeysPanics(t *testing.T) {
+func TestListenForChangesWithNoKeysPanics(t *testing.T) {
 	h, _ := openTestDB(t)
-	require.Panics(t, func() { h.Subscribe() })
+	require.Panics(t, func() { h.ListenForChanges() })
 }
 
 // 0005 adds the user's tool settings over a 0004 database, keeping its rows:

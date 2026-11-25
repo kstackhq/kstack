@@ -20,10 +20,10 @@ import type { CacheContents } from '@/lib/cluster-diagnostics';
 import type { Cluster } from '@/lib/clusters';
 import { clusterRecord } from '@/test-utils';
 
-const { state, mutations, useCacheContents } = vi.hoisted(() => ({
+const { state, mutations, useClusterCacheStatsStateWatch } = vi.hoisted(() => ({
   state: { clusters: null } as { clusters: Cluster[] | null },
   mutations: {} as Record<string, Mock<(variables: unknown) => Promise<unknown>>>,
-  useCacheContents: vi.fn(),
+  useClusterCacheStatsStateWatch: vi.fn(),
 }));
 vi.mock('urql', () => ({
   useQuery: vi.fn(),
@@ -38,7 +38,7 @@ vi.mock('@/lib/clusters', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/clusters')>()),
   useClusters: () => ({ clusters: state.clusters, connected: true }),
 }));
-vi.mock('@/lib/cluster-diagnostics', () => ({ useCacheContents }));
+vi.mock('@/lib/cluster-diagnostics', () => ({ useClusterCacheStatsStateWatch }));
 
 const { ClustersSettings } = await import('./clusters');
 
@@ -97,7 +97,7 @@ const ON_DISK: CacheContents = {
 beforeEach(() => {
   vi.clearAllMocks();
   state.clusters = null;
-  useCacheContents.mockReturnValue(ON_DISK);
+  useClusterCacheStatsStateWatch.mockReturnValue(ON_DISK);
 });
 
 const group = (name: string) => screen.getByRole('group', { name });
@@ -210,7 +210,7 @@ describe('ClustersSettings', () => {
 
   it("shows the cache's size, and a dash with no cache or nothing on disk", () => {
     state.clusters = [cluster({ context: 'a' }), cluster({ context: 'b', cache: false }), cluster({ context: 'c' })];
-    useCacheContents.mockImplementation((_id: string, cacheID: string) =>
+    useClusterCacheStatsStateWatch.mockImplementation((_id: string, cacheID: string) =>
       cacheID === 'cache-c' ? { ...ON_DISK, exists: false } : ON_DISK,
     );
     render(<ClustersSettings />);
@@ -219,14 +219,14 @@ describe('ClustersSettings', () => {
       .getAllByRole('listitem')
       .map((r) => r.querySelector('[data-slot="size"]')?.textContent);
     expect(sizes).toEqual(['1.5 MB', '—', '—']);
-    expect(useCacheContents).toHaveBeenCalledWith('id-a', 'cache-a', false);
+    expect(useClusterCacheStatsStateWatch).toHaveBeenCalledWith('id-a', 'cache-a', false);
     // With no cache there is nothing to watch.
-    expect(useCacheContents).toHaveBeenCalledWith('id-b', '', true);
+    expect(useClusterCacheStatsStateWatch).toHaveBeenCalledWith('id-b', '', true);
   });
 
   it('shows a dash until the cache stats answer', () => {
     state.clusters = [cluster({ context: 'a' })];
-    useCacheContents.mockReturnValue(null);
+    useClusterCacheStatsStateWatch.mockReturnValue(null);
     render(<ClustersSettings />);
     expect(screen.getByRole('listitem').querySelector('[data-slot="size"]')).toHaveTextContent('—');
   });
@@ -290,7 +290,7 @@ describe('ClustersSettings', () => {
       ['nothing on disk', {}, { ...ON_DISK, exists: false }],
     ])('disables Reset cache with %s', async (_, row, contents) => {
       state.clusters = [cluster({ context: 'prod', ...row })];
-      useCacheContents.mockReturnValue(contents);
+      useClusterCacheStatsStateWatch.mockReturnValue(contents);
       render(<ClustersSettings />);
 
       await openMenu('prod');

@@ -60,7 +60,7 @@ type Resolver struct {
 	// Console runs the Sandbox console's commands: the Bash tool, nil where
 	// there is no shell.
 	Console SandboxConsole
-	// Logs pages and follows a scope's lines.
+	// Logs pages and tails a scope's lines.
 	Logs LogsService
 	// CloudTargets are the cloud platforms this build has, in the order
 	// Settings lists them: the only ones whose switch the wire reads or writes.
@@ -88,7 +88,7 @@ type Resolver struct {
 // method returns a key.
 type ProviderCredentialStore interface {
 	States() []providercredentials.State
-	Subscribe() (<-chan []providercredentials.State, func())
+	WatchCredentialsState() (<-chan []providercredentials.State, func())
 	Save(id, key string) error
 	Delete(id string) error
 }
@@ -96,7 +96,7 @@ type ProviderCredentialStore interface {
 // AuthConnector is the Kstack Cloud connector as the wire drives it.
 type AuthConnector interface {
 	State() connectors.State
-	Subscribe() (<-chan connectors.State, func())
+	WatchState() (<-chan connectors.State, func())
 	Connect(ctx context.Context) error
 	Disconnect(ctx context.Context) error
 }
@@ -104,7 +104,7 @@ type AuthConnector interface {
 // ChatGPTConnector is the ChatGPT connector as the wire drives it.
 type ChatGPTConnector interface {
 	State() connectors.State
-	Subscribe() (<-chan connectors.State, func())
+	WatchState() (<-chan connectors.State, func())
 	Connect(ctx context.Context, fresh bool) error
 	Cancel()
 	Disconnect(ctx context.Context) error
@@ -113,7 +113,7 @@ type ChatGPTConnector interface {
 // OpenRouterConnector is the OpenRouter connector as the wire drives it.
 type OpenRouterConnector interface {
 	State() connectors.State
-	Subscribe() (<-chan connectors.State, func())
+	WatchState() (<-chan connectors.State, func())
 	Connect(ctx context.Context) error
 	Cancel()
 	Disconnect() error
@@ -122,7 +122,7 @@ type OpenRouterConnector interface {
 // AWSConnector is the AWS connector as the wire drives it.
 type AWSConnector interface {
 	State() connectors.State
-	Subscribe() (<-chan connectors.State, func())
+	WatchState() (<-chan connectors.State, func())
 	Connect(ctx context.Context) error
 	Cancel()
 	Disconnect() error
@@ -131,7 +131,7 @@ type AWSConnector interface {
 // GitHubConnector is the GitHub connector as the wire drives it.
 type GitHubConnector interface {
 	State() connectors.State
-	Subscribe() (<-chan connectors.State, func())
+	WatchState() (<-chan connectors.State, func())
 	Connect(ctx context.Context) error
 	Cancel()
 	Disconnect() error
@@ -140,7 +140,7 @@ type GitHubConnector interface {
 // GoogleConnector is the Google connector as the wire drives it.
 type GoogleConnector interface {
 	State() connectors.State
-	Subscribe() (<-chan connectors.State, func())
+	WatchState() (<-chan connectors.State, func())
 	Connect(ctx context.Context, fresh bool) error
 	Cancel()
 	Disconnect(ctx context.Context) error
@@ -148,20 +148,20 @@ type GoogleConnector interface {
 	Project() string
 }
 
-// LogsService pages and follows a scope's lines: *logs.Service, or a test's fake.
+// LogsService pages and tails a scope's lines: *logs.Service, or a test's fake.
 type LogsService interface {
 	Fetch(ctx context.Context, id cluster.ClusterID, q logs.FetchRequest) (logs.FetchResponse, error)
-	Follow(ctx context.Context, id cluster.ClusterID, q logs.FollowRequest) (logs.FollowResponse, error)
+	TailFromCursor(ctx context.Context, id cluster.ClusterID, q logs.TailRequest) (logs.TailResponse, error)
 }
 
 // ExecutableProber is the executable probe: *bash.Tool, or a test's fake. StartProbe
 // and Report take the user's registered executables and list the curated ones
 // first; a registered one the shape check refuses is listed and never probed.
-// WatchProbe says when a probe starts and ends.
+// WatchProbeState says when a probe starts and ends.
 type ExecutableProber interface {
 	StartProbe(registered []settings.Executable)
 	Report(registered []settings.Executable) []bash.ExecutableReport
-	WatchProbe() *watch.Receiver[bash.ProbeState]
+	WatchProbeState() *watch.Receiver[bash.ProbeState]
 }
 
 // SandboxConsole is the Sandbox console: *bash.Tool, or a test's fake.
@@ -169,7 +169,7 @@ type ExecutableProber interface {
 type SandboxConsole interface {
 	StartConsoleCommand(req bash.ConsoleRequest) (int, error)
 	StopConsoleCommand(number int)
-	WatchConsole() *watch.Receiver[*bash.ConsoleRun]
+	WatchConsoleState() *watch.Receiver[*bash.ConsoleRun]
 }
 
 // probes reports whether this machine probes executables: a sandbox and a shell.

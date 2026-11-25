@@ -17,16 +17,16 @@ import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 
 // The seams: the watch's frames, folded by the hook's own reducer, and each
 // mutation by name.
-const { useWatchSubscriptionMock, useMutationMock, watch, mutations } = vi.hoisted(() => ({
-  useWatchSubscriptionMock: vi.fn(),
+const { useFoldedSubscriptionMock, useMutationMock, watch, mutations } = vi.hoisted(() => ({
+  useFoldedSubscriptionMock: vi.fn(),
   useMutationMock: vi.fn(),
   watch: {} as { frames?: unknown[] },
   mutations: {} as Record<string, Mock<(variables: unknown) => Promise<unknown>>>,
 }));
 vi.mock('urql', () => ({ useMutation: useMutationMock }));
-vi.mock('@/lib/graphql/use-watch-subscription', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/graphql/use-watch-subscription')>()),
-  useWatchSubscription: useWatchSubscriptionMock,
+vi.mock('@/lib/graphql/use-folded-subscription', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/graphql/use-folded-subscription')>()),
+  useFoldedSubscription: useFoldedSubscriptionMock,
 }));
 // Each document is its name, so the mock can tell the mutations apart.
 vi.mock('@/gql', () => ({ graphql: (source: string) => /(?:query|subscription|mutation) (\w+)/.exec(source)![1] }));
@@ -46,7 +46,7 @@ const folders = {
 beforeEach(() => {
   vi.clearAllMocks();
   watch.frames = undefined;
-  useWatchSubscriptionMock.mockImplementation((_args, reduce) => ({
+  useFoldedSubscriptionMock.mockImplementation((_args, reduce) => ({
     data: watch.frames && reduce(undefined, watch.frames),
     connected: true,
   }));
@@ -65,12 +65,12 @@ describe('useSandboxFolders', () => {
 
   it('follows the watch: the grants, the never-readable and closed lists and the wide folders', () => {
     const { result, rerender } = renderHook(() => useSandboxFolders('c1'));
-    expect(useWatchSubscriptionMock).toHaveBeenCalledWith(
+    expect(useFoldedSubscriptionMock).toHaveBeenCalledWith(
       expect.objectContaining({ variables: { chatID: 'c1' } }),
       expect.any(Function),
       { unshared: true },
     );
-    watch.frames = [{ sandboxFoldersWatch: folders }];
+    watch.frames = [{ sandboxFoldersStateWatch: folders }];
     rerender();
     expect(result.current.always).toEqual([code]);
     expect(result.current.chat).toEqual([gone]);
@@ -79,7 +79,7 @@ describe('useSandboxFolders', () => {
     expect(result.current.wide).toEqual(['/Users/ren', '/Users']);
 
     // A grant or Remove made anywhere arrives as the next whole frame.
-    watch.frames.push({ sandboxFoldersWatch: { ...folders, always: [], chat: [gone, code] } });
+    watch.frames.push({ sandboxFoldersStateWatch: { ...folders, always: [], chat: [gone, code] } });
     rerender();
     expect(result.current.always).toEqual([]);
     expect(result.current.chat).toEqual([gone, code]);
@@ -87,7 +87,7 @@ describe('useSandboxFolders', () => {
 
   it('watches with no chat when none is named', () => {
     renderHook(() => useSandboxFolders());
-    expect(useWatchSubscriptionMock).toHaveBeenCalledWith(
+    expect(useFoldedSubscriptionMock).toHaveBeenCalledWith(
       expect.objectContaining({ variables: { chatID: null } }),
       expect.any(Function),
       { unshared: true },

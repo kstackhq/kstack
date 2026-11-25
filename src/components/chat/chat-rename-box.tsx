@@ -15,7 +15,7 @@
 // A chat's title as a text box, in place of wherever it was drawn: the chat list's row or
 // the chat's title bar. Enter renames, or with a title the sidecar would refuse keeps the
 // box and says why; Escape or leaving the box cancels; both keys are left to an IME while
-// it composes. The title comes off `chatsWatch`, so a refused rename leaves it as it was
+// it composes. The title comes off `chatCollectionWatch`, so a refused rename leaves it as it was
 // with nothing local to undo.
 import { cn } from '@kubetail/ui/lib/utils';
 import { useId, useState } from 'react';

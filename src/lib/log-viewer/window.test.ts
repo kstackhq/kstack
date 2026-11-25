@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FakeClient, type FakeStream } from './fake-client';
 import { compareTimestamps } from './lines';
-import type { Anchor, FetchQuery, FollowFrame, LogLine, Page } from './types';
+import type { Anchor, FetchQuery, TailFrame, LogLine, Page } from './types';
 import { CORE_INITIAL_STATE, type Edge, type Effect, LogWindow, type LogWindowOptions } from './window';
 
 const HEAD: Anchor = { kind: 'Head', at: null };
@@ -79,7 +79,7 @@ const cursors = (w: LogWindow) => {
   return Array.from({ length }, (_, i) => w.lineAt(i).cursor);
 };
 
-const lineFrame = (i: number): FollowFrame => ({ kind: 'Line', line: line(i) });
+const lineFrame = (i: number): TailFrame => ({ kind: 'Line', line: line(i) });
 
 describe('before any event', () => {
   it('answers the initial snapshot', () => {
@@ -526,9 +526,9 @@ describe('seen', () => {
     };
     w.landed(await fetched(w.landing(TAIL)), TAIL);
 
-    const frames: FollowFrame[] = [];
+    const frames: TailFrame[] = [];
     const { cursor, seen } = w.followFrom();
-    const cancel = fake.follow(cursor, seen, (frame) => frames.push(frame));
+    const cancel = fake.tail(cursor, seen, (frame) => frames.push(frame));
     await vi.runOnlyPendingTimersAsync();
     fake.append(5);
     w.followed(frames);
@@ -723,7 +723,7 @@ describe('setVisibleRange', () => {
   });
 });
 
-const linesBefore = (frames: FollowFrame[]): LogLine[] => {
+const linesBefore = (frames: TailFrame[]): LogLine[] => {
   const ended = frames.findIndex((f) => f.kind === 'Ended');
   return (ended === -1 ? frames : frames.slice(0, ended)).flatMap((f) => (f.kind === 'Line' ? [f.line] : []));
 };
@@ -803,7 +803,7 @@ async function walk(seed: number) {
   // Answers the walk holds until a later step lets them through, in any order.
   const heldBack = new Set<Pending>();
   let cancel: (() => void) | null = null;
-  let frames: FollowFrame[] = [];
+  let frames: TailFrame[] = [];
   // What the step did, for the check that nothing else moves the view.
   let moved = false;
   // Every line this landing held and let go, and whether it dropped any line, one it had just
@@ -969,7 +969,7 @@ async function walk(seed: number) {
       outstanding.after = null;
       try {
         const { cursor, seen } = w.followFrom();
-        cancel = fake.follow(cursor, seen, (frame) => frames.push(frame));
+        cancel = fake.tail(cursor, seen, (frame) => frames.push(frame));
       } catch {
         w.followFailed();
         expect(w.getSnapshot().pinnedToEnd, `${context}: a refused follow left it pinned`).toBe(false);
@@ -1266,7 +1266,7 @@ describe('firstKey', () => {
 
 // A window of at most 10 lines, a margin of 3 past the visible range.
 const BOUND = { maxLines: 10, loadMoreThreshold: 2 };
-const frames = (from: number, to: number) => range(from, to).map((l): FollowFrame => ({ kind: 'Line', line: l }));
+const frames = (from: number, to: number) => range(from, to).map((l): TailFrame => ({ kind: 'Line', line: l }));
 
 describe('a follow past maxLines', () => {
   it('drops at the before edge, keeping the kept keys and moving firstKey, and goes to the end', () => {
@@ -1419,7 +1419,7 @@ describe('the seam', () => {
 
   it('keeps the farthest stamp of every drop at the before edge, though a later drop’s lies short of it', () => {
     const w = landed(TAIL, page(0, 2, { edges: END }), { ...BOUND, maxLines: 4 });
-    w.followed([line(2, 40), line(3, 3)].map((l): FollowFrame => ({ kind: 'Line', line: l })));
+    w.followed([line(2, 40), line(3, 3)].map((l): TailFrame => ({ kind: 'Line', line: l })));
     [line(4, 41), line(5, 42), line(6, 43), line(7, 44)].forEach((l) => w.followed([{ kind: 'Line', line: l }]));
     // Dropped c0 at 0s, c1 at 1s, c2 at 40s and c3 at 3s.
     expect(cursors(w)).toEqual(['c4', 'c5', 'c6', 'c7']);

@@ -13,20 +13,26 @@
 // limitations under the License.
 
 // What a window reads about chats: the recent list and one chat's transcript, each a
-// delta watch folded into an id-keyed map. Stored records with no cache behind them,
-// so there is no provenance to guard and no need for `useCacheDeltaWatch`.
+// collection watch folded into an id-keyed map. Stored records with no cache behind them,
+// so there is no provenance to guard and no need for `useCacheCollectionWatch`.
 import { useMemo, useState } from 'react';
 
 import { graphql } from '@/gql';
-import type { ChatMessagesWatchSubscription, ChatMode, ChatsWatchSubscription, ToolActionKind } from '@/gql/graphql';
+import type {
+  ChatMessageCollectionWatchSubscription,
+  ChatMode,
+  ChatCollectionWatchSubscription,
+  ToolActionKind,
+} from '@/gql/graphql';
 import type { AppMode } from '@/lib/app-mode';
-import { applyChange } from '@/lib/clusters';
-import { useWatchSubscription, watchPhase } from '@/lib/graphql/use-watch-subscription';
-import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
+import { collectionWatchReducer } from '@/lib/graphql/collection-watch';
+import type { Keyed } from '@/lib/graphql/collection-watch';
+import { useFoldedSubscription, subscriptionPhase } from '@/lib/graphql/use-folded-subscription';
+import type { SubscriptionPhase } from '@/lib/graphql/use-folded-subscription';
 
-const ChatsWatchSubscription = graphql(`
-  subscription ChatsWatch {
-    chatsWatch {
+const ChatCollectionWatchDocument = graphql(`
+  subscription ChatCollectionWatch {
+    chatCollectionWatch {
       type
       chat {
         id
@@ -43,9 +49,9 @@ const ChatsWatchSubscription = graphql(`
   }
 `);
 
-const ChatMessagesWatchSubscription = graphql(`
-  subscription ChatMessagesWatch($chatID: ChatID!) {
-    chatMessagesWatch(chatID: $chatID) {
+const ChatMessageCollectionWatchDocument = graphql(`
+  subscription ChatMessageCollectionWatch($chatID: ChatID!) {
+    chatMessageCollectionWatch(chatID: $chatID) {
       type
       message {
         id
@@ -335,8 +341,8 @@ const ChatMessagesWatchSubscription = graphql(`
   }
 `);
 
-export type Chat = NonNullable<ChatsWatchSubscription['chatsWatch']['chat']>;
-export type ChatMessage = NonNullable<ChatMessagesWatchSubscription['chatMessagesWatch']['message']>;
+export type Chat = NonNullable<ChatCollectionWatchSubscription['chatCollectionWatch']['chat']>;
+export type ChatMessage = NonNullable<ChatMessageCollectionWatchSubscription['chatMessageCollectionWatch']['message']>;
 export type ChatToolCall = ChatMessage['toolCalls'][number];
 export type ChatSandboxAction = ChatToolCall['sandboxActions'][number];
 type ChatSandboxRequest = NonNullable<ChatSandboxAction['request']>;
@@ -424,47 +430,37 @@ export function chatTitleHasLineBreak(title: string): boolean {
   return LINE_BREAK.test(normalizeChatTitle(title));
 }
 
-export type Folded<T> = { items: Map<string, T>; synced: boolean };
+const reduceChats = collectionWatchReducer(
+  ({ chatCollectionWatch: { type, chat } }: ChatCollectionWatchSubscription) => ({
+    type,
+    item: chat,
+  }),
+);
 
-// Folds one batch of frames. The Bookmark closes the snapshot and is keyed on `type`,
-// never on a missing entity: a nested non-null field erroring nulls its parent too,
-// and reading that as the boundary would call a half-listed collection complete.
-export function fold<T extends { id: string }>(
-  prev: Folded<T> | undefined,
-  frames: { type: string; entity: T | null | undefined }[],
-): Folded<T> {
-  const items = new Map(prev?.items);
-  let synced = prev?.synced ?? false;
-  frames.forEach(({ type, entity }) => {
-    if (type === 'Bookmark') synced = true;
-    else if (entity) applyChange(items, type, entity.id, entity);
-  });
-  return { items, synced };
-}
+const reduceChatMessages = collectionWatchReducer(
+  ({ chatMessageCollectionWatch: { type, message } }: ChatMessageCollectionWatchSubscription) => ({
+    type,
+    item: message,
+  }),
+);
 
 // Both watches are `unshared`: a consumer can mount into a stream already running
 // (the sidebar's list when the card reopens, a chat another window is streaming),
 // and a shared stream never replays the snapshot that opened it.
 
 /** The recent list, newest first. */
-export function useChats(): { chats: Chat[]; phase: WatchPhase } {
-  const { data, connected } = useWatchSubscription(
-    { query: ChatsWatchSubscription },
-    (prev: Folded<Chat> | undefined, frames) =>
-      fold(
-        prev,
-        frames.map(({ chatsWatch: { type, chat } }) => ({ type, entity: chat })),
-      ),
-    { unshared: true },
-  );
+export function useChats(): { chats: Chat[]; phase: SubscriptionPhase } {
+  const { data, connected } = useFoldedSubscription({ query: ChatCollectionWatchDocument }, reduceChats, {
+    unshared: true,
+  });
 
   // A reconnect replays the list from nothing. Until its Bookmark, the last synced list
   // stands in for the rows the replay has yet to reach, each replaced as its own record
   // lands: only the Bookmark can say a chat is gone.
-  const [lastSynced, setLastSynced] = useState<Map<string, Chat>>();
-  if (data?.synced && data.items !== lastSynced) setLastSynced(data.items);
+  const [lastSynced, setLastSynced] = useState<Keyed<Chat>>();
+  if (data?.snapshotComplete && data.items !== lastSynced) setLastSynced(data.items);
   const items = useMemo(() => {
-    if (data?.synced || !lastSynced) return data?.items;
+    if (data?.snapshotComplete || !lastSynced) return data?.items;
     return new Map([...lastSynced, ...(data?.items ?? [])]);
   }, [data, lastSynced]);
   // `updatedAt` is an ISO string, so it is parsed rather than compared as text. The
@@ -478,18 +474,14 @@ export function useChats(): { chats: Chat[]; phase: WatchPhase } {
     [items],
   );
 
-  return { chats, phase: watchPhase(!!data?.synced, connected) };
+  return { chats, phase: subscriptionPhase(!!data?.snapshotComplete, connected) };
 }
 
 /** One chat's messages in `seq` order. A streaming answer arrives as `Modified` frames carrying the whole text so far. */
-export function useChatMessages(chatID: string): { messages: ChatMessage[]; phase: WatchPhase } {
-  const { data, connected } = useWatchSubscription(
-    { query: ChatMessagesWatchSubscription, variables: { chatID } },
-    (prev: Folded<ChatMessage> | undefined, frames) =>
-      fold(
-        prev,
-        frames.map(({ chatMessagesWatch: { type, message } }) => ({ type, entity: message })),
-      ),
+export function useChatMessages(chatID: string): { messages: ChatMessage[]; phase: SubscriptionPhase } {
+  const { data, connected } = useFoldedSubscription(
+    { query: ChatMessageCollectionWatchDocument, variables: { chatID } },
+    reduceChatMessages,
     { unshared: true },
   );
 
@@ -497,7 +489,7 @@ export function useChatMessages(chatID: string): { messages: ChatMessage[]; phas
   // `seq` is the order; `createdAt` is not, since two windows can send into one chat.
   const messages = useMemo(() => [...(items?.values() ?? [])].toSorted((a, b) => a.seq - b.seq), [items]);
 
-  return { messages, phase: watchPhase(!!data?.synced, connected) };
+  return { messages, phase: subscriptionPhase(!!data?.snapshotComplete, connected) };
 }
 
 type TextBlock = { type: 'text'; text: string };

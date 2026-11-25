@@ -12,18 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// What the sidecar can answer with: a gauge, since the ChatGPT plan's models come
+// What the sidecar can answer with: a state watch, since the ChatGPT plan's models come
 // and go with its connection, and every window's picker follows them. The one reader
 // of it is `ModelsProvider`, mounted once per window at the root.
 import { createContext, useContext, useMemo } from 'react';
 
 import { graphql } from '@/gql';
-import type { ModelsWatchSubscription } from '@/gql/graphql';
-import { perFrame, useWatchSubscription } from '@/lib/graphql/use-watch-subscription';
+import type { ModelsStateWatchSubscription } from '@/gql/graphql';
+import { stateWatchReducer } from '@/lib/graphql/state-watch';
+import { useFoldedSubscription } from '@/lib/graphql/use-folded-subscription';
 
-const ModelsWatchDocument = graphql(`
-  subscription ModelsWatch {
-    modelsWatch {
+const ModelsStateWatchDocument = graphql(`
+  subscription ModelsStateWatch {
+    modelsStateWatch {
       provider {
         id
         label
@@ -36,7 +37,7 @@ const ModelsWatchDocument = graphql(`
   }
 `);
 
-export type Model = ModelsWatchSubscription['modelsWatch'][number];
+export type Model = ModelsStateWatchSubscription['modelsStateWatch'][number];
 
 /** One model, as a send names it: the provider's id and its own. */
 export type ModelRef = { providerID: string; id: string };
@@ -46,23 +47,23 @@ export type ModelRef = { providerID: string; id: string };
  * answered; after it an empty catalog is a sidecar with no provider, which disables
  * Send with a placeholder.
  */
-export type Catalog = { models: Model[]; loaded: boolean };
+export type Catalog = { models: Model[]; snapshotComplete: boolean };
 
 const NONE: Model[] = [];
 
 const ModelsContext = createContext<Catalog | null>(null);
 
 /**
- * Holds the window's one `modelsWatch`. A gauge's first frame is its snapshot, so
+ * Holds the window's one `modelsStateWatch`. A state watch's first frame is its snapshot, so
  * a reader mounting into a running stream would never see one; holding it here,
  * above every reader, hands a late reader the catalog the window already has.
  */
 export function ModelsProvider({ children }: { children: React.ReactNode }) {
-  const { data } = useWatchSubscription<ModelsWatchSubscription, Model[]>(
-    { query: ModelsWatchDocument },
-    perFrame((_prev, next) => next.modelsWatch),
+  const { data } = useFoldedSubscription<ModelsStateWatchSubscription, Model[]>(
+    { query: ModelsStateWatchDocument },
+    stateWatchReducer((next) => next.modelsStateWatch),
   );
-  const value = useMemo(() => ({ models: data ?? NONE, loaded: data !== undefined }), [data]);
+  const value = useMemo(() => ({ models: data ?? NONE, snapshotComplete: data !== undefined }), [data]);
   return <ModelsContext.Provider value={value}>{children}</ModelsContext.Provider>;
 }
 

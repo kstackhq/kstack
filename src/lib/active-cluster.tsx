@@ -24,14 +24,14 @@ import { useMemo } from 'react';
 import { useActiveKubeContext } from '@/lib/active-kube-context';
 import { clusterForContext, useClusters } from '@/lib/clusters';
 import type { Cluster } from '@/lib/clusters';
-import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
+import type { SubscriptionPhase } from '@/lib/graphql/use-folded-subscription';
 
 export function useActiveCluster(): {
   cluster: Cluster | undefined;
   clusterID: string | undefined;
   cacheID: string | undefined;
   active: boolean;
-  phase: WatchPhase;
+  phase: SubscriptionPhase;
 } {
   const { context, phase } = useActiveKubeContext();
   const { clusters } = useClusters();

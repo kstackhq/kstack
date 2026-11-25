@@ -149,16 +149,16 @@ func TestAChatsFolderGrantIsListedAndRemoved(t *testing.T) {
 	assert.Empty(t, got["sandboxFolders"].(map[string]any)["always"], "and never widens to every chat")
 }
 
-// foldersFrame is the first sandboxFoldersWatch frame on events whose always
-// and chat lists hold always and chat grants: a gauge over two sources can say
+// foldersFrame is the first sandboxFoldersStateWatch frame on events whose always
+// and chat lists hold always and chat grants: a state watch over two sources can say
 // one thing twice, so a frame is never counted.
 func foldersFrame(t *testing.T, events <-chan sseEvent, always, chat int) map[string]any {
 	t.Helper()
 	for {
-		ev := testutil.Recv(t, events, "a sandboxFoldersWatch frame")
+		ev := testutil.Recv(t, events, "a sandboxFoldersStateWatch frame")
 		var payload struct {
 			Data struct {
-				Folders map[string]any `json:"sandboxFoldersWatch"`
+				Folders map[string]any `json:"sandboxFoldersStateWatch"`
 			} `json:"data"`
 		}
 		require.NoError(t, json.Unmarshal([]byte(ev.data), &payload), ev.data)
@@ -172,19 +172,19 @@ func foldersFrame(t *testing.T, events <-chan sseEvent, always, chat int) map[st
 // The watch answers the folders on subscribe, and again after an always grant
 // or revoke and after a write or revoke of the chat's own; one naming no chat
 // follows the always grants alone.
-func TestSandboxFoldersWatchFollowsEveryGrant(t *testing.T) {
+func TestSandboxFoldersStateWatchFollowsEveryGrant(t *testing.T) {
 	srv, home := newFolderServer(t)
 	code := filepath.Join(home, "code")
 	chatID := newChatOn(t, srv)
 
-	resp := openSSESubscription(t, srv.URL, "", `subscription { sandboxFoldersWatch(chatID: "`+chatID+`") `+foldersFields+` }`)
+	resp := openSSESubscription(t, srv.URL, "", `subscription { sandboxFoldersStateWatch(chatID: "`+chatID+`") `+foldersFields+` }`)
 	defer resp.Body.Close()
 	events := sseEvents(t, resp)
 	first := foldersFrame(t, events, 0, 0)
 	assert.Equal(t, []any{filepath.Join(home, ".ssh")}, first["never"])
 	assert.Contains(t, first["wide"], home)
 
-	unscoped := openSSESubscription(t, srv.URL, "", `subscription { sandboxFoldersWatch `+foldersFields+` }`)
+	unscoped := openSSESubscription(t, srv.URL, "", `subscription { sandboxFoldersStateWatch `+foldersFields+` }`)
 	defer unscoped.Body.Close()
 	alone := sseEvents(t, unscoped)
 	foldersFrame(t, alone, 0, 0)
@@ -265,10 +265,10 @@ func TestSandboxFoldersFailWithTheirRead(t *testing.T) {
 	require.Len(t, res.Errors, 1)
 	assert.Contains(t, res.Errors[0].Message, "folder_grants")
 
-	resp := openSSESubscription(t, srv.URL, "", `subscription { sandboxFoldersWatch(chatID: "`+chatID+`") { wide } }`)
+	resp := openSSESubscription(t, srv.URL, "", `subscription { sandboxFoldersStateWatch(chatID: "`+chatID+`") { wide } }`)
 	defer resp.Body.Close()
 	ev := testutil.Recv(t, sseEvents(t, resp), "the failure frame")
-	assert.Contains(t, ev.data, `"watchFailed":true`)
+	assert.Contains(t, ev.data, `"subscriptionFailed":true`)
 	assert.Contains(t, ev.data, "read the sandbox folders")
 }
 
@@ -436,7 +436,7 @@ func TestTheFoldersWatchFollowsThePath(t *testing.T) {
 	srv, home := newFolderServer(t)
 	code := filepath.Join(home, "code")
 	mutate(t, srv, `mutation { folderGrant(path: "`+code+`", write: false, duration: Always) { wide } }`)
-	resp := openSSESubscription(t, srv.URL, "", `subscription { sandboxFoldersWatch `+foldersFields+` }`)
+	resp := openSSESubscription(t, srv.URL, "", `subscription { sandboxFoldersStateWatch `+foldersFields+` }`)
 	defer resp.Body.Close()
 	events := sseEvents(t, resp)
 	foldersFrame(t, events, 1, 0)

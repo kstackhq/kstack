@@ -138,9 +138,9 @@ func (s *Service) Set(ctx context.Context, name string, enabled bool) error {
 	return nil
 }
 
-// Subscribe streams every tool with its setting: current on subscribe, then
+// WatchSettingsState streams every tool with its setting: current on subscribe, then
 // the list after each change.
-func (s *Service) Subscribe() (<-chan []Setting, func()) {
+func (s *Service) WatchSettingsState() (<-chan []Setting, func()) {
 	rx := s.hub.Receiver()
 	return rx.Chan(), rx.Close
 }

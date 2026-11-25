@@ -17,7 +17,7 @@
 //
 // This file specifies the whole API — Service and the four family interfaces — and
 // bootstraps beehive. One file per family implements it and holds everything else
-// about that kind: its beehive shapes, the record served to GraphQL, its delta-watch
+// about that kind: its beehive shapes, the record served to GraphQL, its collection watch
 // frame, and the controller that writes it. shared.go holds the vocabulary every
 // family reuses. Every beehive detail lives behind the Service interface.
 //
@@ -74,16 +74,19 @@ import (
 )
 
 // Service is the frontend-facing boundary: every beehive detail (names, owner chain,
-// spec/status split, delta-watch mapping) lives behind it. Each record family hangs
+// spec/status split, collection watch mapping) lives behind it. Each record family hangs
 // off its own sub-interface; only the connection surface, which reads no beehive
-// object, sits at the top level. Delta watches follow
-// docs/adr/2026-08-09-delta-watch-protocol.md and close when ctx ends.
+// object, sits at the top level.
 //
-// A single-object Watch runs the same protocol as its WatchList, over one id:
-// snapshot, one Bookmark, then deltas. Absence is never an error — an id holding
-// nothing gets the Bookmark alone, which is what lets a view open a subscription on an
-// id it expects to be filled. A removal is Deleted; it does not end the stream, but it
-// is the last frame that id will carry, because an id is never reused.
+// Every method that keeps delivering is named for its family and kind, as
+// docs/subscriptions.md states: Watch…Collection, Watch…State, Watch…KeyedState,
+// Subscribe…EventFeed, Subscribe…TimeSeriesFeed. Each ends when ctx ends.
+//
+// WatchCollectionByID runs the same protocol as WatchCollection, over one id: snapshot,
+// one Bookmark, then changes. Absence is never an error — an id holding nothing gets the
+// Bookmark alone, which is what lets a view open a subscription on an id it expects to
+// be filled. A removal is Deleted; it does not end the stream, but it is the last frame
+// that id will carry, because an id is never reused.
 type Service interface {
 	// Start launches the background work and returns the func that drains it. ctx
 	// bounds startup; the stop func takes a drain deadline. Call stop before Close.
@@ -109,21 +112,21 @@ type Service interface {
 	AcquireConnection(ctx context.Context, id ClusterID) (Lease, error)
 	// RetryConnection re-probes now and returns when that probe has finished, so it
 	// blocks for the probe's round trip. The outcome lands on the record's conditions
-	// and reaches watchers through Clusters().Watch, not here.
+	// and reaches watchers through Clusters().WatchCollectionByID, not here.
 	RetryConnection(ctx context.Context, id ClusterID) error
 
 	// The event timeline of any record that has one — ClusterCache and
 	// ClusterCachedKind here, by object id; a Cluster's is on Clusters(), since a
 	// cluster is addressed by ClusterID. Top-level, not per family: an event carries no
 	// kind of its own, so one reader serves every timeline and the id is the whole key.
-	// Both are off the record watches, so event chatter never re-emits a record.
+	// Both are off the collection watches, so event chatter never re-emits a record.
 	//
 	// ListEvents returns newest run first, optionally filtered by category and
-	// bounded by limit. WatchEvents streams the same log — snapshot, one Bookmark,
-	// then growth. Distinct from CachedData().WatchEvents, which streams the *cluster's*
+	// bounded by limit. SubscribeObjectEventFeed streams the same log — snapshot, one
+	// Bookmark, then growth. Distinct from CachedData().WatchEventCollection, which streams the *cluster's*
 	// cached Kubernetes Events rather than kstack's own log.
 	ListEvents(ctx context.Context, id ObjectID, category *string, limit *int) ([]Event, error)
-	WatchEvents(ctx context.Context, id ObjectID, category *string) (*Stream[EventWatchFrame], error)
+	SubscribeObjectEventFeed(ctx context.Context, id ObjectID, category *string) (*Stream[EventFeedFrame], error)
 }
 
 // The connection vocabulary is the leaf's, aliased rather than copied: a connection is native
@@ -132,11 +135,11 @@ type Service interface {
 // this interface — the resolver tests' fake among them. The Conn prefix belongs to this level,
 // where a bare State or Identity would read as a record's.
 type (
-	Lease                 = kubeconn.Lease
-	Connection            = kubeconn.Connection
-	ConnIdentity          = kubeconn.Identity
-	ConnState             = kubeconn.State
-	ConnStateSubscription = kubeconn.StateSubscription
+	Lease          = kubeconn.Lease
+	Connection     = kubeconn.Connection
+	ConnIdentity   = kubeconn.Identity
+	ConnState      = kubeconn.State
+	ConnStateWatch = kubeconn.StateWatch
 )
 
 // ErrIdentityMismatch is what Lease.ConnFor refuses a connection to another
@@ -164,7 +167,7 @@ type Clusters interface {
 	// Get returns one cluster by id, or (nil, nil) when the id names nothing.
 	Get(ctx context.Context, id ClusterID) (*Cluster, error)
 	// List returns every tracked cluster. Cache sync status is the caller's join from
-	// Caches().WatchList.
+	// Caches().WatchCollection.
 	List(ctx context.Context) ([]*Cluster, error)
 	// ReadActive hands read the record and the cache that mirrors its identity, then
 	// reads the identity again, and runs the whole reading once more when it moved:
@@ -174,27 +177,28 @@ type Clusters interface {
 	// is returned as it is.
 	ReadActive(ctx context.Context, id ClusterID, read func(context.Context, ActiveCluster) error) error
 
-	// Watch streams one cluster as a delta watch, scoped to the record's id.
-	// Bookmark-only while the id names no tracked cluster.
+	// WatchCollectionByID streams one cluster as a collection watch, scoped to the record's
+	// id. Bookmark-only while the id names no tracked cluster.
 	//
 	// Deleted is terminal for the id, since an id is never reused: a context still in
 	// the kubeconfig is re-imported under a fresh one, which a caller has to watch
 	// itself. A context merely dropped from the kubeconfig is not a deletion at all —
 	// the record is orphaned in place (IsPresent=false), which arrives as Modified.
-	Watch(ctx context.Context, id ClusterID) (*Stream[ClusterWatchFrame], error)
-	// WatchList streams every cluster as a delta watch. The mark that starts a record's
-	// deletion is an ordinary Modified — the row is still there, wearing a tombstone —
+	WatchCollectionByID(ctx context.Context, id ClusterID) (*Stream[ClusterCollectionWatchFrame], error)
+	// WatchCollection streams every cluster as a collection watch. The mark that starts a
+	// record's deletion is an ordinary Modified — the row is still there, wearing a tombstone —
 	// and Deleted follows when it is collected.
-	WatchList(ctx context.Context) (*Stream[ClusterWatchFrame], error)
+	WatchCollection(ctx context.Context) (*Stream[ClusterCollectionWatchFrame], error)
 
-	// WatchSchedule streams a cluster's next-probe gauge. A stream because a
-	// scheduling change fires no object WatchList, so it cannot ride Watch.
+	// WatchScheduleState streams a cluster's next probe as a state watch. A stream of its
+	// own because a scheduling change fires no object WatchList, so it cannot ride the
+	// collection watch.
 	// Refuses the records AcquireConnection refuses: an unprobed cluster has no
 	// cadence.
-	WatchSchedule(ctx context.Context, id ClusterID) (<-chan Schedule, error)
-	// WatchDataRate streams the rate of a cluster's connection as a series: the pool's last
-	// samples, then each new one. Refuses what WatchSchedule refuses.
-	WatchDataRate(ctx context.Context, id ClusterID) (<-chan ClusterDataRateSeriesFrame, error)
+	WatchScheduleState(ctx context.Context, id ClusterID) (<-chan Schedule, error)
+	// SubscribeDataRateTimeSeriesFeed streams the rate of a cluster's connection: the pool's
+	// last samples, then each new one. Refuses what WatchScheduleState refuses.
+	SubscribeDataRateTimeSeriesFeed(ctx context.Context, id ClusterID) (<-chan ClusterDataRateTimeSeriesFeedFrame, error)
 	// SetEnabled enables or disables a cluster and returns the updated record.
 	SetEnabled(ctx context.Context, id ClusterID, enabled bool) (*Cluster, error)
 	// SetSyncEnabled toggles a cluster's sync and returns the updated record.
@@ -204,10 +208,10 @@ type Clusters interface {
 	// runs on it yet.
 	SetMonitoringEnabled(ctx context.Context, id ClusterID, enabled bool) (*Cluster, error)
 
-	// ListEvents and WatchEvents are the cluster's own timeline, the top-level pair
+	// ListEvents and SubscribeEventFeed are the cluster's own timeline, the top-level pair
 	// resolved by ClusterID. Absence is empty, or the Bookmark alone.
 	ListEvents(ctx context.Context, id ClusterID, category *string, limit *int) ([]Event, error)
-	WatchEvents(ctx context.Context, id ClusterID, category *string) (*Stream[EventWatchFrame], error)
+	SubscribeEventFeed(ctx context.Context, id ClusterID, category *string) (*Stream[EventFeedFrame], error)
 
 	// Delete marks the row for deletion and returns; the mirror and the chat service
 	// tear the cluster down behind it, and the row goes last.
@@ -224,36 +228,36 @@ type Caches interface {
 	// live join (CacheIsActive), not a property here.
 	List(ctx context.Context) ([]*ClusterCache, error)
 
-	// Watch streams one cache as a delta watch. Bookmark-only until the cluster has
-	// been probed and its cache created, so a caller may open this on a cache a
+	// WatchCollectionByID streams one cache as a collection watch. Bookmark-only until the
+	// cluster has been probed and its cache created, so a caller may open this on a cache a
 	// migration has not produced yet.
-	Watch(ctx context.Context, id ClusterCacheID) (*Stream[ClusterCacheWatchFrame], error)
-	// WatchList streams every cache as a delta watch parallel to
-	// Clusters().WatchList; the caller joins caches onto clusters by ClusterID.
-	WatchList(ctx context.Context) (*Stream[ClusterCacheWatchFrame], error)
+	WatchCollectionByID(ctx context.Context, id ClusterCacheID) (*Stream[ClusterCacheCollectionWatchFrame], error)
+	// WatchCollection streams every cache as a collection watch parallel to
+	// Clusters().WatchCollection; the caller joins caches onto clusters by ClusterID.
+	WatchCollection(ctx context.Context) (*Stream[ClusterCacheCollectionWatchFrame], error)
 
 	// ListByCluster returns one cluster's caches, in the same order.
 	ListByCluster(ctx context.Context, clusterID ClusterID) ([]*ClusterCache, error)
-	// WatchByCluster streams one cluster's caches as a delta watch — what a view
-	// scoped to a single cluster opens instead of filtering WatchList.
-	WatchByCluster(ctx context.Context, clusterID ClusterID) (*Stream[ClusterCacheWatchFrame], error)
+	// WatchCollectionByCluster streams one cluster's caches as a collection watch — what a
+	// view scoped to a single cluster opens instead of filtering WatchCollection.
+	WatchCollectionByCluster(ctx context.Context, clusterID ClusterID) (*Stream[ClusterCacheCollectionWatchFrame], error)
 
-	// WatchStats streams one cache's contents as a live gauge. A stream, not a
+	// WatchStatsState streams one cache's contents as a state watch. A stream, not a
 	// ClusterCache field: a settled cache's object never changes, so a field would
 	// freeze at subscribe time.
-	WatchStats(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID) (*Stream[ClusterCacheStats], error)
-	// WatchHealth streams every cache's sync verdict, folded from its per-kind
+	WatchStatsState(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID) (*Stream[ClusterCacheStats], error)
+	// WatchHealthKeyedState streams every cache's sync verdict, folded from its per-kind
 	// records. Unscoped where the rest of this family is per-cache: one fold serves
-	// the fleet. A gauge, but a failable one — the fold reads watches of its own.
-	WatchHealth(ctx context.Context) (*Stream[ClusterCacheHealth], error)
-	// WatchSyncStatus streams one cache's sync detail — the discovery verdict and a row
-	// per mirrored kind. What WatchHealth folds for a fleet, expanded for one cache.
-	WatchSyncStatus(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID) (*Stream[ClusterCacheSyncStatus], error)
-	// Health and SyncStatus are one reading each of what the two gauges stream, for a
-	// caller that reads once rather than watching. ok is false for a pair that names
+	// the fleet. A keyed state watch, and a failable one — the fold reads watches of its own.
+	WatchHealthKeyedState(ctx context.Context) (*Stream[ClusterCacheHealth], error)
+	// WatchSyncState streams one cache's sync detail — the discovery verdict and a row
+	// per mirrored kind. What WatchHealthKeyedState folds for a fleet, expanded for one cache.
+	WatchSyncState(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID) (*Stream[ClusterCacheSyncState], error)
+	// Health and SyncState are one reading each of what WatchHealthKeyedState and
+	// WatchSyncState stream, for a caller that reads once rather than watching. ok is false for a pair that names
 	// no cache of that cluster.
 	Health(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID) (ClusterCacheHealth, bool, error)
-	SyncStatus(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID) (ClusterCacheSyncStatus, bool, error)
+	SyncState(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID) (ClusterCacheSyncState, bool, error)
 
 	// Clear deletes one cache's on-disk file and restarts its syncs; the record stays.
 	Clear(ctx context.Context, id ClusterCacheID) (*ClusterCache, error)
@@ -271,20 +275,20 @@ type CachedKinds interface {
 	// List returns every per-kind sync record in creation order.
 	List(ctx context.Context) ([]*ClusterCachedKind, error)
 
-	// Watch streams one per-kind record as a delta watch. Bookmark-only until the
-	// kind is discovered; a kind the cluster stops serving is Deleted.
-	Watch(ctx context.Context, id ClusterCachedKindID) (*Stream[ClusterCachedKindWatchFrame], error)
-	// WatchList streams every per-kind record across every cache — the fleet's
-	// widest stream, and one a view scoped to a cache wants WatchByCache for
+	// WatchCollectionByID streams one per-kind record as a collection watch. Bookmark-only
+	// until the kind is discovered; a kind the cluster stops serving is Deleted.
+	WatchCollectionByID(ctx context.Context, id ClusterCachedKindID) (*Stream[ClusterCachedKindCollectionWatchFrame], error)
+	// WatchCollection streams every per-kind record across every cache — the fleet's
+	// widest stream, and one a view scoped to a cache wants WatchCollectionByCache for
 	// instead. For a reader that genuinely spans caches: the sync-health rollup.
-	WatchList(ctx context.Context) (*Stream[ClusterCachedKindWatchFrame], error)
+	WatchCollection(ctx context.Context) (*Stream[ClusterCachedKindCollectionWatchFrame], error)
 
 	// ListByCache returns one cache's per-kind records — the owner edge, so a cache
 	// nothing has discovered kinds for yet reads empty rather than as an error.
 	ListByCache(ctx context.Context, cacheID ClusterCacheID) ([]*ClusterCachedKind, error)
-	// WatchByCache streams one cache's per-kind records as a delta watch — what a view
-	// scoped to a single cache opens instead of filtering WatchList.
-	WatchByCache(ctx context.Context, cacheID ClusterCacheID) (*Stream[ClusterCachedKindWatchFrame], error)
+	// WatchCollectionByCache streams one cache's per-kind records as a collection watch — what
+	// a view scoped to a single cache opens instead of filtering WatchCollection.
+	WatchCollectionByCache(ctx context.Context, cacheID ClusterCacheID) (*Stream[ClusterCachedKindCollectionWatchFrame], error)
 
 	// Clear drops one kind's cached objects and restarts its sync from an empty
 	// mirror; the record stays and resyncs. Caches().Clear is the whole-cache form.
@@ -305,28 +309,28 @@ type CachedKinds interface {
 // reconnects into the fresh snapshot — because a clear is a user pressing a button, not a
 // watch breaking.
 type CachedData interface {
-	// ListKinds returns one cache's discovered kind catalog, counted as WatchKinds counts it.
+	// ListKinds returns one cache's discovered kind catalog, counted as WatchKindCollection counts it.
 	ListKinds(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID, namespace string) ([]ClusterCachedDataKind, error)
-	// WatchKinds streams one cache's kind catalog as a delta watch (per-kind counts
-	// update live). A namespace counts each namespaced kind in it alone; "" counts the
+	// WatchKindCollection streams one cache's kind catalog as a collection watch (per-kind
+	// counts update live). A namespace counts each namespaced kind in it alone; "" counts the
 	// whole cache.
-	WatchKinds(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID, namespace string) (*Stream[ClusterCachedDataKindWatchFrame], error)
-	// ListObjects returns one kind's cached objects as WatchObjects would snapshot
+	WatchKindCollection(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID, namespace string) (*Stream[ClusterCachedDataKindCollectionWatchFrame], error)
+	// ListObjects returns one kind's cached objects as WatchObjectCollection would snapshot
 	// them, with no body loaded: identity alone, for a reader that wants names.
 	// ok is false for a cache the pair does not resolve to, or one with no file —
 	// never synced, or gone under the read — so a count is never read off nothing.
 	ListObjects(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID, apiVersion, resource string) ([]ClusterCachedDataObject, bool, error)
-	// WatchObjects streams one kind's cached objects as a delta watch keyed by UID.
-	// No frames while that kind hasn't synced.
-	WatchObjects(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID, apiVersion, resource string) (*Stream[ClusterCachedDataObjectWatchFrame], error)
-	// WatchObjectsIn is WatchObjects narrowed to the objects in namespaces, each
-	// frame carrying no body: a watcher that wants to know what moved, not what it
+	// WatchObjectCollection streams one kind's cached objects as a collection watch keyed by
+	// UID. No frames while that kind hasn't synced.
+	WatchObjectCollection(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID, apiVersion, resource string) (*Stream[ClusterCachedDataObjectCollectionWatchFrame], error)
+	// WatchObjectCollectionByNamespaces is WatchObjectCollection narrowed to the objects in
+	// namespaces, each frame carrying no body: a watcher that wants to know what moved, not what it
 	// holds, pays for neither the rest of the cluster nor the bodies.
-	WatchObjectsIn(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID, apiVersion, resource string, namespaces []string) (*Stream[ClusterCachedDataObjectWatchFrame], error)
-	// WatchEvents streams one cache's cached Kubernetes Events, newest first, as a
-	// delta watch keyed by event UID. Woken separately from WatchKinds, so an event
+	WatchObjectCollectionByNamespaces(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID, apiVersion, resource string, namespaces []string) (*Stream[ClusterCachedDataObjectCollectionWatchFrame], error)
+	// WatchEventCollection streams one cache's cached Kubernetes Events, newest first, as a
+	// collection watch keyed by event UID. Woken separately from WatchKindCollection, so an event
 	// burst never drives the kind-catalog re-read.
-	WatchEvents(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID) (*Stream[ClusterCachedDataEventWatchFrame], error)
+	WatchEventCollection(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID) (*Stream[ClusterCachedDataEventCollectionWatchFrame], error)
 	// Query runs one statement over the cache's views on a read-only connection of its
 	// own, with args bound to its placeholders, and answers at most maxRows rows and
 	// maxBytes of cells. ok is false for a
@@ -442,13 +446,13 @@ type service struct {
 	// to stop and close among them, outlives every reconcile and every poke that could
 	// still touch it.
 	parts []lifecycle.Part
-	// gaugeCadence re-measures the gauges. Both carry numbers that move while their
-	// record settles — a file's size, a freshness stamp — so a gauge that only woke on
-	// a change signal would go quiet exactly when it is healthy. A parameter so a test
+	// stateWatchCadence re-measures the state watches. They carry numbers that move while
+	// their record settles — a file's size, a freshness stamp — so a state watch that only
+	// woke on a change notification would go quiet exactly when it is healthy. A parameter so a test
 	// picks its own timescale.
-	gaugeCadence time.Duration
-	// health is the one read loop every WatchHealth subscriber shares.
-	health *sharedGauge[[]ClusterCacheHealth]
+	stateWatchCadence time.Duration
+	// health is the one read loop every WatchHealthKeyedState subscriber shares.
+	health *sharedStateWatch[[]ClusterCacheHealth]
 }
 
 // beehiveRuntime gives beehive the lifecycle.StartCloser shape. Start already matches; the
@@ -568,8 +572,8 @@ func New(db *appdb.DB, paths Paths, kubeconfigSvc kubeconfigService, pokeSvc *po
 	parts = append(parts, lifecycle.Part{Name: "cluster mirror", StartCloser: newClusterMirror(d, mirrorResyncInterval, mirrorRewatchDelay, mirrorPassRetry)})
 	parts = append(parts, restartSyncsOnResume(kubesyncSvc, pokeSvc))
 
-	s := &service{deps: d, now: time.Now, parts: parts, gaugeCadence: defaultGaugeCadence}
-	s.health = newSharedGauge(cachesAPI{s}.readAllCacheHealth)
+	s := &service{deps: d, now: time.Now, parts: parts, stateWatchCadence: defaultStateWatchCadence}
+	s.health = newSharedStateWatch(cachesAPI{s}.readAllCacheHealth)
 	return s, nil
 }
 
@@ -595,7 +599,7 @@ func restartSyncsOnResume(kubesyncSvc kubesyncService, pokeSvc *poke.Service) li
 			if pokeSvc == nil {
 				return func(context.Context) error { return nil }, nil
 			}
-			signals, unsubscribe := pokeSvc.Subscribe()
+			signals, unsubscribe := pokeSvc.ListenForNotifications()
 			var wg sync.WaitGroup
 			wg.Go(func() {
 				for range signals {

@@ -20,23 +20,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // Mocks ---------------------------------------------------------------
 
 // Same seams as cluster-cached-data-events.test.tsx: an accumulator stand-in for
-// `useWatchSubscription` that captures the reducer, the real `applyChange`, and the
-// active-cluster join stubbed to name a cache.
-const { useWatchSubscriptionMock, useActiveClusterMock, useNamespaceScopeMock } = vi.hoisted(() => ({
-  useWatchSubscriptionMock: vi.fn(),
+// `useFoldedSubscription` that captures the reducer, and the active-cluster join
+// stubbed to name a cache.
+const { useFoldedSubscriptionMock, useActiveClusterMock, useNamespaceScopeMock } = vi.hoisted(() => ({
+  useFoldedSubscriptionMock: vi.fn(),
   useActiveClusterMock: vi.fn(),
   useNamespaceScopeMock: vi.fn(),
 }));
 
-vi.mock('@/lib/graphql/use-watch-subscription', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/graphql/use-watch-subscription')>()),
-  useWatchSubscription: useWatchSubscriptionMock,
-}));
-vi.mock('@/lib/clusters', () => ({
-  applyChange: <T,>(items: Map<string, T>, type: string, id: string, entity: T) => {
-    if (type === 'Deleted') items.delete(id);
-    else items.set(id, entity);
-  },
+vi.mock('@/lib/graphql/use-folded-subscription', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/graphql/use-folded-subscription')>()),
+  useFoldedSubscription: useFoldedSubscriptionMock,
 }));
 vi.mock('@/lib/active-cluster', () => ({ useActiveCluster: useActiveClusterMock }));
 vi.mock('@/lib/namespace-scope', () => ({ useNamespaceScope: useNamespaceScopeMock }));
@@ -80,16 +74,18 @@ let connected: boolean;
 // A frame echoes the namespace it was subscribed with, "" for the whole cache.
 function pushFrame(
   type: string,
-  entity: unknown,
+  item: unknown,
   cacheID = lastArgs?.variables?.cacheID,
   namespace = lastArgs?.variables?.namespace ?? '',
 ) {
-  acc = lastReducer!(acc, [{ clusterCachedDataKindsWatch: { type, cacheID, namespace, kind: entity } }]);
+  acc = lastReducer!(acc, [{ clusterCachedDataKindCollectionWatch: { type, cacheID, namespace, kind: item } }]);
 }
 
 // The Bookmark closing the snapshot: what flips the watch from connecting to live.
 function pushBookmark(cacheID = lastArgs?.variables?.cacheID, namespace = lastArgs?.variables?.namespace ?? '') {
-  acc = lastReducer!(acc, [{ clusterCachedDataKindsWatch: { type: 'Bookmark', cacheID, namespace, kind: null } }]);
+  acc = lastReducer!(acc, [
+    { clusterCachedDataKindCollectionWatch: { type: 'Bookmark', cacheID, namespace, kind: null } },
+  ]);
 }
 
 beforeEach(() => {
@@ -100,7 +96,7 @@ beforeEach(() => {
   connected = true;
   useActiveClusterMock.mockReturnValue({ clusterID: '1', cacheID: 'cache-1', active: true });
   useNamespaceScopeMock.mockReturnValue({ namespace: undefined, setNamespace: vi.fn() });
-  useWatchSubscriptionMock.mockImplementation((args: typeof lastArgs, reducer: typeof lastReducer) => {
+  useFoldedSubscriptionMock.mockImplementation((args: typeof lastArgs, reducer: typeof lastReducer) => {
     lastArgs = args;
     lastReducer = reducer;
     return { data: acc, connected };
@@ -212,7 +208,7 @@ describe('useClusterCachedDataKinds', () => {
     });
 
     // One render, two consumers, one watch.
-    expect(useWatchSubscriptionMock).toHaveBeenCalledTimes(1);
+    expect(useFoldedSubscriptionMock).toHaveBeenCalledTimes(1);
     expect(result.current.nav).toBe(result.current.route);
   });
 
@@ -220,7 +216,7 @@ describe('useClusterCachedDataKinds', () => {
     // As urql serves a running stream: the instance that opened it folds every frame,
     // one mounting later sees none of them. Only a watch held above the consumer passes.
     let instances = 0;
-    useWatchSubscriptionMock.mockImplementation((args: typeof lastArgs, reducer: typeof lastReducer) => {
+    useFoldedSubscriptionMock.mockImplementation((args: typeof lastArgs, reducer: typeof lastReducer) => {
       const [instance] = useState(() => {
         instances += 1;
         return instances;

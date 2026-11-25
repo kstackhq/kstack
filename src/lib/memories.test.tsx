@@ -15,12 +15,12 @@
 import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Same seam as the chats suite: stand in for useWatchSubscription, capture the
+// Same seam as the chats suite: stand in for useFoldedSubscription, capture the
 // reducer it was handed, and fold frames through it directly.
-const { useWatchSubscriptionMock } = vi.hoisted(() => ({ useWatchSubscriptionMock: vi.fn() }));
-vi.mock('@/lib/graphql/use-watch-subscription', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/graphql/use-watch-subscription')>()),
-  useWatchSubscription: useWatchSubscriptionMock,
+const { useFoldedSubscriptionMock } = vi.hoisted(() => ({ useFoldedSubscriptionMock: vi.fn() }));
+vi.mock('@/lib/graphql/use-folded-subscription', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/graphql/use-folded-subscription')>()),
+  useFoldedSubscription: useFoldedSubscriptionMock,
 }));
 
 const { useMemories } = await import('./memories');
@@ -33,12 +33,12 @@ let lastOptions: { unshared?: boolean } | undefined;
 function push(...frames: { type: string; memory: unknown }[]) {
   acc = lastReducer!(
     acc,
-    frames.map((f) => ({ memoriesWatch: f })),
+    frames.map((f) => ({ memoryCollectionWatch: f })),
   );
 }
 
 function render(clusterID: string | undefined, connected = true) {
-  useWatchSubscriptionMock.mockImplementation((args, reduce, options) => {
+  useFoldedSubscriptionMock.mockImplementation((args, reduce, options) => {
     lastArgs = args;
     lastReducer = reduce;
     lastOptions = options;

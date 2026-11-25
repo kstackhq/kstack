@@ -14,7 +14,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FakeClient, type FakeStream } from './fake-client';
-import type { Cursor, FetchQuery, FollowFrame, LogLine, Page } from './types';
+import type { Cursor, FetchQuery, TailFrame, LogLine, Page } from './types';
 
 const NOW = Date.parse('2026-10-15T12:00:00.000Z');
 
@@ -302,8 +302,8 @@ describe('what the fake refuses', () => {
   it('throws from follow with a cursor that is not a `next` or `follow` it wrote', async () => {
     const fake = new FakeClient({ lines: 10 });
     const tail = await fetchNow(fake, last(3));
-    expect(() => fake.follow('elsewhere', [], () => {})).toThrow(Error);
-    expect(() => fake.follow(tail.edges.prev as Cursor, [], () => {})).toThrow(Error);
+    expect(() => fake.tail('elsewhere', [], () => {})).toThrow(Error);
+    expect(() => fake.tail(tail.edges.prev as Cursor, [], () => {})).toThrow(Error);
   });
 });
 
@@ -362,8 +362,8 @@ describe('time', () => {
 });
 
 function record(fake: FakeClient, cursor: Cursor, seen: Cursor[] = []) {
-  const frames: FollowFrame[] = [];
-  const cancel = fake.follow(cursor, seen, (frame) => frames.push(frame));
+  const frames: TailFrame[] = [];
+  const cancel = fake.tail(cursor, seen, (frame) => frames.push(frame));
   const lines = () =>
     indexes(
       fake,
@@ -457,8 +457,8 @@ describe('the knobs', () => {
     const fake = new FakeClient({ lines: 10 });
     const end = await liveEnd(fake);
     fake.failNext('follow');
-    expect(() => fake.follow(end, [], () => {})).toThrow(Error);
-    expect(() => fake.follow(end, [], () => {})).not.toThrow();
+    expect(() => fake.tail(end, [], () => {})).toThrow(Error);
+    expect(() => fake.tail(end, [], () => {})).not.toThrow();
   });
 
   it('keeps a skipped stream out of every page and follow, and names it in a notice, until unskipped', async () => {

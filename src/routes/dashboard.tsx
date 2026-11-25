@@ -32,7 +32,7 @@ import {
   serverKindForResource,
 } from '@/lib/dashboard-resources';
 import type { DashboardResource, ServerKind } from '@/lib/dashboard-resources';
-import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
+import type { SubscriptionPhase } from '@/lib/graphql/use-folded-subscription';
 import { useNamespaceScope } from '@/lib/namespace-scope';
 import type { ObjectAction } from '@/lib/object-actions';
 import { useObjectView } from '@/lib/object-view';
@@ -181,7 +181,7 @@ function EventsNote({ count, namespace }: { count?: number; namespace?: string }
   );
 }
 
-type PlaceholderPageProps = { label: string; resource: DashboardResource; active: boolean; phase: WatchPhase };
+type PlaceholderPageProps = { label: string; resource: DashboardResource; active: boolean; phase: SubscriptionPhase };
 
 // A page with nothing to list. Overview reads "coming soon" at once. A resource the
 // catalog could name (`mayNameDiscoveredKind`) and does not reads "not synced" with no

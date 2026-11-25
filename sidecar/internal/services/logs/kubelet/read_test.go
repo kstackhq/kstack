@@ -165,7 +165,7 @@ func TestThePreviousInstanceIsSent(t *testing.T) {
 }
 
 // A follow since a moment reads the lines from it, then one written after it opened.
-func TestAFollowDeliversALineWrittenLater(t *testing.T) {
+func TestATailDeliversALineWrittenLater(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	s.Add("prod/web/app", logstest.Stamped(0, "old"))
@@ -180,7 +180,7 @@ func TestAFollowDeliversALineWrittenLater(t *testing.T) {
 
 // A follow numbers a moment's lines from the top of its second, as a read opened
 // again from a cursor in it does, so a line keeps its ordinal across the two.
-func TestAFollowNumbersAMomentFromItsSecond(t *testing.T) {
+func TestATailNumbersAMomentFromItsSecond(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	s.Add("prod/web/app", logstest.Stamped(100*time.Millisecond, "a"), logstest.Stamped(100*time.Millisecond, "b"))
@@ -425,7 +425,7 @@ func TestAForwardReadIsNeverCutBeforeItsFirstLine(t *testing.T) {
 
 // A follow's fill reads every second whole: no second stops it, and it is cut at
 // the end of the second it spent its share in.
-func TestAFollowsFillIsCutAtTheEndOfASecond(t *testing.T) {
+func TestATailsFillIsCutAtTheEndOfASecond(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	for i := range 50 {

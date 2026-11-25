@@ -92,20 +92,20 @@ func TestAClaimIsRevoked(t *testing.T) {
 	marked := kubeCluster("ctx", "uid-1")
 	marked.Spec.Enabled = true
 	marked.DeletionRequestedAt = &time.Time{}
-	for name, frame := range map[string]*cluster.ClusterWatchFrame{
-		"disabled":         {Type: cluster.DeltaFrameModified, Cluster: disabled},
-		"being deleted":    {Type: cluster.DeltaFrameModified, Cluster: marked},
-		"deleted":          {Type: cluster.DeltaFrameDeleted, Cluster: enabled},
+	for name, frame := range map[string]*cluster.ClusterCollectionWatchFrame{
+		"disabled":         {Type: cluster.CollectionWatchFrameModified, Cluster: disabled},
+		"being deleted":    {Type: cluster.CollectionWatchFrameModified, Cluster: marked},
+		"deleted":          {Type: cluster.CollectionWatchFrameDeleted, Cluster: enabled},
 		"the watch failed": nil,
 	} {
 		t.Run(name, func(t *testing.T) {
-			frames := make(chan cluster.ClusterWatchFrame)
+			frames := make(chan cluster.ClusterCollectionWatchFrame)
 			tl := &Tool{clusterSvc: fakeService{lease: &fakeLease{serverUID: "uid-1"}, frames: frames}}
 			up, err := tl.claim(t.Context(), "7", "uid-1")
 			require.NoError(t, err)
 			defer up.Close()
 
-			frames <- cluster.ClusterWatchFrame{Type: cluster.DeltaFrameAdded, Cluster: enabled}
+			frames <- cluster.ClusterCollectionWatchFrame{Type: cluster.CollectionWatchFrameAdded, Cluster: enabled}
 			if frame == nil {
 				close(frames)
 			} else {
@@ -124,9 +124,9 @@ func TestAConnectableRecordKeepsTheClaim(t *testing.T) {
 	enabled := kubeCluster("ctx", "uid-1")
 	enabled.Spec.Enabled = true
 	ctx, cancel := context.WithCancel(t.Context())
-	stream := cluster.NewStream(ctx, func(ctx context.Context, out chan<- cluster.ClusterWatchFrame) error {
-		out <- cluster.ClusterWatchFrame{Type: cluster.DeltaFrameAdded, Cluster: enabled}
-		out <- cluster.ClusterWatchFrame{Type: cluster.DeltaFrameBookmark}
+	stream := cluster.NewStream(ctx, func(ctx context.Context, out chan<- cluster.ClusterCollectionWatchFrame) error {
+		out <- cluster.ClusterCollectionWatchFrame{Type: cluster.CollectionWatchFrameAdded, Cluster: enabled}
+		out <- cluster.ClusterCollectionWatchFrame{Type: cluster.CollectionWatchFrameBookmark}
 		<-ctx.Done()
 		return nil
 	})

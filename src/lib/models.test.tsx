@@ -23,12 +23,12 @@ import type { Model } from './models';
 const { watch } = vi.hoisted(() => ({
   watch: {} as { frames?: unknown[]; options?: unknown; opened: number },
 }));
-vi.mock('@/lib/graphql/use-watch-subscription', () => ({
+vi.mock('@/lib/graphql/use-folded-subscription', () => ({
   perFrame:
     <D, R>(step: (prev: R | undefined, frame: D) => R) =>
     (prev: R | undefined, frames: D[]) =>
       frames.reduce<R | undefined>(step, prev),
-  useWatchSubscription: (_args: unknown, reduce: (prev: unknown, frames: unknown[]) => unknown, options: unknown) => {
+  useFoldedSubscription: (_args: unknown, reduce: (prev: unknown, frames: unknown[]) => unknown, options: unknown) => {
     watch.options = options;
     watch.opened += 1;
     return { data: watch.frames ? reduce(undefined, watch.frames) : undefined, connected: true };
@@ -64,28 +64,28 @@ beforeEach(() => {
 describe('useModels', () => {
   it('has answered nothing before the first frame', () => {
     const { result } = renderHook(() => useModels(), { wrapper });
-    expect(result.current).toEqual({ models: [], loaded: false });
+    expect(result.current).toEqual({ models: [], snapshotComplete: false });
   });
 
   it('serves the catalog in the order the sidecar sent it', () => {
-    watch.frames = [{ modelsWatch: [opus, fake] }];
+    watch.frames = [{ modelsStateWatch: [opus, fake] }];
     const { result } = renderHook(() => useModels(), { wrapper });
-    expect(result.current.loaded).toBe(true);
+    expect(result.current.snapshotComplete).toBe(true);
     expect(result.current.models.map((m) => m.id)).toEqual(['claude-opus-5', 'fake']);
   });
 
   // A sidecar with no provider answers with nothing, which is a different thing
   // from not having answered: one disables Send with a placeholder, the other waits.
   it('has answered an empty catalog', () => {
-    watch.frames = [{ modelsWatch: [] }];
+    watch.frames = [{ modelsStateWatch: [] }];
     const { result } = renderHook(() => useModels(), { wrapper });
-    expect(result.current).toEqual({ models: [], loaded: true });
+    expect(result.current).toEqual({ models: [], snapshotComplete: true });
   });
 
   // A connection that comes or goes changes the list: the latest frame is the
   // catalog.
   it('follows the latest frame', () => {
-    watch.frames = [{ modelsWatch: [opus] }, { modelsWatch: [opus, fake] }];
+    watch.frames = [{ modelsStateWatch: [opus] }, { modelsStateWatch: [opus, fake] }];
     const { result } = renderHook(() => useModels(), { wrapper });
     expect(result.current.models).toEqual([opus, fake]);
   });
@@ -97,10 +97,10 @@ describe('useModels', () => {
     expect(watch.options).toBeUndefined();
   });
 
-  // A gauge's first frame is its snapshot: a reader mounting after it reads the
+  // A state watch's first frame is its snapshot: a reader mounting after it reads the
   // provider's catalog rather than waiting on a frame that never comes again.
   it('serves the catalog to a reader that mounts after the first frame', async () => {
-    watch.frames = [{ modelsWatch: [opus] }];
+    watch.frames = [{ modelsStateWatch: [opus] }];
     function Reader() {
       return <p>{useModels().models.map((m) => m.label)}</p>;
     }

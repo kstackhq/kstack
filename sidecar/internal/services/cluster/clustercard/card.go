@@ -113,7 +113,7 @@ func cacheFacts(ctx context.Context, svc cluster.Service, id cluster.ClusterID, 
 	if !ok {
 		return nil, fmt.Errorf("read cache %d health: the cache is gone", cacheID)
 	}
-	sync, ok, err := svc.Caches().SyncStatus(ctx, id, cacheID)
+	sync, ok, err := svc.Caches().SyncState(ctx, id, cacheID)
 	if err != nil {
 		return nil, err
 	}

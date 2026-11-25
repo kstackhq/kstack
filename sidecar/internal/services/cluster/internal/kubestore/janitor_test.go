@@ -84,7 +84,7 @@ func fillStatusHistory(t *testing.T, s *Store, rows int) {
 
 // auto_vacuum=INCREMENTAL on its own reclaims nothing: freed pages join the freelist and the
 // file sits at its high-water mark until something runs the vacuum. Nothing else does, so the
-// size gauge would report the worst the cache has ever been rather than what it holds.
+// size state watch would report the worst the cache has ever been rather than what it holds.
 func TestSweepHandsFreePagesBack(t *testing.T) {
 	t.Parallel()
 
@@ -489,7 +489,7 @@ func TestSweepPublishesOnlyWhenTheVerdictChanges(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(store.Release)
 	f := openFileOf(t, store)
-	news := m.WatchSizeLimitNews()
+	news := m.ListenForSizeLimitChanges()
 	t.Cleanup(news.Close)
 
 	sweep(ctx, f, Retention{SizeLimit: 1})
@@ -512,7 +512,7 @@ func TestSweepPublishesNothingWithoutALimit(t *testing.T) {
 	store, err := m.OpenOrCreate(1)
 	require.NoError(t, err)
 	t.Cleanup(store.Release)
-	news := m.WatchSizeLimitNews()
+	news := m.ListenForSizeLimitChanges()
 	t.Cleanup(news.Close)
 
 	sweep(context.Background(), openFileOf(t, store), Retention{})
@@ -533,7 +533,7 @@ func TestAClearedFilePublishesItsFirstVerdict(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(store.Release)
 	sweep(ctx, openFileOf(t, store), Retention{SizeLimit: 1})
-	news := m.WatchSizeLimitNews()
+	news := m.ListenForSizeLimitChanges()
 	t.Cleanup(news.Close)
 
 	require.NoError(t, m.Clear(1))
@@ -600,7 +600,7 @@ func TestAWakeStartsASweep(t *testing.T) {
 
 	m := NewManager(t.TempDir(), Retention{StatusHistoryTTL: time.Hour, Interval: time.Hour, SizeLimit: gib})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
-	news := m.WatchSizeLimitNews()
+	news := m.ListenForSizeLimitChanges()
 	t.Cleanup(news.Close)
 	store, err := m.OpenOrCreate(1)
 	require.NoError(t, err)

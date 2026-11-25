@@ -1,7 +1,7 @@
 # internal/services/cluster — the cluster subsystem
 
 One file per family (`clusters.go`, `caches.go`, `cachedkinds.go`, `cacheddata.go`), plus
-`mirror.go`, `stream.go`, `events.go`, `datarate.go`, `sharedgauge.go`, and private leaves
+`mirror.go`, `stream.go`, `events.go`, `datarate.go`, `sharedstatewatch.go`, and private leaves
 `internal/kubeconn`, `kubesync`, `kubestore`. **Leaves speak native vocabulary, never
 records**; put mechanism in a leaf.
 → [ADR: one package over private leaves](../../../../docs/adr/2026-09-30-the-cluster-service-is-one-package-over-private-leaves.md).
@@ -36,8 +36,8 @@ policy](../../../../docs/adr/2026-08-28-arming-is-policy-never-interest.md).
 - **Both reconciles defer until the kubeconfig has been read** — keep the guards if you reorder
   startup.
 - Tell a kubeconfig row by `kubeconfigContextOf(spec)`, never by name.
-- Timestamps are nullable `Time` bound to value `time.Time`, and **the delta-watch diff compares
-  frames with `==`**: no slice, map or pointer field on a record or `WatchFrame`.
+- Timestamps are nullable `Time` bound to value `time.Time`, and **the collection watch diff compares
+  frames with `==`**: no slice, map or pointer field on a record or `CollectionWatchFrame`.
 - **Deletion is the mark.** `Clusters().Delete` marks and returns (refusing a row its source still
   declares, `ErrDeclaredBySource`; the toggles refuse a marked row as `ErrNotFound`); the mirror tears down and the
   row goes last. The connection gate reads the mark off the **row** (`connectableContext`).
@@ -72,14 +72,14 @@ within a timeline only. → [ADR: event timelines](../../../../docs/adr/2026-09-
 ## Streams and watches
 
 - Every send goes through `sendFrame`; a bare send leaks the goroutine.
-- One pump, `deltaWatch`, serves every record watch. Never add another.
+- One pump, `collectionWatch`, serves every collection watch. Never add another.
 - A watch that can die returns `*Stream[T]`; `Err` is set before `Frames` closes.
 - Reads never filter. The cluster list watch rereads on `KeyClusters` **and** the runtime
   `WatchList`. Only the `Deleted` is promised.
-- Gauges are current-on-subscribe, no `Bookmark`. → [ADR: cache health
+- State watches are current-on-subscribe, no `Bookmark`. → [ADR: cache health
   fold](../../../../docs/adr/2026-09-02-cache-health-fold.md).
-- **The health gauge reads once per cadence for every subscriber** (`sharedgauge.go`): the
-  first `WatchHealth` subscriber starts the loop, the last to leave stops it, and each
+- **The health state watch reads once per cadence for every subscriber** (`sharedstatewatch.go`): the
+  first `WatchHealthKeyedState` subscriber starts the loop, the last to leave stops it, and each
   reading reaches every subscriber as a latest value. A join asks for a read, so a
   subscriber's first reading is one begun after it joined, current-on-subscribe, and
   joiners share that read. A subscriber diffs against its own last frames, so a late one
@@ -92,8 +92,8 @@ within a timeline only. → [ADR: event timelines](../../../../docs/adr/2026-09-
   cache-wide and still withhold a `Connecting` cache. → [ADR: a Connecting cache answers from the
   kinds that have
   listed](../../../../docs/adr/2026-11-03-a-connecting-cache-answers-from-the-kinds-that-have-listed.md).
-- The data-rate series (`datarate.go`, `Clusters().WatchDataRate`) streams the pool's ring
-  through its own claim: it subscribes to `Lease.WatchDataRates`, sends `Lease.DataRates` whole
+- The data-rate time series feed (`datarate.go`, `Clusters().SubscribeDataRateTimeSeriesFeed`) streams the pool's ring
+  through its own claim: it subscribes to `Lease.ListenForDataRateChanges`, sends `Lease.DataRates` whole
   (even empty), then on each nudge the samples numbered above the last one sent. → [ADR: a series
   is a third kind of stream](../../../../docs/adr/2026-11-02-a-series-is-a-third-kind-of-stream-and-the-pool-owns-its-clock.md).
 - A cache at its size ceiling stops syncing, held by its record's condition; nothing evicts. →
@@ -105,9 +105,8 @@ within a timeline only. → [ADR: event timelines](../../../../docs/adr/2026-09-
 Four families: `Clusters()`, `Caches()`, `CachedKinds()`, `CachedData()`. The scope is the entry
 point, never an argument. Every GraphQL type binds 1:1 in `gqlgen.yml`; resolvers are one-liners.
 
-- Every delta watch closes its snapshot with one `FrameBookmark` (nil entity). → [ADR: delta-watch
-  protocol](../../../../docs/adr/2026-08-09-delta-watch-protocol.md).
-- Gauges are their own subscriptions, never a field on a record.
+- Every collection watch closes its snapshot with one `CollectionWatchFrameBookmark` (nil item). → [`docs/subscriptions.md`](../../../../docs/subscriptions.md).
+- State watches are their own subscriptions, never a field on a record.
 - `Cluster.caches` is a set; activeness is a live join (`CacheIsActive`).
 - **`Clusters().ReadActive` is the one reading of a cluster at one identity**; `read` may run
   twice, so it must set, never append. **`CachedData().ReadActive`** reads the active cache by SQL,
@@ -117,7 +116,7 @@ point, never an argument. Every GraphQL type binds 1:1 in `gqlgen.yml`; resolver
   own mirror reads keep their
   connections](../../../../docs/adr/2026-10-13-the-sidecars-own-mirror-reads-keep-their-connections.md).
 - Every cluster mutation returns through `clusterErr` (`graph/util.go`).
-- A resolver over a `*cluster.Stream` uses `watchStream`, never `ptrStream`. → [ADR: watch-failure
+- A resolver over a `*cluster.Stream` uses `subscriptionStream`, never `ptrSubscription`. → [ADR: watch-failure
   reporting](../../../../docs/adr/2026-08-14-watch-failure-reporting.md).
 - Every condition is built by `LiveCondition`; `Unconfirmed` is load-bearing on the wire. → [ADR:
   liveness conditions](../../../../docs/adr/2026-08-09-liveness-conditions.md).
@@ -141,7 +140,7 @@ per context](../../../../docs/adr/2026-08-23-one-connection-per-context.md).
   sample to the entry's ring under it, skipping an entry no longer claimed. The ring holds
   `DataRateWindow ÷ DataRateInterval` samples, numbered from 1 for the entry's life; readers
   compare numbers, never times. A replaced or missing connection samples zero; the first tick
-  only records. `Lease.DataRates` reads the ring; `Lease.WatchDataRates` is a nudge on its own hub,
+  only records. `Lease.DataRates` reads the ring; `Lease.ListenForDataRateChanges` is a change notification on its own hub,
   keyed by context, and the caller closes it. A stored `At` keeps its monotonic reading.
 - **A debug build injects `KSTACK_FAULTS`** (`faults_debug.go`; a release build has the stubs in
   `faults_release.go`): `ParseFaults`' rules reach every connection through `WithFaults` on `New`
@@ -152,7 +151,7 @@ per context](../../../../docs/adr/2026-08-23-one-connection-per-context.md).
   keeps nothing. → [`docs/development-switches.md`](../../../../docs/development-switches.md#injected-faults).
 - Every non-stream request has an idle-read bound, never a deadline. → [ADR: idle-read
   bound](../../../../docs/adr/2026-09-02-idle-read-bound.md).
-- `WatchState` delivers nothing on attach — pair it with `State()`. Every value is a level.
+- `WatchState` is a state watch: the claim's `State` on attach, then each pass. Every value is a level.
 - Five `Observation[T]`s; a value survives a failure. `NotFound` and `Unsupported` are both a 404.
   → [ADR: probe engine](../../../../docs/adr/2026-08-24-probe-engine.md).
 - Reaching the server is `GET /api`. → [ADR: the connection probe dials
@@ -174,7 +173,7 @@ Speaks cache ids, contexts, server UIDs and GVRs; never records.
 - A clear's `fn` (`RunWithCacheSyncStopped`) must not call back into the Service.
 - Two arming levels that AND: `TrackDiscovery` and `TrackKind`.
 - Nothing syncs into a cache whose connection does not vouch for its `ServerUID`.
-- A verdict is a gauge; `false` from `Get*State` means not yet observed.
+- A verdict is a state watch; `false` from `Get*State` means not yet observed.
 - Snapshot `s.tracked` under `s.mu`, act outside it.
 
 The sweep (`discovery.go`) writes only on a changed fingerprint. → [ADR: discovery sweep

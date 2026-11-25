@@ -57,13 +57,13 @@ func (k Kind) isCoreEvents() bool {
 	return k.APIVersion == coreEventsAPIVersion && k.Resource == coreEventsResource
 }
 
-// Subscription carries the store's change pings. The value is empty — the key is the
+// ChangeNotifications carries the store's change pings. The value is empty — the key is the
 // whole news, and a reader answers it by re-reading and diffing, so an early or late
 // ping costs one idempotent read rather than a wrong frame.
 //
 // **Close it when done.** A receiver ends with an error when the store closes, which is
 // what reaches a live watch whose store was cleared or shut down.
-type Subscription = *conflate.Receiver[string, struct{}]
+type ChangeNotifications = *conflate.Receiver[string, struct{}]
 
 // EventsKey is the events bus key: its own, so an event-storm cluster does not wake
 // every object watch in the cache.
@@ -78,7 +78,7 @@ func ObjectsKey(apiVersion, resource string) string {
 	return "objects/" + apiVersion + "/" + resource
 }
 
-// Counts is the whole-cache tally behind the stats gauge, read off the
+// Counts is the whole-cache tally behind the stats state watch, read off the
 // trigger-maintained per-kind counts — O(kinds), never a scan of objects. Events are
 // excluded: they are not a catalog kind.
 type Counts struct {
@@ -169,7 +169,7 @@ type Store struct {
 	e       *entry
 	// bound is the file this store was handed, when it must not follow a swap. Clear
 	// installs a fresh empty file on the same entry, and a reader that followed it would
-	// answer "no rows" for a cache that was full — which a delta watch reports as a
+	// answer "no rows" for a cache that was full — which a collection watch reports as a
 	// Deleted for every row it holds. Nil means "whatever the entry holds", which is what
 	// a writer wants: its next write belongs in the current file.
 	bound *file
@@ -361,14 +361,14 @@ func (s *Store) fileLocked() (*file, error) {
 	return s.e.file, nil
 }
 
-// Subscribe returns the change feed for this cache, narrowed to keys — or every key when
-// none are given, which is what a reader spanning both buses needs. It ends when the file
+// ListenForChanges returns the change notifications for this cache, narrowed to keys — or every
+// key when none are given, which is what a reader spanning both buses needs. It ends when the file
 // closes, which is what tells a live watch that the cache was cleared or shut down.
 //
 // The filter runs at ENQUEUE, so a pods watch does not even hold a slot for an events
 // write. Filtering in the reader's own loop would wake every open watch on every write in
 // the cache, which is what the per-kind bus keys exist to prevent.
-func (s *Store) Subscribe(keys ...string) (Subscription, error) {
+func (s *Store) ListenForChanges(keys ...string) (ChangeNotifications, error) {
 	f, err := s.file()
 	if err != nil {
 		return nil, err
@@ -376,9 +376,9 @@ func (s *Store) Subscribe(keys ...string) (Subscription, error) {
 	return f.subscribe(keys...), nil
 }
 
-// subscribe is the receiver both doors hand out: Store.Subscribe for a holder, and
-// Manager.Subscribe for a caller that only borrows the feed.
-func (f *file) subscribe(keys ...string) Subscription {
+// subscribe is the receiver both doors hand out: Store.ListenForChanges for a holder, and
+// Manager.ListenForChanges for a caller that only borrows the feed.
+func (f *file) subscribe(keys ...string) ChangeNotifications {
 	if len(keys) == 0 {
 		return f.hub.Receiver()
 	}

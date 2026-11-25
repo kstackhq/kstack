@@ -15,15 +15,15 @@
 import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// The reducer is the unit under test: mock useWatchSubscription with a stand-in that
+// The reducer is the unit under test: mock useFoldedSubscription with a stand-in that
 // captures it and hands back whatever the test folded, so batches are driven directly.
-const { useWatchSubscriptionMock } = vi.hoisted(() => ({ useWatchSubscriptionMock: vi.fn() }));
-vi.mock('@/lib/graphql/use-watch-subscription', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/graphql/use-watch-subscription')>()),
-  useWatchSubscription: useWatchSubscriptionMock,
+const { useFoldedSubscriptionMock } = vi.hoisted(() => ({ useFoldedSubscriptionMock: vi.fn() }));
+vi.mock('@/lib/graphql/use-folded-subscription', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/graphql/use-folded-subscription')>()),
+  useFoldedSubscription: useFoldedSubscriptionMock,
 }));
 
-const { joinProvenance, useCacheDeltaWatch } = await import('./use-cache-delta-watch');
+const { joinProvenance, useCacheCollectionWatch } = await import('./use-cache-collection-watch');
 
 type Row = { uid: string; name: string };
 type Frame = { watch: { type: string; cacheID: string; row: Row | null } };
@@ -39,10 +39,10 @@ const push = (...frames: Frame[]) => {
 function renderWatch(cacheID = 'c1') {
   return renderHook(
     ({ cache }: { cache: string }) =>
-      useCacheDeltaWatch<Frame, Row>(
+      useCacheCollectionWatch<Frame, Row>(
         { query: {} as never, variables: { cacheID: cache } },
         {
-          select: (d) => ({ type: d.watch.type, entity: d.watch.row, provenance: joinProvenance(d.watch.cacheID) }),
+          select: (d) => ({ type: d.watch.type, item: d.watch.row, provenance: joinProvenance(d.watch.cacheID) }),
           keyOf: (r) => r.uid,
           currentProvenance: joinProvenance(cache),
         },
@@ -54,13 +54,13 @@ function renderWatch(cacheID = 'c1') {
 beforeEach(() => {
   acc = undefined;
   reduce = undefined;
-  useWatchSubscriptionMock.mockImplementation((_args: unknown, r: typeof reduce) => {
+  useFoldedSubscriptionMock.mockImplementation((_args: unknown, r: typeof reduce) => {
     reduce = r;
     return { data: acc, connected: true };
   });
 });
 
-describe('useCacheDeltaWatch', () => {
+describe('useCacheCollectionWatch', () => {
   it('folds a batch of changes into one keyed set', () => {
     const { result, rerender } = renderWatch();
     push(
@@ -93,9 +93,9 @@ describe('useCacheDeltaWatch', () => {
     expect(result.current.items).toHaveLength(1);
   });
 
-  // A nested non-null field erroring nulls its parent, so a change with no entity is an
+  // A nested non-null field erroring nulls its parent, so a change with no item is an
   // ordinary frame, not the snapshot boundary.
-  it('drops a change with no entity without closing the snapshot', () => {
+  it('drops a change with no item without closing the snapshot', () => {
     const { result, rerender } = renderWatch();
     push(frame('Added', null));
     rerender({ cache: 'c1' });

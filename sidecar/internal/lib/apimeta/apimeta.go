@@ -83,24 +83,24 @@ func (id *ObjectID) UnmarshalGQL(v any) error {
 	return nil
 }
 
-// DeltaFrameType classifies one frame on a delta watch, mirroring a Kubernetes watch
+// CollectionWatchFrameType classifies one frame on a collection watch, mirroring a Kubernetes watch
 // event. Named for the frame rather than the change because Bookmark is not a change:
 // the values are what a frame can BE, and only three of the four carry an entity.
 // Added/Modified/Deleted match beehive's strings, so a watch pump converts plainly.
 //
-// It lives here because more than one service streams delta watches and gqlgen binds
+// It lives here because more than one service streams collection watches and gqlgen binds
 // the GraphQL enum to one Go type — a second definition would make every frame
 // wrapper's `type` field a resolver.
-type DeltaFrameType string
+type CollectionWatchFrameType string
 
 const (
-	DeltaFrameAdded    DeltaFrameType = "Added"
-	DeltaFrameModified DeltaFrameType = "Modified"
-	DeltaFrameDeleted  DeltaFrameType = "Deleted"
-	// DeltaFrameBookmark closes the on-subscribe snapshot: exactly one per stream, after
+	CollectionWatchFrameAdded    CollectionWatchFrameType = "Added"
+	CollectionWatchFrameModified CollectionWatchFrameType = "Modified"
+	CollectionWatchFrameDeleted  CollectionWatchFrameType = "Deleted"
+	// CollectionWatchFrameBookmark closes the on-subscribe snapshot: exactly one per stream, after
 	// the last snapshot object and before the first live change. It carries no object —
 	// the one case for which every frame's entity is a pointer — so a consumer must skip
 	// it rather than key on it.
-	// See docs/adr/2026-08-09-delta-watch-protocol.md.
-	DeltaFrameBookmark DeltaFrameType = "Bookmark"
+	// See docs/subscriptions.md.
+	CollectionWatchFrameBookmark CollectionWatchFrameType = "Bookmark"
 )

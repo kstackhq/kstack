@@ -225,7 +225,7 @@ func (c *fakeConnector) restoredBinding() llm.Signer {
 	return connectorBinding{c: c, session: c.restoredSession}
 }
 
-func (c *fakeConnector) WatchSession() (<-chan uint64, func()) {
+func (c *fakeConnector) WatchSessionGenerationState() (<-chan uint64, func()) {
 	rx := c.sessions.Receiver()
 	return rx.Chan(), rx.Close
 }
@@ -248,10 +248,10 @@ func (b connectorBinding) Sign(r *http.Request) error {
 
 func (b connectorBinding) Refused(*http.Request) {}
 
-// await reads the gauge until id's state meets ok, failing on the timeout.
+// await reads the state watch until id's state meets ok, failing on the timeout.
 func await(t *testing.T, s *Service, id, what string, ok func(State) bool) State {
 	t.Helper()
-	frames, cancel := s.Subscribe()
+	frames, cancel := s.WatchCredentialsState()
 	defer cancel()
 	for {
 		for _, st := range testutil.Recv(t, frames, what) {

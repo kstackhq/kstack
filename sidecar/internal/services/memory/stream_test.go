@@ -25,15 +25,15 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 )
 
-func (h *harness) watch(t *testing.T, cluster apimeta.ClusterID) *Stream[MemoryWatchFrame] {
+func (h *harness) watch(t *testing.T, cluster apimeta.ClusterID) *Stream[MemoryCollectionWatchFrame] {
 	t.Helper()
-	st, err := h.svc.Watch(t.Context(), cluster)
+	st, err := h.svc.WatchCollectionByCluster(t.Context(), cluster)
 	require.NoError(t, err)
 	return st
 }
 
 // next is the watch's next frame, as its type and the memory's name.
-func next(t *testing.T, st *Stream[MemoryWatchFrame]) (apimeta.DeltaFrameType, string) {
+func next(t *testing.T, st *Stream[MemoryCollectionWatchFrame]) (apimeta.CollectionWatchFrameType, string) {
 	t.Helper()
 	f := testutil.Recv(t, st.Frames, "a memory frame")
 	if f.Memory == nil {
@@ -42,7 +42,7 @@ func next(t *testing.T, st *Stream[MemoryWatchFrame]) (apimeta.DeltaFrameType, s
 	return f.Type, f.Memory.Name
 }
 
-func expect(t *testing.T, st *Stream[MemoryWatchFrame], typ apimeta.DeltaFrameType, name string) {
+func expect(t *testing.T, st *Stream[MemoryCollectionWatchFrame], typ apimeta.CollectionWatchFrameType, name string) {
 	t.Helper()
 	gotType, gotName := next(t, st)
 	assert.Equal(t, typ, gotType)
@@ -57,35 +57,35 @@ func TestMemoriesWatch(t *testing.T) {
 	h.global(t, "shared")
 
 	st := h.watch(t, clusterA)
-	expect(t, st, apimeta.DeltaFrameAdded, "first")
-	expect(t, st, apimeta.DeltaFrameAdded, "shared")
-	expect(t, st, apimeta.DeltaFrameBookmark, "")
+	expect(t, st, apimeta.CollectionWatchFrameAdded, "first")
+	expect(t, st, apimeta.CollectionWatchFrameAdded, "shared")
+	expect(t, st, apimeta.CollectionWatchFrameBookmark, "")
 
 	h.save(t, clusterB, "elsewhere")
 	h.save(t, clusterA, "second")
-	expect(t, st, apimeta.DeltaFrameAdded, "second")
+	expect(t, st, apimeta.CollectionWatchFrameAdded, "second")
 
 	require.NoError(t, h.svc.Save(t.Context(), clusterA, "second", "rewritten", ""))
-	expect(t, st, apimeta.DeltaFrameModified, "second")
+	expect(t, st, apimeta.CollectionWatchFrameModified, "second")
 
 	require.NoError(t, h.svc.Forget(t.Context(), clusterA, "first"))
-	expect(t, st, apimeta.DeltaFrameDeleted, "first")
+	expect(t, st, apimeta.CollectionWatchFrameDeleted, "first")
 
 	_, err := h.svc.Update(t.Context(), h.get(t, clusterB, "elsewhere").ID, input(nil, "elsewhere"))
 	require.NoError(t, err)
-	expect(t, st, apimeta.DeltaFrameAdded, "elsewhere")
+	expect(t, st, apimeta.CollectionWatchFrameAdded, "elsewhere")
 }
 
 func TestAClustersDeleteLeavesItsWatchAsDeleted(t *testing.T) {
 	h := newHarness(t)
 	h.save(t, clusterA, "n")
 	st := h.watch(t, clusterA)
-	expect(t, st, apimeta.DeltaFrameAdded, "n")
-	expect(t, st, apimeta.DeltaFrameBookmark, "")
+	expect(t, st, apimeta.CollectionWatchFrameAdded, "n")
+	expect(t, st, apimeta.CollectionWatchFrameBookmark, "")
 
 	exec(t, h.db, `DELETE FROM clusters WHERE id = ?`, string(clusterA))
 	h.db.Notify(appdb.KeyClusters)
-	expect(t, st, apimeta.DeltaFrameDeleted, "n")
+	expect(t, st, apimeta.CollectionWatchFrameDeleted, "n")
 }
 
 // The chat and the stamp are off the wire, so a change to either alone sends
@@ -95,27 +95,27 @@ func TestAChangeOffTheWireSendsNoFrame(t *testing.T) {
 	exec(t, h.db, `INSERT INTO chats (id, cluster_id, mode, created_at, updated_at) VALUES ('c', ?, 'chat', 0, 0)`, string(clusterA))
 	require.NoError(t, h.svc.Save(t.Context(), clusterA, "n", "b", "c"))
 	st := h.watch(t, clusterA)
-	expect(t, st, apimeta.DeltaFrameAdded, "n")
-	expect(t, st, apimeta.DeltaFrameBookmark, "")
+	expect(t, st, apimeta.CollectionWatchFrameAdded, "n")
+	expect(t, st, apimeta.CollectionWatchFrameBookmark, "")
 
 	exec(t, h.db, `DELETE FROM chats WHERE id = 'c'`)
 	h.db.Notify(appdb.KeyChats)
 	exec(t, h.db, `UPDATE memories SET server_uid = 'uid-9'`)
 	h.db.Notify(appdb.KeyMemories)
 	h.save(t, clusterA, "next")
-	expect(t, st, apimeta.DeltaFrameAdded, "next")
+	expect(t, st, apimeta.CollectionWatchFrameAdded, "next")
 }
 
 func TestAWatchEndsWithTheService(t *testing.T) {
 	h := newHarness(t)
 	st := h.watch(t, clusterA)
-	expect(t, st, apimeta.DeltaFrameBookmark, "")
+	expect(t, st, apimeta.CollectionWatchFrameBookmark, "")
 
 	require.NoError(t, h.svc.stop(t.Context()))
 	testutil.WaitClosed(t, st.Frames, "the frames")
 	require.NoError(t, st.Err())
 
-	_, err := h.svc.Watch(t.Context(), clusterA)
+	_, err := h.svc.WatchCollectionByCluster(t.Context(), clusterA)
 	require.ErrorIs(t, err, ErrStopping)
 }
 
@@ -130,11 +130,11 @@ func TestAWatchNobodyReadsEndsWithTheService(t *testing.T) {
 		}
 		st := h.watch(t, clusterA)
 		if !inSnapshot {
-			expect(t, st, apimeta.DeltaFrameBookmark, "")
+			expect(t, st, apimeta.CollectionWatchFrameBookmark, "")
 			insertModelNotes(t, h.db, "a", "b", "c", "d")
 			h.db.Notify(appdb.KeyMemories)
 		}
-		expect(t, st, apimeta.DeltaFrameAdded, "a")
+		expect(t, st, apimeta.CollectionWatchFrameAdded, "a")
 
 		require.NoError(t, h.svc.stop(t.Context()))
 		for range st.Frames {
@@ -148,8 +148,8 @@ func TestAWatchWhoseReadFailsEndsWithItsReason(t *testing.T) {
 	h := newHarness(t)
 	h.save(t, clusterA, "n")
 	st := h.watch(t, clusterA)
-	expect(t, st, apimeta.DeltaFrameAdded, "n")
-	expect(t, st, apimeta.DeltaFrameBookmark, "")
+	expect(t, st, apimeta.CollectionWatchFrameAdded, "n")
+	expect(t, st, apimeta.CollectionWatchFrameBookmark, "")
 
 	unscannable(t, h.db)
 	h.db.Notify(appdb.KeyMemories)

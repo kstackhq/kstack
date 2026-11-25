@@ -21,13 +21,14 @@ import { useMutation } from 'urql';
 
 import { graphql } from '@/gql';
 import type {
-  AwsConnectionWatchSubscription,
-  ChatGptConnectionWatchSubscription,
-  GitHubConnectionWatchSubscription,
-  GoogleConnectionWatchSubscription,
-  OpenRouterConnectionWatchSubscription,
+  AwsConnectionStateWatchSubscription,
+  ChatGptConnectionStateWatchSubscription,
+  GitHubConnectionStateWatchSubscription,
+  GoogleConnectionStateWatchSubscription,
+  OpenRouterConnectionStateWatchSubscription,
 } from '@/gql/graphql';
-import { perFrame, useWatchSubscription } from '@/lib/graphql/use-watch-subscription';
+import { stateWatchReducer } from '@/lib/graphql/state-watch';
+import { useFoldedSubscription } from '@/lib/graphql/use-folded-subscription';
 
 /** Why a connector's last attempt, session or key ended: one enum for every connector. */
 export type { ConnectorFailure } from '@/gql/graphql';
@@ -35,7 +36,7 @@ export type { ConnectorFailure } from '@/gql/graphql';
 /** The ChatGPT plan's provider id, and its connector's: the sidecar's `catalog.ChatGPTID`. */
 export const CHATGPT_ID = 'chatgpt';
 
-export type ChatGPTConnection = ChatGptConnectionWatchSubscription['chatGPTConnectionWatch'];
+export type ChatGPTConnection = ChatGptConnectionStateWatchSubscription['chatGPTConnectionStateWatch'];
 
 /** What a connected or failed ChatGPT entry can do. Each outcome arrives on the watch. */
 export type ChatGPTActions = {
@@ -48,7 +49,7 @@ export type ChatGPTActions = {
 /** The OpenRouter connector's id, and its provider's: the sidecar's `openrouter` row. */
 export const OPENROUTER_ID = 'openrouter';
 
-export type OpenRouterConnection = OpenRouterConnectionWatchSubscription['openRouterConnectionWatch'];
+export type OpenRouterConnection = OpenRouterConnectionStateWatchSubscription['openRouterConnectionStateWatch'];
 
 /** What the OpenRouter entry can do. Each outcome arrives on the watch. */
 export type OpenRouterActions = {
@@ -61,7 +62,7 @@ export type OpenRouterActions = {
 /** The AWS connector's id. */
 export const AWS_ID = 'aws';
 
-export type AWSConnection = AwsConnectionWatchSubscription['awsConnectionWatch'];
+export type AWSConnection = AwsConnectionStateWatchSubscription['awsConnectionStateWatch'];
 
 /** What the AWS entry can do. Each outcome arrives on the watch. */
 export type AWSActions = {
@@ -73,7 +74,7 @@ export type AWSActions = {
 /** The GitHub connector's id: the sidecar's `github.ID`. */
 export const GITHUB_ID = 'github';
 
-export type GitHubConnection = GitHubConnectionWatchSubscription['gitHubConnectionWatch'];
+export type GitHubConnection = GitHubConnectionStateWatchSubscription['gitHubConnectionStateWatch'];
 
 /** What the GitHub entry can do. Each outcome arrives on the watch. */
 export type GitHubActions = {
@@ -86,7 +87,7 @@ export type GitHubActions = {
 /** The Google connector's id, and its provider's: the sidecar's `google` row. */
 export const GOOGLE_ID = 'google';
 
-export type GoogleConnection = GoogleConnectionWatchSubscription['googleConnectionWatch'];
+export type GoogleConnection = GoogleConnectionStateWatchSubscription['googleConnectionStateWatch'];
 
 /** What the Google entry can do. Each outcome arrives on the watch. */
 export type GoogleActions = {
@@ -114,7 +115,7 @@ export type Connector = {
 export type Connectors = {
   connectors: Connector[];
   // Every watch's first frame has landed; nothing draws before them.
-  loaded: boolean;
+  snapshotComplete: boolean;
 };
 
 // The connectors Kstack plans to ship; the tab sorts them by name. Each but ChatGPT,
@@ -145,9 +146,9 @@ const PLANNED: Connector[] = [
   { id: 'dockerhub', name: 'Docker Hub', detail: 'Images and tags', connected: false },
 ];
 
-const ChatGPTConnectionWatchDocument = graphql(`
-  subscription ChatGPTConnectionWatch {
-    chatGPTConnectionWatch {
+const ChatGPTConnectionStateWatchDocument = graphql(`
+  subscription ChatGPTConnectionStateWatch {
+    chatGPTConnectionStateWatch {
       phase
       email
       failure
@@ -181,9 +182,9 @@ const ChatGPTUsageOpenDocument = graphql(`
   }
 `);
 
-const OpenRouterConnectionWatchDocument = graphql(`
-  subscription OpenRouterConnectionWatch {
-    openRouterConnectionWatch {
+const OpenRouterConnectionStateWatchDocument = graphql(`
+  subscription OpenRouterConnectionStateWatch {
+    openRouterConnectionStateWatch {
       phase
       failure
     }
@@ -214,9 +215,9 @@ const OpenRouterKeysOpenDocument = graphql(`
   }
 `);
 
-const AWSConnectionWatchDocument = graphql(`
-  subscription AWSConnectionWatch {
-    awsConnectionWatch {
+const AWSConnectionStateWatchDocument = graphql(`
+  subscription AWSConnectionStateWatch {
+    awsConnectionStateWatch {
       phase
       arn
       failure
@@ -242,9 +243,9 @@ const AWSDisconnectDocument = graphql(`
   }
 `);
 
-const GitHubConnectionWatchDocument = graphql(`
-  subscription GitHubConnectionWatch {
-    gitHubConnectionWatch {
+const GitHubConnectionStateWatchDocument = graphql(`
+  subscription GitHubConnectionStateWatch {
+    gitHubConnectionStateWatch {
       phase
       login
       userCode
@@ -277,9 +278,9 @@ const GitHubSettingsOpenDocument = graphql(`
   }
 `);
 
-const GoogleConnectionWatchDocument = graphql(`
-  subscription GoogleConnectionWatch {
-    googleConnectionWatch {
+const GoogleConnectionStateWatchDocument = graphql(`
+  subscription GoogleConnectionStateWatch {
+    googleConnectionStateWatch {
       phase
       email
       project
@@ -314,31 +315,31 @@ export function useOpenChatGPTUsage(): () => void {
 }
 
 export function useConnectors(): Connectors {
-  // Unshared: a gauge's first frame is its snapshot, and the tab remounts each time
+  // Unshared: a state watch's first frame is its snapshot, and the tab remounts each time
   // it is shown.
-  const { data: chatGPT } = useWatchSubscription<ChatGptConnectionWatchSubscription, ChatGPTConnection>(
-    { query: ChatGPTConnectionWatchDocument },
-    perFrame((_prev, next) => next.chatGPTConnectionWatch),
+  const { data: chatGPT } = useFoldedSubscription<ChatGptConnectionStateWatchSubscription, ChatGPTConnection>(
+    { query: ChatGPTConnectionStateWatchDocument },
+    stateWatchReducer((next) => next.chatGPTConnectionStateWatch),
     { unshared: true },
   );
-  const { data: openRouter } = useWatchSubscription<OpenRouterConnectionWatchSubscription, OpenRouterConnection>(
-    { query: OpenRouterConnectionWatchDocument },
-    perFrame((_prev, next) => next.openRouterConnectionWatch),
+  const { data: openRouter } = useFoldedSubscription<OpenRouterConnectionStateWatchSubscription, OpenRouterConnection>(
+    { query: OpenRouterConnectionStateWatchDocument },
+    stateWatchReducer((next) => next.openRouterConnectionStateWatch),
     { unshared: true },
   );
-  const { data: aws } = useWatchSubscription<AwsConnectionWatchSubscription, AWSConnection>(
-    { query: AWSConnectionWatchDocument },
-    perFrame((_prev, next) => next.awsConnectionWatch),
+  const { data: aws } = useFoldedSubscription<AwsConnectionStateWatchSubscription, AWSConnection>(
+    { query: AWSConnectionStateWatchDocument },
+    stateWatchReducer((next) => next.awsConnectionStateWatch),
     { unshared: true },
   );
-  const { data: gitHub } = useWatchSubscription<GitHubConnectionWatchSubscription, GitHubConnection>(
-    { query: GitHubConnectionWatchDocument },
-    perFrame((_prev, next) => next.gitHubConnectionWatch),
+  const { data: gitHub } = useFoldedSubscription<GitHubConnectionStateWatchSubscription, GitHubConnection>(
+    { query: GitHubConnectionStateWatchDocument },
+    stateWatchReducer((next) => next.gitHubConnectionStateWatch),
     { unshared: true },
   );
-  const { data: google } = useWatchSubscription<GoogleConnectionWatchSubscription, GoogleConnection>(
-    { query: GoogleConnectionWatchDocument },
-    perFrame((_prev, next) => next.googleConnectionWatch),
+  const { data: google } = useFoldedSubscription<GoogleConnectionStateWatchSubscription, GoogleConnection>(
+    { query: GoogleConnectionStateWatchDocument },
+    stateWatchReducer((next) => next.googleConnectionStateWatch),
     { unshared: true },
   );
   const chatGPTActions = useChatGPTActions();
@@ -347,7 +348,7 @@ export function useConnectors(): Connectors {
   const gitHubActions = useGitHubActions();
   const googleActions = useGoogleActions();
   return useMemo(() => {
-    if (!chatGPT || !openRouter || !aws || !gitHub || !google) return { connectors: PLANNED, loaded: false };
+    if (!chatGPT || !openRouter || !aws || !gitHub || !google) return { connectors: PLANNED, snapshotComplete: false };
     const connectors = PLANNED.map((c): Connector => {
       switch (c.id) {
         case CHATGPT_ID: {
@@ -396,7 +397,7 @@ export function useConnectors(): Connectors {
           return c;
       }
     });
-    return { connectors, loaded: true };
+    return { connectors, snapshotComplete: true };
   }, [
     chatGPT,
     chatGPTActions,

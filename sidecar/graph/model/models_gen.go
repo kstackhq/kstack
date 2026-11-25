@@ -113,22 +113,28 @@ type LogsFetchRequest struct {
 	MaxPageBytes    int            `json:"maxPageBytes"`
 }
 
-// One frame of a follow: a line, a notice, or the last frame, saying why the follow ended.
-// Following again after `Ended` would end the same way. Detect each frame by `type`, never by
+// How far the window extends past one end of the range, to show the lines around it: a number of lines, or a span as an ISO 8601 duration such as `PT5M`, at most seven days. Give one.
+type LogsPaddingInput struct {
+	Lines *int    `json:"lines,omitempty"`
+	Span  *string `json:"span,omitempty"`
+}
+
+// One frame of a tail: a line, a notice, or the last frame, saying why the tail ended.
+// Tailing again after `Ended` would end the same way. Detect each frame by `type`, never by
 // which field is missing.
-type LogsFollowFrame struct {
-	Type LogsFollowFrameType `json:"type"`
+type LogsTailFrame struct {
+	Type LogsTailFrameType `json:"type"`
 	// The line, cut at `maxMessageBytes`. Set on `Line`.
 	Record *logline.Record `json:"record,omitempty"`
-	// Something the follow wants the reader to know. Set on `Notice`.
+	// Something the tail wants the reader to know. Set on `Notice`.
 	Notice *tools.LogsNotice `json:"notice,omitempty"`
-	// Why the follow ended: its code, and the reason in the user's words. Set on `Ended`.
+	// Why the tail ended: its code, and the reason in the user's words. Set on `Ended`.
 	Ended *tools.LogsNotice `json:"ended,omitempty"`
 }
 
-// One follow: what to follow, and where it starts. With neither `since` nor `cursor` it starts from now.
-type LogsFollowInput struct {
-	// What is followed. Omitted beside `cursor`, which holds it.
+// One tail: what to tail, and where it starts. With neither `since` nor `cursor` it starts from now.
+type LogsTailInput struct {
+	// What is tailed. Omitted beside `cursor`, which holds it.
 	Scope *logs.Scope `json:"scope,omitempty"`
 	// A start: that moment's lines included. Refused beside `cursor`.
 	Since *time.Time `json:"since,omitempty"`
@@ -138,12 +144,6 @@ type LogsFollowInput struct {
 	Cursor *string `json:"cursor,omitempty"`
 	// Cuts each message; 0 is the server's cap.
 	MaxMessageBytes *int `json:"maxMessageBytes,omitempty"`
-}
-
-// How far the window extends past one end of the range, to show the lines around it: a number of lines, or a span as an ISO 8601 duration such as `PT5M`, at most seven days. Give one.
-type LogsPaddingInput struct {
-	Lines *int    `json:"lines,omitempty"`
-	Span  *string `json:"span,omitempty"`
 }
 
 // One selected line, as the viewer holds it. Cluster text.
@@ -250,7 +250,7 @@ type SandboxConsole struct {
 
 // The Sandbox console's last command, as it runs and once it ends.
 type SandboxConsoleRun struct {
-	// Counts the console's commands since the sidecar started. A gauge keeps its latest value alone, so a watcher tells one command from the next by this.
+	// Counts the console's commands since the sidecar started. A state watch keeps its latest value alone, so a watcher tells one command from the next by this.
 	Number int `json:"number"`
 	// The command as the user typed it. User text: draw it through VisibleText.
 	Command string `json:"command"`
@@ -302,7 +302,7 @@ type SandboxExecutable struct {
 type SandboxExecutablesReport struct {
 	// A probe is running; its reports land in `executables` when it ends.
 	Probing bool `json:"probing"`
-	// How many probes have started since the sidecar did. A gauge keeps its latest value alone, so a probe's start and end can arrive as one frame; a watcher that asked for a probe knows it started once this moved.
+	// How many probes have started since the sidecar did. A state watch keeps its latest value alone, so a probe's start and end can arrive as one frame; a watcher that asked for a probe knows it started once this moved.
 	Probes int `json:"probes"`
 	// Every executable the probe checks, the curated ones then the user's, as the last probe found each. Empty on a machine with no sandbox.
 	Executables []*SandboxExecutable `json:"executables"`
@@ -420,50 +420,50 @@ func (e GrantDuration) MarshalJSON() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-type LogsFollowFrameType string
+type LogsTailFrameType string
 
 const (
-	LogsFollowFrameTypeLine   LogsFollowFrameType = "Line"
-	LogsFollowFrameTypeNotice LogsFollowFrameType = "Notice"
-	LogsFollowFrameTypeEnded  LogsFollowFrameType = "Ended"
+	LogsTailFrameTypeLine   LogsTailFrameType = "Line"
+	LogsTailFrameTypeNotice LogsTailFrameType = "Notice"
+	LogsTailFrameTypeEnded  LogsTailFrameType = "Ended"
 )
 
-var AllLogsFollowFrameType = []LogsFollowFrameType{
-	LogsFollowFrameTypeLine,
-	LogsFollowFrameTypeNotice,
-	LogsFollowFrameTypeEnded,
+var AllLogsTailFrameType = []LogsTailFrameType{
+	LogsTailFrameTypeLine,
+	LogsTailFrameTypeNotice,
+	LogsTailFrameTypeEnded,
 }
 
-func (e LogsFollowFrameType) IsValid() bool {
+func (e LogsTailFrameType) IsValid() bool {
 	switch e {
-	case LogsFollowFrameTypeLine, LogsFollowFrameTypeNotice, LogsFollowFrameTypeEnded:
+	case LogsTailFrameTypeLine, LogsTailFrameTypeNotice, LogsTailFrameTypeEnded:
 		return true
 	}
 	return false
 }
 
-func (e LogsFollowFrameType) String() string {
+func (e LogsTailFrameType) String() string {
 	return string(e)
 }
 
-func (e *LogsFollowFrameType) UnmarshalGQL(v any) error {
+func (e *LogsTailFrameType) UnmarshalGQL(v any) error {
 	str, ok := v.(string)
 	if !ok {
 		return fmt.Errorf("enums must be strings")
 	}
 
-	*e = LogsFollowFrameType(str)
+	*e = LogsTailFrameType(str)
 	if !e.IsValid() {
-		return fmt.Errorf("%s is not a valid LogsFollowFrameType", str)
+		return fmt.Errorf("%s is not a valid LogsTailFrameType", str)
 	}
 	return nil
 }
 
-func (e LogsFollowFrameType) MarshalGQL(w io.Writer) {
+func (e LogsTailFrameType) MarshalGQL(w io.Writer) {
 	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
 }
 
-func (e *LogsFollowFrameType) UnmarshalJSON(b []byte) error {
+func (e *LogsTailFrameType) UnmarshalJSON(b []byte) error {
 	s, err := strconv.Unquote(string(b))
 	if err != nil {
 		return err
@@ -471,7 +471,7 @@ func (e *LogsFollowFrameType) UnmarshalJSON(b []byte) error {
 	return e.UnmarshalGQL(s)
 }
 
-func (e LogsFollowFrameType) MarshalJSON() ([]byte, error) {
+func (e LogsTailFrameType) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil

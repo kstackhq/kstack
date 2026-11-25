@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // The contract between the window and whatever feeds it. Each type mirrors the wire's
-// (`LogRecord`, `LogRecordsPage`, `LogNotice`, `LogsFollowFrame`) field for field.
+// (`LogRecord`, `LogRecordsPage`, `LogNotice`, `LogsTailFrame`) field for field.
 
 /** Opaque. The library hands a cursor back to the client that issued it and reads nothing from it. */
 export type Cursor = string;
@@ -72,8 +72,8 @@ export type Page = {
   notices: Notice[];
 };
 
-/** `Ended` is the last frame: the follow is over, and following again would end the same way. */
-export type FollowFrame =
+/** `Ended` is the last frame: the tail is over, and tailing again would end the same way. */
+export type TailFrame =
   | { kind: 'Line'; line: LogLine }
   | { kind: 'Notice'; notice: Notice }
   | { kind: 'Ended'; reason: string };
@@ -83,13 +83,13 @@ export type Client = {
   fetch: (query: FetchQuery) => Promise<Page>;
   /**
    * Calls back per frame from a page's `next` or `follow`, past each line in `seen` for its
-   * container, until the function it answers is called. A follow that cannot open throws, or,
+   * container, until the function it answers is called. A tail that cannot open throws, or,
    * when it learns so later, calls `onFailed` once and sends nothing after.
    */
-  follow: (
+  tail: (
     cursor: Cursor,
     seen: Cursor[],
-    onFrame: (frame: FollowFrame) => void,
+    onFrame: (frame: TailFrame) => void,
     onFailed: (error: unknown) => void,
   ) => () => void;
 };

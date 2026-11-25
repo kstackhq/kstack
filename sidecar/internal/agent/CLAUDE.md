@@ -6,6 +6,8 @@ runs its turn in the background and serves the record). The loop imports `llm` a
 `chat` imports the loop. `sidecar/CLAUDE.md` is the whole sidecar; `internal/tools/CLAUDE.md`
 is each tool; `internal/llm/CLAUDE.md` is the wires.
 
+Every subscription here is named for its kind: [`docs/subscriptions.md`](../../../docs/subscriptions.md).
+
 ## Catalog (`internal/agent/catalog`)
 
 The providers the app holds and, for each provider, every tool its turns are offered, by tool
@@ -215,7 +217,7 @@ written **before the decision is delivered**, outside `turnsMu`; a failed write 
 back. An `Always` rule goes to `settings.AddKubeRule`. A chat's rules are its `kube_rules` rows and
 its folder grants its `folder_grants` rows (`grants.go`), read through `settings.KubeRules` on
 every decision, never cached; `agent/chat` writes no row whose `chat_id` is NULL. Each write or
-revoke pings `grants/<chatID>` after its commit (`WatchGrants`), which `sandboxFoldersWatch` re-reads
+revoke pings `grants/<chatID>` after its commit (`ListenForGrantChanges`), which `sandboxFoldersStateWatch` re-reads
 on. **A session's policy is read live** (`sessionFor`): the action's cluster's mode (a failed read
 is read-only), then the chat's rules and the always rules (a failed read is `permissions.Unread`).
 **`foldersFor` is the one builder of a session's folders**, the chat's then the always ones,
@@ -308,8 +310,8 @@ card carries no counts](../../../docs/adr/2026-09-14-the-cluster-card-carries-no
 cluster service resolves a
 cluster](../../../docs/adr/2026-09-27-the-cluster-service-resolves-a-cluster.md).
 
-**The wire surface** is in `schema.graphqls`. Both watches go through **`watchStream`**
-(`graph/watch_failure.go`), never `ptrStream`. **The GraphQL `Provider` declares `id`, `label` and
+**The wire surface** is in `schema.graphqls`. Both go through **`subscriptionStream`**,
+never `ptrSubscription`. **The GraphQL `Provider` declares `id`, `label` and
 `llmDialect` alone, in `gqlgen.yml`**, so a regen never reintroduces a key or endpoint field as a
 stub; `ChatMessage`'s field resolvers unwrap `finishedAt` (`sql.NullTime`), parse `toolCalls`
 (`ToolCallList()`) and synthesize `provider`. The enums bind member by member (`enum_values`);

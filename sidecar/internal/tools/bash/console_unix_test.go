@@ -47,7 +47,7 @@ func consoleTool(t *testing.T) (*Tool, *fakeSandboxer) {
 // before it in frames.
 func consoleEnd(t *testing.T, tl *Tool, req ConsoleRequest) (end ConsoleRun, frames []ConsoleRun) {
 	t.Helper()
-	rx := tl.WatchConsole()
+	rx := tl.WatchConsoleState()
 	defer rx.Close()
 	_, err := tl.StartConsoleCommand(req)
 	require.NoError(t, err)
@@ -202,7 +202,7 @@ func TestARunningConsoleCommandStreamsAndStops(t *testing.T) {
 	tl, _ := consoleTool(t)
 	tl.console.tick = time.Millisecond
 	h := newHolder(t)
-	rx := tl.WatchConsole()
+	rx := tl.WatchConsoleState()
 	defer rx.Close()
 
 	number, err := tl.StartConsoleCommand(ConsoleRequest{Command: "echo first; printf partial; " + h.command("; wait")})
@@ -236,7 +236,7 @@ func TestARunningConsoleCommandStreamsAndStops(t *testing.T) {
 func TestAConsoleCommandStoppedBeforeItStartsIsCancelled(t *testing.T) {
 	tl, fake := consoleTool(t)
 	fake.hold = testutil.NewSignal()
-	rx := tl.WatchConsole()
+	rx := tl.WatchConsoleState()
 	defer rx.Close()
 
 	_, err := tl.StartConsoleCommand(ConsoleRequest{Command: "echo ran"})
@@ -263,7 +263,7 @@ func TestAConsoleCommandIsBounded(t *testing.T) {
 		return c
 	}
 	h := newHolder(t)
-	rx := tl.WatchConsole()
+	rx := tl.WatchConsoleState()
 	defer rx.Close()
 
 	_, err := tl.StartConsoleCommand(ConsoleRequest{Command: h.command("; wait")})
@@ -284,7 +284,7 @@ func TestAConsoleCommandIsBounded(t *testing.T) {
 func TestCloseEndsARunningConsoleCommand(t *testing.T) {
 	tl, _ := consoleTool(t)
 	h := newHolder(t)
-	rx := tl.WatchConsole()
+	rx := tl.WatchConsoleState()
 	defer rx.Close()
 	_, err := tl.StartConsoleCommand(ConsoleRequest{Command: h.command("; wait")})
 	require.NoError(t, err)

@@ -50,11 +50,11 @@ import { Intro } from './group';
 import { CHECKING_KEYCHAIN, keyFailureText } from './providers';
 
 export function ConnectorsSettings() {
-  const { connectors, loaded } = useConnectors();
+  const { connectors, snapshotComplete } = useConnectors();
   const keys = useProviderCredentials();
   const confirm = useFirstConnectionConfirm(connectors.find((c) => c.chatgpt)?.chatgpt?.connection);
   // OpenRouter's signed-out detail names the key that signs, so it waits for the credentials too.
-  if (!loaded || !keys.loaded) return null;
+  if (!snapshotComplete || !keys.snapshotComplete) return null;
   const openRouterKey = keys.credentials.find((c) => c.id === OPENROUTER_ID);
   return (
     <Intro lede="Accounts Kstack signs in to. Model providers and tools use their credentials.">

@@ -38,7 +38,7 @@ const (
 	// timeout of its own is bounded.
 	consoleTimeout = DefaultTimeout
 	// consoleCapture is the most of a console command's output kept: every
-	// frame of its gauge carries the whole of it.
+	// frame of its state watch carries the whole of it.
 	consoleCapture = 256 << 10
 	// consoleTick is how often a running command's new output is published.
 	consoleTick = 250 * time.Millisecond
@@ -144,9 +144,9 @@ func wholeLines(b []byte) []byte {
 	return b[:bytes.LastIndexByte(b, '\n')+1]
 }
 
-// WatchConsole is a current-on-subscribe receiver of the console's last
+// WatchConsoleState is a current-on-subscribe receiver of the console's last
 // command, nil before the first; close it when done.
-func (t *Tool) WatchConsole() *watch.Receiver[*ConsoleRun] {
+func (t *Tool) WatchConsoleState() *watch.Receiver[*ConsoleRun] {
 	return t.console.hub.Receiver()
 }
 
@@ -168,7 +168,7 @@ func checkCommand(command string) error {
 }
 
 // StartConsoleCommand starts req in the sandbox and returns at once with its
-// number; WatchConsole follows it, and StopConsoleCommand stops it. It runs as a chat's sandboxed command
+// number; WatchConsoleState follows it, and StopConsoleCommand stops it. It runs as a chat's sandboxed command
 // would, in a workspace of its own removed after it, reading the folders
 // granted always, with req's cluster and the internet when req asks and the
 // machine can give it. Nobody is there to ask, so the cluster is read alone,

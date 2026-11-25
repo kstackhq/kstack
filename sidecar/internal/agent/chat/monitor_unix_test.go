@@ -114,9 +114,9 @@ func (clusterRecords) Get(_ context.Context, id apimeta.ClusterID) (*cluster.Clu
 	return c, nil
 }
 
-// Watch sends nothing until the run ends, so no claim is revoked.
-func (clusterRecords) Watch(ctx context.Context, _ apimeta.ClusterID) (*cluster.Stream[cluster.ClusterWatchFrame], error) {
-	return cluster.NewStream(ctx, func(ctx context.Context, _ chan<- cluster.ClusterWatchFrame) error {
+// WatchCollectionByID sends nothing until the run ends, so no claim is revoked.
+func (clusterRecords) WatchCollectionByID(ctx context.Context, _ apimeta.ClusterID) (*cluster.Stream[cluster.ClusterCollectionWatchFrame], error) {
+	return cluster.NewStream(ctx, func(ctx context.Context, _ chan<- cluster.ClusterCollectionWatchFrame) error {
 		<-ctx.Done()
 		return nil
 	}), nil

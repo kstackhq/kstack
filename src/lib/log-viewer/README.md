@@ -16,14 +16,14 @@ here draws a row.
   line reads from the moment, inclusive. A page is its lines oldest first, its
   `edges` (`prev`, `next` and `follow`, each a cursor or null), and its `notices`, each a `code`
   and a `message`.
-- `follow(cursor, seen, onFrame)` sends a view's lines as they are written, from a page's `next`
+- `tail(cursor, seen, onFrame)` sends a view's lines as they are written, from a page's `next`
   or `follow`: `Line`, `Notice`, and `Ended`, the last frame.
 
 **A cursor is opaque.** The client writes every one; the library reads none and passes each
 back as it came. A line's cursor names it, and a line whose cursor is held is a repeat, dropped.
 A page cursor names where the page that way goes on. A line's cursor travels only in `seen`.
 
-The types mirror the wire's `LogRecord`, `LogRecordsPage`, `LogNotice` and `LogsFollowFrame`
+The types mirror the wire's `LogRecord`, `LogRecordsPage`, `LogNotice` and `LogsTailFrame`
 field for field. `LogLine.truncatedBytes` is what the server cut off the message, 0 when whole.
 
 **A line may carry a hole.** `LogLine.gap` is the stamps of the last known line before a range of

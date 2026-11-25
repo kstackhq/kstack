@@ -38,7 +38,7 @@ type fakeEngine struct {
 	// restored is Restored's channel, closed unless a test holds it.
 	restored chan struct{}
 
-	// feed is Subscribe's channel. Unbuffered, so a publish returns once the
+	// feed is the engine's Subscribe channel. Unbuffered, so a publish returns once the
 	// subscriber has taken the state.
 	feed chan connectors.State
 }
@@ -84,8 +84,8 @@ func (f *fakeEngine) State() connectors.State {
 	return f.state
 }
 
-// Subscribe's cancel closes the feed, as the engine's ends its channel.
-func (f *fakeEngine) Subscribe() (<-chan connectors.State, func()) {
+// WatchState's cancel closes the feed, as the engine's ends its channel.
+func (f *fakeEngine) WatchState() (<-chan connectors.State, func()) {
 	f.record("Subscribe")
 	return f.feed, sync.OnceFunc(func() { f.record("Unsubscribe"); close(f.feed) })
 }

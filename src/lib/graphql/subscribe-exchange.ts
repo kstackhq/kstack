@@ -32,15 +32,15 @@ type SubMessage =
   | { type: 'closed' };
 
 // The sidecar's marker for "this watch died, here is why" — set by its
-// WatchFailureExtension; keep in step with sidecar/graph/watch_failure.go.
-const WATCH_FAILED = 'watchFailed';
+// SubscriptionFailureExtension; keep in step with sidecar/graph/subscription_failure.go.
+const SUBSCRIPTION_FAILED = 'subscriptionFailed';
 
 // The message from a terminal-failure frame — the sidecar's reason a watch died —
 // or null if payload isn't one. Keyed on the marker the sidecar's
-// WatchFailureExtension sets, never on shape: a non-null field erroring nulls its
+// SubscriptionFailureExtension sets, never on shape: a non-null field erroring nulls its
 // parent, so an ordinary frame carrying a field error is shape-identical.
 function terminalError(payload: SubPayload): string | null {
-  if (payload.extensions?.[WATCH_FAILED] !== true) return null;
+  if (payload.extensions?.[SUBSCRIPTION_FAILED] !== true) return null;
   const first = Array.isArray(payload.errors) ? (payload.errors[0] as { message?: unknown }) : undefined;
   return typeof first?.message === 'string' ? first.message : 'the server ended the subscription';
 }
@@ -78,10 +78,10 @@ const dropOp = (id: number) => {
 // legitimate — sidecar shutdown, chat's finite stream) reconnects silently.
 //
 // A reconnect dials with the operation's variables, unless its context carries
-// `reconnectVariables`: a stream that resumes from a cursor (`logsFollow`) hands
+// `reconnectVariables`: a stream that resumes from a cursor (`logsTail`) hands
 // one in, so a reconnect goes on from where the stream got to.
 export const tauriSubscriptionExchange = subscriptionExchange({
-  // `operation.key` is the same key useWatchSubscription derives from
+  // `operation.key` is the same key useFoldedSubscription derives from
   // query+variables — transport status is stamped under it.
   forwardSubscription(request, operation) {
     return {
@@ -98,7 +98,7 @@ export const tauriSubscriptionExchange = subscriptionExchange({
         // Set when a connection died of a terminal watch failure, cleared by the
         // next healthy frame. Such a connection opens and dies immediately, so
         // `open` is not evidence the watch works.
-        let watchFailed = false;
+        let subscriptionFailed = false;
         let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
         // `report: false` is the graceful `complete` — reconnect silently.
@@ -153,7 +153,7 @@ export const tauriSubscriptionExchange = subscriptionExchange({
               // after a watch failure, though — the server accepts the
               // subscription and kills it again, so resetting on each open would
               // pin the retry at the base delay forever.
-              if (!watchFailed) attempt = 0;
+              if (!subscriptionFailed) attempt = 0;
               markConnected(key);
             } else if (msg.type === 'next') {
               const reason = terminalError(msg.payload);
@@ -162,13 +162,13 @@ export const tauriSubscriptionExchange = subscriptionExchange({
                 // last-known data, reconnect. Never the sink — urql merges each frame
                 // into the previous result, so an errors-only frame would re-deliver
                 // the last frame's data and fold it a second time.
-                watchFailed = true;
+                subscriptionFailed = true;
                 end(reason, msg.payload);
                 return;
               }
               // Healthy frame: outage over; next abnormal drop reports fresh.
               attempt = 0;
-              watchFailed = false;
+              subscriptionFailed = false;
               reportedOutage = false;
               sink.next(msg.payload as never);
             } else if (msg.type === 'error') {

@@ -32,28 +32,28 @@ type Service struct {
 	clusters cluster.Service
 	files    *logstore.Manager
 	// backends are the cluster's backends in the order a gap is offered to them,
-	// each built over a request's claim: the kubelet, or a test's fakes. A follow
+	// each built over a request's claim: the kubelet, or a test's fakes. A tail
 	// tails through the first.
 	backends []namedBackend
 	now      func() time.Time
-	// retry is how long a follow waits to resolve its view again after the mirror
+	// retry is how long a tail waits to resolve its view again after the mirror
 	// refused it, to open its watches again or to tail a dropped stream again,
 	// retryCap the longest a stream that keeps dropping waits, settle how long it
 	// waits after a pod frame.
 	retry    time.Duration
 	retryCap time.Duration
 	settle   time.Duration
-	// caps is the limits a page's and a follow's fills keep to: DefaultQuota, or a
+	// caps is the limits a page's and a tail's fills keep to: DefaultQuota, or a
 	// test's.
 	caps kubelet.Quota
 	// walkBudget is the bytes one page's walks of the file may read, apart from what
 	// its fills downloaded.
 	walkBudget int64
-	// grace is how long a tailer runs on after its last follow lets go: the files'
+	// grace is how long a tailer runs on after its last tail lets go: the files'
 	// TailGrace, or a test's.
 	grace time.Duration
 
-	// afterFill runs once a page's or a follow's fills have committed and before its
+	// afterFill runs once a page's or a tail's fills have committed and before its
 	// walk: a test's, so a sweep can land between them; nil in production.
 	afterFill func()
 
@@ -75,7 +75,7 @@ func New(clusters cluster.Service, dir string, ret logstore.Retention) *Service 
 	files := logstore.NewManager(dir, ret)
 	s := &Service{
 		clusters: clusters, files: files, backends: []namedBackend{{"kubelet", kubelet.New}}, now: time.Now,
-		retry: followRetry, retryCap: followRetryCap, settle: followSettle,
+		retry: tailRetry, retryCap: tailRetryCap, settle: tailSettle,
 		caps: kubelet.DefaultQuota, walkBudget: maxWalkBudget, grace: ret.TailGrace,
 		tails: map[cluster.ClusterCacheID]*registry{},
 	}

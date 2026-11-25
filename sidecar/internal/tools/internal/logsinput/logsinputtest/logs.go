@@ -81,20 +81,20 @@ func (f *Service) AcquireConnection(context.Context, cluster.ClusterID) (cluster
 	return lease{conn: f.Conn}, nil
 }
 
-// Watch is the record's watch, which sends nothing until ctx ends: the cluster
+// WatchCollectionByID is the record's watch, which sends nothing until ctx ends: the cluster
 // stays connectable.
-func (f fakeClusters) Watch(ctx context.Context, _ cluster.ClusterID) (*cluster.Stream[cluster.ClusterWatchFrame], error) {
-	return quiet[cluster.ClusterWatchFrame](ctx), nil
+func (f fakeClusters) WatchCollectionByID(ctx context.Context, _ cluster.ClusterID) (*cluster.Stream[cluster.ClusterCollectionWatchFrame], error) {
+	return quiet[cluster.ClusterCollectionWatchFrame](ctx), nil
 }
 
-// WatchObjects and WatchObjectsIn are the mirror's watches, which send nothing
-// until ctx ends: the mirror does not change under a follow.
-func (f fakeCachedData) WatchObjects(ctx context.Context, _ cluster.ClusterID, _ cluster.ClusterCacheID, _, _ string) (*cluster.Stream[cluster.ClusterCachedDataObjectWatchFrame], error) {
-	return quiet[cluster.ClusterCachedDataObjectWatchFrame](ctx), nil
+// WatchObjectCollection and WatchObjectCollectionByNamespaces are the mirror's watches,
+// which send nothing until ctx ends: the mirror does not change under a tail.
+func (f fakeCachedData) WatchObjectCollection(ctx context.Context, _ cluster.ClusterID, _ cluster.ClusterCacheID, _, _ string) (*cluster.Stream[cluster.ClusterCachedDataObjectCollectionWatchFrame], error) {
+	return quiet[cluster.ClusterCachedDataObjectCollectionWatchFrame](ctx), nil
 }
 
-func (f fakeCachedData) WatchObjectsIn(ctx context.Context, _ cluster.ClusterID, _ cluster.ClusterCacheID, _, _ string, _ []string) (*cluster.Stream[cluster.ClusterCachedDataObjectWatchFrame], error) {
-	return quiet[cluster.ClusterCachedDataObjectWatchFrame](ctx), nil
+func (f fakeCachedData) WatchObjectCollectionByNamespaces(ctx context.Context, _ cluster.ClusterID, _ cluster.ClusterCacheID, _, _ string, _ []string) (*cluster.Stream[cluster.ClusterCachedDataObjectCollectionWatchFrame], error) {
+	return quiet[cluster.ClusterCachedDataObjectCollectionWatchFrame](ctx), nil
 }
 
 // quiet is a stream that sends nothing and ends clean with ctx.

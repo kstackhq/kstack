@@ -14,7 +14,7 @@
 
 // Vocabulary every family reuses: the app's services as this package sees them,
 // identity, conditions, the kind-agnostic Event and Schedule projections, and the
-// delta-watch frame type. Nothing here belongs to one kind — a type only one family
+// collection watch frame type. Nothing here belongs to one kind — a type only one family
 // uses lives in that family's file, however generic its name reads. The projections
 // mirror the shared-vocabulary section of graph/schema.graphqls, which they bind to.
 package cluster
@@ -71,7 +71,7 @@ var ErrNotConnectable = errors.New("cluster: cluster cannot be connected")
 type kubeconfigService interface {
 	Get() (*api.Config, bool)
 	RESTConfig(contextName string) (*rest.Config, string, error)
-	Subscribe() kubeconfig.Subscription
+	WatchConfigState() kubeconfig.ConfigStateWatch
 }
 
 // kubeconnService is the pool a cluster is talked to over. Acquire names a context and
@@ -82,11 +82,11 @@ type kubeconfigService interface {
 type kubeconnService interface {
 	Acquire(contextName string) kubeconn.Lease
 	RetryAndWait(ctx context.Context, contextName string) error
-	Subscribe() kubeconn.Subscription
+	ListenForConnectionChanges() kubeconn.ConnectionChangeNotifications
 }
 
 // kubestoreManager is the cache directory as this package reaches it: the teardowns and
-// clears the controllers drive, plus what the stats gauge measures. Named for the leaf
+// clears the controllers drive, plus what the stats state watch measures. Named for the leaf
 // type it stands for, the way every narrow interface here is.
 //
 // **OpenExisting is the door to a cache's contents** — reading it, or clearing a kind in
@@ -94,21 +94,21 @@ type kubeconnService interface {
 // reader reconnecting in the window between a cache being marked for deletion and its
 // teardown pass would otherwise resurrect it as an orphan.
 //
-// Subscribe borrows the change feed of a cache someone already holds open, taking no
-// claim, for the gauge — which measures through Stats and needs no file of its own.
-// WatchOpen is the read side's other half: a watch that found no file waits on it rather
-// than polling, since nothing else would tell it the cache came up.
+// ListenForChanges borrows the change notifications of a cache someone already holds open,
+// taking no claim, for the state watch — which measures through Stats and needs no file of its
+// own. ListenForCacheOpenChanges is the read side's other half: a watch that found no file
+// waits on it rather than polling, since nothing else would tell it the cache came up.
 type kubestoreManager interface {
 	OpenExisting(cacheID int64) (*kubestore.Store, bool, error)
-	Subscribe(cacheID int64, keys ...string) (kubestore.Subscription, bool)
-	WatchOpen(cacheID int64) kubestore.OpenSubscription
+	ListenForChanges(cacheID int64, keys ...string) (kubestore.ChangeNotifications, bool)
+	ListenForCacheOpenChanges(cacheID int64) kubestore.CacheOpenChangeNotifications
 	Clear(cacheID int64) error
 	Remove(cacheID int64) error
 	Stats(ctx context.Context, cacheID int64) (kubestore.Stats, error)
-	// WatchSizeLimitNews carries the caches whose size verdict has changed. Edge-triggered
+	// ListenForSizeLimitChanges carries the caches whose size verdict has changed. Edge-triggered
 	// and payload-free, like every feed a trigger rides: the pass reads Stats for the
 	// verdict itself.
-	WatchSizeLimitNews() kubestore.SizeLimitNews
+	ListenForSizeLimitChanges() kubestore.SizeLimitChangeNotifications
 }
 
 // CacheFileOwner keeps a file per cluster cache beside the mirror's, named by the cache's
@@ -184,8 +184,8 @@ type kubesyncService interface {
 	ForgetKind(cacheID int64, k kubestore.Kind)
 	GetDiscoveryState(cacheID int64) (kubesync.DiscoveryState, bool)
 	GetKindState(cacheID int64, k kubestore.Kind) (kubesync.KindState, bool)
-	WatchDiscoveryNews() kubesync.DiscoveryNews
-	WatchKindNews() kubesync.KindNews
+	ListenForDiscoveryChanges() kubesync.DiscoveryChangeNotifications
+	ListenForKindChanges() kubesync.KindChangeNotifications
 	RunWithCacheSyncStopped(cacheID int64, fn func() error) error
 	RunWithKindSyncStopped(cacheID int64, k kubestore.Kind, fn func() error) error
 	RestartAll()
@@ -401,8 +401,8 @@ type Event struct {
 }
 
 // Schedule is the kind-agnostic projection of when an object is next due to be
-// looked at (a gauge), served live via the schedule watch — a scheduling change
-// fires no object WatchList. What does the looking is the kind's own: a cluster's
+// looked at, served as a state watch of its own — a scheduling change fires no object
+// WatchList. What does the looking is the kind's own: a cluster's
 // is the pool's probe cadence.
 type Schedule struct {
 	// NextRequeueAt is the next attempt's time, or nil while a probe is in flight or
@@ -410,51 +410,51 @@ type Schedule struct {
 	NextRequeueAt *time.Time `json:"nextRequeueAt"`
 	// Probing reports whether a network probe is in flight, asserted rather than
 	// inferred from the countdown so the webview can show a definite "checking
-	// now". Merged into this gauge because a probe start/end fires no WatchList.
+	// now". Merged into this state watch because a probe start/end fires no WatchList.
 	Probing bool `json:"probing"`
 	// Failures counts the connection probe's consecutive failed attempts, zero once one
 	// succeeds.
 	Failures int `json:"failures"`
 }
 
-// The delta-watch frame type is shared vocabulary (internal/lib/apimeta), aliased here so
+// The collection watch frame type is shared vocabulary (internal/lib/apimeta), aliased here so
 // this package's watches keep speaking their own name.
-type DeltaFrameType = apimeta.DeltaFrameType
+type CollectionWatchFrameType = apimeta.CollectionWatchFrameType
 
 const (
-	DeltaFrameAdded    = apimeta.DeltaFrameAdded
-	DeltaFrameModified = apimeta.DeltaFrameModified
-	DeltaFrameDeleted  = apimeta.DeltaFrameDeleted
-	DeltaFrameBookmark = apimeta.DeltaFrameBookmark
+	CollectionWatchFrameAdded    = apimeta.CollectionWatchFrameAdded
+	CollectionWatchFrameModified = apimeta.CollectionWatchFrameModified
+	CollectionWatchFrameDeleted  = apimeta.CollectionWatchFrameDeleted
+	CollectionWatchFrameBookmark = apimeta.CollectionWatchFrameBookmark
 )
 
 // deltaFrameType classifies a change that is not a removal, for any kind's watch pump.
 // The soft-delete mark is one of them: the row is still there, wearing a tombstone the
 // record carries through, so it is a Modified like any other field moving.
-func deltaFrameType[Spec, Status any](change beehive.ObjectChange[Spec, Status]) DeltaFrameType {
+func deltaFrameType[Spec, Status any](change beehive.ObjectChange[Spec, Status]) CollectionWatchFrameType {
 	if change.Type == beehive.Added {
-		return DeltaFrameAdded
+		return CollectionWatchFrameAdded
 	}
-	return DeltaFrameModified
+	return CollectionWatchFrameModified
 }
 
-// EventFrameType classifies one frame on an event-timeline watch. Two values where
-// DeltaFrameType has four, because an event log is a positioned log rather than a mirrored
+// EventFeedFrameType classifies one frame on an event feed. Two values where
+// CollectionWatchFrameType has four, because an event log is a positioned log rather than a mirrored
 // set: beehive delivers the snapshot plus what grows above it and never reports a
 // prune, so a run is only ever upserted and there is no Deleted to forward.
-type EventFrameType string
+type EventFeedFrameType string
 
 const (
-	EventFrameRun EventFrameType = "Run"
-	// EventFrameBookmark closes the on-subscribe snapshot, exactly once per stream, so
+	EventFeedFrameRun EventFeedFrameType = "Run"
+	// EventFeedFrameBookmark closes the on-subscribe snapshot, exactly once per stream, so
 	// a consumer can tell an empty timeline from one still arriving.
-	EventFrameBookmark EventFrameType = "Bookmark"
+	EventFeedFrameBookmark EventFeedFrameType = "Bookmark"
 )
 
-// EventWatchFrame is one frame on an event-timeline watch: a run to upsert by
+// EventFeedFrame is one frame on an event feed: a run to upsert by
 // Event.ID, or the bookmark closing the snapshot, which carries no run.
-type EventWatchFrame struct {
-	Type  EventFrameType
+type EventFeedFrame struct {
+	Type  EventFeedFrameType
 	Event *Event
 }
 

@@ -18,7 +18,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 
 import { compareTimestamps, resumeOf } from '@/lib/log-viewer';
-import type { Client, Cursor, FetchQuery, FollowFrame, LogLine, Page } from '@/lib/log-viewer';
+import type { Client, Cursor, FetchQuery, TailFrame, LogLine, Page } from '@/lib/log-viewer';
 import type { LogsViewAction } from '@/lib/logs-view';
 
 /** The lines the window holds. One constant, so the card's height is fixed. */
@@ -203,7 +203,7 @@ export class InlineLines {
   }
 
   private follow(after: Cursor): void {
-    const onFrame = (frame: FollowFrame) => {
+    const onFrame = (frame: TailFrame) => {
       if (frame.kind === 'Line') {
         const lines = appendLine(this.state.lines, frame.line);
         // A full window has no room for what a short read may have missed.
@@ -214,7 +214,7 @@ export class InlineLines {
     };
     try {
       // From the page's own cursor, which already holds where each stream stopped.
-      this.stopFollow = this.client.follow(after, [], onFrame, () => this.stop());
+      this.stopFollow = this.client.tail(after, [], onFrame, () => this.stop());
     } catch {
       this.stop();
     }

@@ -16,11 +16,17 @@ import { render, screen, act } from '@testing-library/react';
 import { Provider as UrqlProvider } from 'urql';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { clusterOf, flushWatchesSynchronously, mockTauriCore, pushClusters, pushWatchBookmark } from '@/test-utils';
+import {
+  clusterOf,
+  flushSubscriptionsSynchronously,
+  mockTauriCore,
+  pushClusters,
+  pushCollectionWatchBookmark,
+} from '@/test-utils';
 import type { ClusterRow } from '@/test-utils';
 
 // Frames pushed here are asserted on immediately.
-flushWatchesSynchronously();
+flushSubscriptionsSynchronously();
 
 // Mocks ---------------------------------------------------------------
 
@@ -40,37 +46,37 @@ const flush = () => act(async () => {});
 // the accumulators before the snapshot replays).
 async function reconnectBothStreams() {
   await act(async () => {
-    channelFor('clustersWatch').onmessage!(JSON.stringify({ type: 'complete' }));
-    channelFor('clusterCachesWatch').onmessage!(JSON.stringify({ type: 'complete' }));
+    channelFor('clusterCollectionWatch').onmessage!(JSON.stringify({ type: 'complete' }));
+    channelFor('clusterCacheCollectionWatch').onmessage!(JSON.stringify({ type: 'complete' }));
   });
   await act(async () => {
     await vi.advanceTimersByTimeAsync(1_000);
   });
   await act(async () => {
-    channelFor('clustersWatch').onmessage!(JSON.stringify({ type: 'open' }));
-    channelFor('clusterCachesWatch').onmessage!(JSON.stringify({ type: 'open' }));
+    channelFor('clusterCollectionWatch').onmessage!(JSON.stringify({ type: 'open' }));
+    channelFor('clusterCacheCollectionWatch').onmessage!(JSON.stringify({ type: 'open' }));
   });
 }
 
-// Push one Cluster change on the clustersWatch delta stream.
+// Push one Cluster change on clusterCollectionWatch.
 function pushClusterChange(type: 'Added' | 'Modified' | 'Deleted', cluster: object) {
-  channelFor('clustersWatch').onmessage!(
-    JSON.stringify({ type: 'next', payload: { data: { clustersWatch: { type, cluster } } } }),
+  channelFor('clusterCollectionWatch').onmessage!(
+    JSON.stringify({ type: 'next', payload: { data: { clusterCollectionWatch: { type, cluster } } } }),
   );
 }
 
-// Push one ClusterCache change on the clusterCachesWatch delta stream.
+// Push one ClusterCache change on clusterCacheCollectionWatch.
 function pushCacheChange(type: 'Added' | 'Modified' | 'Deleted', cache: object) {
-  channelFor('clusterCachesWatch').onmessage!(
-    JSON.stringify({ type: 'next', payload: { data: { clusterCachesWatch: { type, cache } } } }),
+  channelFor('clusterCacheCollectionWatch').onmessage!(
+    JSON.stringify({ type: 'next', payload: { data: { clusterCacheCollectionWatch: { type, cache } } } }),
   );
 }
 
-// Push one cache's folded sync verdict on the clusterCacheHealthWatch stream. A
-// latest-value gauge, so there is no change type — each frame replaces the last.
+// Push one cache's folded sync verdict on the clusterCacheHealthKeyedStateWatch stream. A
+// state watch, so there is no change type — each frame replaces the last.
 function pushSyncChange(_type: 'Added' | 'Modified' | 'Deleted', health: object) {
-  channelFor('clusterCacheHealthWatch').onmessage!(
-    JSON.stringify({ type: 'next', payload: { data: { clusterCacheHealthWatch: health } } }),
+  channelFor('clusterCacheHealthKeyedStateWatch').onmessage!(
+    JSON.stringify({ type: 'next', payload: { data: { clusterCacheHealthKeyedStateWatch: health } } }),
   );
 }
 
@@ -226,25 +232,25 @@ describe('useClusters', () => {
     expect(screen.getByTestId('probe')).toHaveTextContent('null');
 
     await act(async () => {
-      pushWatchBookmark(channelFor, 'clustersWatch', 'cluster');
+      pushCollectionWatchBookmark(channelFor, 'clusterCollectionWatch', 'cluster');
     });
     expect(screen.getByTestId('probe')).toHaveTextContent('[]');
   });
 
-  it('subscribes to the cluster, cache, and sync delta watches', async () => {
+  it('subscribes to the cluster, cache, and sync collection watches', async () => {
     renderProvider();
     await flush();
     expect(invokeMock).toHaveBeenCalledWith(
       'graphql_subscribe',
-      expect.objectContaining({ query: expect.stringContaining('clustersWatch') }),
+      expect.objectContaining({ query: expect.stringContaining('clusterCollectionWatch') }),
     );
     expect(invokeMock).toHaveBeenCalledWith(
       'graphql_subscribe',
-      expect.objectContaining({ query: expect.stringContaining('clusterCachesWatch') }),
+      expect.objectContaining({ query: expect.stringContaining('clusterCacheCollectionWatch') }),
     );
     expect(invokeMock).toHaveBeenCalledWith(
       'graphql_subscribe',
-      expect.objectContaining({ query: expect.stringContaining('clusterCacheHealthWatch') }),
+      expect.objectContaining({ query: expect.stringContaining('clusterCacheHealthKeyedStateWatch') }),
     );
   });
 
@@ -356,7 +362,7 @@ describe('useClusters', () => {
     expect(screen.getByTestId('probe')).toHaveTextContent('["prod-us:Stale"]');
   });
 
-  // The verdict stream is a latest-value gauge with no delete of its own, so a verdict's
+  // The verdict stream is a state watch with no delete of its own, so a verdict's
   // lifetime is its cache's — the sidecar drops a gone cache's verdict from its own
   // snapshot the same way. Which verdicts are live is DERIVED from the cache stream, so a
   // deletion takes effect on the frame that reports it: sweeping inside the verdict reducer
@@ -407,7 +413,7 @@ describe('useClusters', () => {
 
     await act(async () => {
       pushCacheChange('Deleted', cacheOf(a));
-      // Unrelated traffic on the gauge — the only thing that used to decide A's fate.
+      // Unrelated traffic on the state watch — the only thing that used to decide A's fate.
       pushSyncChange('Modified', syncOf(b, 'Stale'));
       pushCacheChange('Added', cacheOf(a));
     });
@@ -454,7 +460,7 @@ describe('useClusters', () => {
     await reconnectBothStreams();
     await act(async () => {
       pushClusterChange('Added', clusterOf({ id: 'u-b', name: 'staging' }));
-      pushWatchBookmark(channelFor, 'clustersWatch', 'cluster');
+      pushCollectionWatchBookmark(channelFor, 'clusterCollectionWatch', 'cluster');
     });
     expect(screen.getByTestId('probe')).toHaveTextContent('["staging:-"]');
   });

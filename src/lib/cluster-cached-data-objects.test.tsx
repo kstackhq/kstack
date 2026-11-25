@@ -15,10 +15,10 @@
 import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Same seams as cluster-cached-data-events.test.tsx: mock useWatchSubscription (an
-// accumulator stand-in that captures the reducer), the clusters provider (keeping the
-// real applyChange reducer), and the active-context hook.
-const { useWatchSubscriptionMock } = vi.hoisted(() => ({ useWatchSubscriptionMock: vi.fn() }));
+// Same seams as cluster-cached-data-events.test.tsx: mock useFoldedSubscription (an
+// accumulator stand-in that captures the reducer), the clusters provider, and the
+// active-context hook.
+const { useFoldedSubscriptionMock } = vi.hoisted(() => ({ useFoldedSubscriptionMock: vi.fn() }));
 const { useClustersMock, useActiveKubeContextMock } = vi.hoisted(() => ({
   useClustersMock: vi.fn(),
   useActiveKubeContextMock: vi.fn(),
@@ -27,9 +27,9 @@ const { statusState } = vi.hoisted(() => ({
   statusState: { snapshot: { connected: true, generation: 0 } },
 }));
 
-vi.mock('@/lib/graphql/use-watch-subscription', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/graphql/use-watch-subscription')>()),
-  useWatchSubscription: useWatchSubscriptionMock,
+vi.mock('@/lib/graphql/use-folded-subscription', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/graphql/use-folded-subscription')>()),
+  useFoldedSubscription: useFoldedSubscriptionMock,
 }));
 vi.mock('@/lib/clusters', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/clusters')>()),
@@ -76,7 +76,9 @@ function pushFrame(
   apiVersion = lastArgs?.variables?.apiVersion,
   resource = lastArgs?.variables?.resource,
 ) {
-  acc = lastReducer!(acc, [{ clusterCachedDataObjectsWatch: { type, cacheID, apiVersion, resource, object } }]);
+  acc = lastReducer!(acc, [
+    { clusterCachedDataObjectCollectionWatch: { type, cacheID, apiVersion, resource, object } },
+  ]);
 }
 
 // The Bookmark closing the snapshot: what flips the watch from connecting to live.
@@ -86,7 +88,7 @@ function pushBookmark(
   resource = lastArgs?.variables?.resource,
 ) {
   acc = lastReducer!(acc, [
-    { clusterCachedDataObjectsWatch: { type: 'Bookmark', cacheID, apiVersion, resource, object: null } },
+    { clusterCachedDataObjectCollectionWatch: { type: 'Bookmark', cacheID, apiVersion, resource, object: null } },
   ]);
 }
 
@@ -102,7 +104,7 @@ beforeEach(() => {
   lastReducer = undefined;
   statusState.snapshot = { connected: true, generation: 0 };
   useActiveKubeContextMock.mockReturnValue({ context: 'prod' });
-  useWatchSubscriptionMock.mockImplementation((args: typeof lastArgs, reducer: typeof lastReducer) => {
+  useFoldedSubscriptionMock.mockImplementation((args: typeof lastArgs, reducer: typeof lastReducer) => {
     lastArgs = args;
     lastReducer = reducer;
     return { data: acc, connected: statusState.snapshot.connected };
@@ -114,7 +116,7 @@ describe('useClusterCachedDataObjects', () => {
   it('subscribes unshared when asked', () => {
     useClustersMock.mockReturnValue({ clusters: [clusterFixture(true)] });
     renderHook(() => useClusterCachedDataObjects(PODS, { unshared: true }));
-    expect(useWatchSubscriptionMock.mock.lastCall?.[2]).toMatchObject({ unshared: true });
+    expect(useFoldedSubscriptionMock.mock.lastCall?.[2]).toMatchObject({ unshared: true });
   });
 
   // Disabled, it reads as a paused watch: nothing streams and nothing is active.

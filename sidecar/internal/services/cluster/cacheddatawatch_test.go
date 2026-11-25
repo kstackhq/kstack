@@ -29,7 +29,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/internal/kubestore"
 )
 
-// row is the stand-in the loop is tested over, the way deltaWatch is tested once over its
+// row is the stand-in the loop is tested over, the way collectionWatch is tested once over its
 // own: what the loop does is the same for all three watches, and testing it per watch would
 // pin the projection three times and the protocol none.
 type row struct {
@@ -39,7 +39,7 @@ type row struct {
 
 // frame is row's delta frame.
 type frame struct {
-	Type DeltaFrameType
+	Type CollectionWatchFrameType
 	Row  *row
 }
 
@@ -64,14 +64,14 @@ type watchFixture struct {
 	changes    int
 	// built fires as each frame is built, which is the moment before it is sent: a test
 	// that wants the loop parked in a send waits for one more build than the buffer holds.
-	built *testutil.Probe[DeltaFrameType]
+	built *testutil.Probe[CollectionWatchFrameType]
 }
 
 func newWatchFixture(t *testing.T) *watchFixture {
 	t.Helper()
 	m := kubestore.NewManager(t.TempDir(), kubestore.Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
-	return &watchFixture{t: t, m: m, built: testutil.NewProbe[DeltaFrameType](16)}
+	return &watchFixture{t: t, m: m, built: testutil.NewProbe[CollectionWatchFrameType](16)}
 }
 
 // open creates the cache's file, the way a worker or the sweep does.
@@ -190,11 +190,11 @@ func (f *watchFixture) run(ctx context.Context, debounce, retry time.Duration, c
 		retry:    retry,
 		key:      func(r row) string { return r.UID },
 		read:     f.read,
-		frame: func(_ context.Context, _ *kubestore.Store, t DeltaFrameType, r row) frame {
+		frame: func(_ context.Context, _ *kubestore.Store, t CollectionWatchFrameType, r row) frame {
 			f.built.Fire(t)
 			return frame{Type: t, Row: &r}
 		},
-		bookmark: frame{Type: DeltaFrameBookmark},
+		bookmark: frame{Type: CollectionWatchFrameBookmark},
 	})
 }
 
@@ -214,9 +214,9 @@ func TestCacheWatchEmitsTheSnapshotThenTheBookmark(t *testing.T) {
 
 	s := f.start(ctx, time.Millisecond, time.Millisecond)
 
-	assert.Equal(t, frame{Type: DeltaFrameAdded, Row: &row{UID: "a", Data: "1"}}, recvFrame(t, s))
-	assert.Equal(t, frame{Type: DeltaFrameAdded, Row: &row{UID: "b", Data: "1"}}, recvFrame(t, s))
-	assert.Equal(t, DeltaFrameBookmark, recvFrame(t, s).Type)
+	assert.Equal(t, frame{Type: CollectionWatchFrameAdded, Row: &row{UID: "a", Data: "1"}}, recvFrame(t, s))
+	assert.Equal(t, frame{Type: CollectionWatchFrameAdded, Row: &row{UID: "b", Data: "1"}}, recvFrame(t, s))
+	assert.Equal(t, CollectionWatchFrameBookmark, recvFrame(t, s).Type)
 }
 
 // The three ways a re-read differs from the snapshot before it. A departure carries its
@@ -230,19 +230,19 @@ func TestCacheWatchDiffsAgainstThePreviousSnapshot(t *testing.T) {
 	s := f.start(ctx, time.Millisecond, time.Millisecond)
 	recvFrame(t, s)
 	recvFrame(t, s)
-	require.Equal(t, DeltaFrameBookmark, recvFrame(t, s).Type)
+	require.Equal(t, CollectionWatchFrameBookmark, recvFrame(t, s).Type)
 
 	f.set(row{UID: "a", Data: "2"}, row{UID: "new", Data: "1"})
 	f.ping()
 
-	got := map[DeltaFrameType]row{}
+	got := map[CollectionWatchFrameType]row{}
 	for range 3 {
 		fr := recvFrame(t, s)
 		got[fr.Type] = *fr.Row
 	}
-	assert.Equal(t, row{UID: "a", Data: "2"}, got[DeltaFrameModified])
-	assert.Equal(t, row{UID: "new", Data: "1"}, got[DeltaFrameAdded])
-	assert.Equal(t, row{UID: "gone", Data: "1"}, got[DeltaFrameDeleted], "the departure lost its body")
+	assert.Equal(t, row{UID: "a", Data: "2"}, got[CollectionWatchFrameModified])
+	assert.Equal(t, row{UID: "new", Data: "1"}, got[CollectionWatchFrameAdded])
+	assert.Equal(t, row{UID: "gone", Data: "1"}, got[CollectionWatchFrameDeleted], "the departure lost its body")
 }
 
 // A burst is one re-read. The bus coalesces only what is undelivered, so a loop that drains
@@ -258,7 +258,7 @@ func TestCacheWatchCollapsesABurstIntoOneReRead(t *testing.T) {
 		const debounce = 40 * time.Millisecond
 		s := f.start(ctx, debounce, time.Millisecond)
 		recvFrame(t, s)
-		require.Equal(t, DeltaFrameBookmark, recvFrame(t, s).Type)
+		require.Equal(t, CollectionWatchFrameBookmark, recvFrame(t, s).Type)
 		synctest.Wait()
 		require.Equal(t, 1, f.readCount())
 
@@ -278,7 +278,7 @@ func TestCacheWatchCollapsesABurstIntoOneReRead(t *testing.T) {
 		time.Sleep(time.Nanosecond)
 		synctest.Wait()
 		require.Equal(t, 2, f.readCount(), "the burst was not collapsed at the first ping's deadline")
-		assert.Equal(t, frame{Type: DeltaFrameModified, Row: &row{UID: "a", Data: "2"}}, recvFrame(t, s))
+		assert.Equal(t, frame{Type: CollectionWatchFrameModified, Row: &row{UID: "a", Data: "2"}}, recvFrame(t, s))
 
 		time.Sleep(debounce)
 		synctest.Wait()
@@ -297,7 +297,7 @@ func TestCacheWatchRetriesAFailedReRead(t *testing.T) {
 
 	s := f.start(ctx, time.Millisecond, 5*time.Millisecond)
 	recvFrame(t, s)
-	require.Equal(t, DeltaFrameBookmark, recvFrame(t, s).Type)
+	require.Equal(t, CollectionWatchFrameBookmark, recvFrame(t, s).Type)
 
 	before := f.readCount()
 	f.fail(errors.New("disk I/O error"))
@@ -310,7 +310,7 @@ func TestCacheWatchRetriesAFailedReRead(t *testing.T) {
 	// The retry timer is what drives the recovery; nothing else pings.
 	f.set(row{UID: "a", Data: "2"})
 
-	assert.Equal(t, DeltaFrameModified, recvFrame(t, s).Type)
+	assert.Equal(t, CollectionWatchFrameModified, recvFrame(t, s).Type)
 	assert.NoError(t, s.Err(), "a recovered read ended the stream")
 }
 
@@ -322,12 +322,12 @@ type brokenStores struct {
 
 func (b brokenStores) OpenExisting(int64) (*kubestore.Store, bool, error) { return nil, false, b.err }
 
-func (b brokenStores) WatchOpen(cacheID int64) kubestore.OpenSubscription {
-	return b.m.WatchOpen(cacheID)
+func (b brokenStores) ListenForCacheOpenChanges(cacheID int64) kubestore.CacheOpenChangeNotifications {
+	return b.m.ListenForCacheOpenChanges(cacheID)
 }
 
 // A store that will not open is a broken source, and the watch has to say so. Reading it as
-// "no file yet" would leave the stream parked on WatchOpen — which only fires when a file is
+// "no file yet" would leave the stream parked on ListenForCacheOpenChanges — which only fires when a file is
 // CREATED, so a cache whose file is already there would wait for a signal that never comes.
 func TestCacheWatchReportsAStoreThatWillNotOpen(t *testing.T) {
 	ctx := t.Context()
@@ -341,10 +341,10 @@ func TestCacheWatchReportsAStoreThatWillNotOpen(t *testing.T) {
 		retry:    time.Millisecond,
 		key:      func(r row) string { return r.UID },
 		read:     f.read,
-		frame: func(_ context.Context, _ *kubestore.Store, t DeltaFrameType, r row) frame {
+		frame: func(_ context.Context, _ *kubestore.Store, t CollectionWatchFrameType, r row) frame {
 			return frame{Type: t, Row: &r}
 		},
-		bookmark: frame{Type: DeltaFrameBookmark},
+		bookmark: frame{Type: CollectionWatchFrameBookmark},
 	})
 
 	testutil.WaitClosed(t, s.Frames, "the stream to end")
@@ -363,7 +363,7 @@ func TestCacheWatchReleasesItsClaimWhenItEnds(t *testing.T) {
 
 	s := f.start(ctx, time.Millisecond, time.Millisecond)
 	recvFrame(t, s)
-	require.Equal(t, DeltaFrameBookmark, recvFrame(t, s).Type)
+	require.Equal(t, CollectionWatchFrameBookmark, recvFrame(t, s).Type)
 	require.True(t, cacheIsOpen(f.m, 1), "the loop is not holding the file open")
 
 	cancel()
@@ -384,12 +384,12 @@ func TestCacheWatchEndsCleanlyWhenTheStoreIsCleared(t *testing.T) {
 
 	s := f.start(ctx, time.Millisecond, time.Millisecond)
 	recvFrame(t, s)
-	require.Equal(t, DeltaFrameBookmark, recvFrame(t, s).Type)
+	require.Equal(t, CollectionWatchFrameBookmark, recvFrame(t, s).Type)
 
 	require.NoError(t, f.m.Clear(1))
 
 	for fr := range s.Frames {
-		assert.NotEqual(t, DeltaFrameDeleted, fr.Type, "the clear blanked the client's table")
+		assert.NotEqual(t, CollectionWatchFrameDeleted, fr.Type, "the clear blanked the client's table")
 	}
 	assert.NoError(t, s.Err(), "a clear reported itself as a watch failure")
 }
@@ -403,12 +403,12 @@ func TestCacheWatchBookmarksBeforeTheStoreExists(t *testing.T) {
 	f.set(row{UID: "a", Data: "1"})
 
 	s := f.start(ctx, time.Millisecond, time.Millisecond)
-	assert.Equal(t, DeltaFrameBookmark, recvFrame(t, s).Type, "the watch stalled on a cache with no file")
+	assert.Equal(t, CollectionWatchFrameBookmark, recvFrame(t, s).Type, "the watch stalled on a cache with no file")
 
 	f.open()
 
 	fr := recvFrame(t, s)
-	assert.Equal(t, DeltaFrameAdded, fr.Type)
+	assert.Equal(t, CollectionWatchFrameAdded, fr.Type)
 	assert.Equal(t, row{UID: "a", Data: "1"}, *fr.Row)
 }
 
@@ -477,7 +477,7 @@ func TestSendDiffStopsAtAnyFrameWhenTheConsumerIsGone(t *testing.T) {
 	}
 	w := cachedDataWatchSpec[row, frame]{
 		key: func(r row) string { return r.UID },
-		frame: func(_ context.Context, _ *kubestore.Store, t DeltaFrameType, r row) frame {
+		frame: func(_ context.Context, _ *kubestore.Store, t CollectionWatchFrameType, r row) frame {
 			return frame{Type: t, Row: &r}
 		},
 	}
@@ -504,7 +504,7 @@ func TestCacheWatchStopsWaitingForAFileWhenTheContextEnds(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	f := newWatchFixture(t)
 	stream := f.start(ctx, time.Millisecond, time.Millisecond)
-	require.Equal(t, DeltaFrameBookmark, recvFrame(t, stream).Type)
+	require.Equal(t, CollectionWatchFrameBookmark, recvFrame(t, stream).Type)
 
 	cancel()
 
@@ -518,7 +518,7 @@ func TestCacheWatchStopsWaitingWhenTheManagerShutsDown(t *testing.T) {
 	ctx := t.Context()
 	f := newWatchFixture(t)
 	stream := f.start(ctx, time.Millisecond, time.Millisecond)
-	require.Equal(t, DeltaFrameBookmark, recvFrame(t, stream).Type)
+	require.Equal(t, CollectionWatchFrameBookmark, recvFrame(t, stream).Type)
 
 	require.NoError(t, f.m.Close())
 
@@ -537,14 +537,14 @@ func TestCacheWatchReadsWhatMovedPastItsCursor(t *testing.T) {
 
 	s := f.startWithChanges(ctx, time.Millisecond, time.Millisecond)
 	recvFrame(t, s)
-	require.Equal(t, DeltaFrameBookmark, recvFrame(t, s).Type)
+	require.Equal(t, CollectionWatchFrameBookmark, recvFrame(t, s).Type)
 	require.Equal(t, 1, f.readCount())
 
 	f.push(kubestore.Changes[row]{Written: []row{{UID: "a", Data: "2"}}})
 	f.ping()
 
 	fr := recvFrame(t, s)
-	assert.Equal(t, DeltaFrameModified, fr.Type)
+	assert.Equal(t, CollectionWatchFrameModified, fr.Type)
 	assert.Equal(t, row{UID: "a", Data: "2"}, *fr.Row)
 	assert.Equal(t, 1, f.readCount(), "the loop fell back to a full read")
 }
@@ -559,13 +559,13 @@ func TestCacheWatchSendsADeleteFromWhatItHeld(t *testing.T) {
 
 	s := f.startWithChanges(ctx, time.Millisecond, time.Millisecond)
 	recvFrame(t, s)
-	require.Equal(t, DeltaFrameBookmark, recvFrame(t, s).Type)
+	require.Equal(t, CollectionWatchFrameBookmark, recvFrame(t, s).Type)
 
 	f.push(kubestore.Changes[row]{Deleted: []string{"a"}})
 	f.ping()
 
 	fr := recvFrame(t, s)
-	assert.Equal(t, DeltaFrameDeleted, fr.Type)
+	assert.Equal(t, CollectionWatchFrameDeleted, fr.Type)
 	assert.Equal(t, row{UID: "a", Data: "1"}, *fr.Row, "the departure lost its body")
 }
 
@@ -579,7 +579,7 @@ func TestCacheWatchDropsADeleteForARowItNeverHeld(t *testing.T) {
 
 	s := f.startWithChanges(ctx, time.Millisecond, time.Millisecond)
 	recvFrame(t, s)
-	require.Equal(t, DeltaFrameBookmark, recvFrame(t, s).Type)
+	require.Equal(t, CollectionWatchFrameBookmark, recvFrame(t, s).Type)
 
 	// The ghost rides along with a real change, so the next frame is the assertion: had the
 	// ghost produced one, it would be this frame.
@@ -590,7 +590,7 @@ func TestCacheWatchDropsADeleteForARowItNeverHeld(t *testing.T) {
 	f.ping()
 
 	fr := recvFrame(t, s)
-	assert.Equal(t, DeltaFrameAdded, fr.Type)
+	assert.Equal(t, CollectionWatchFrameAdded, fr.Type)
 	assert.Equal(t, row{UID: "b", Data: "1"}, *fr.Row)
 }
 
@@ -605,7 +605,7 @@ func TestCacheWatchAppliesDeletesBeforeWrites(t *testing.T) {
 
 	s := f.startWithChanges(ctx, time.Millisecond, time.Millisecond)
 	recvFrame(t, s)
-	require.Equal(t, DeltaFrameBookmark, recvFrame(t, s).Type)
+	require.Equal(t, CollectionWatchFrameBookmark, recvFrame(t, s).Type)
 
 	f.push(kubestore.Changes[row]{
 		Deleted: []string{"a"},
@@ -613,9 +613,9 @@ func TestCacheWatchAppliesDeletesBeforeWrites(t *testing.T) {
 	})
 	f.ping()
 
-	assert.Equal(t, DeltaFrameDeleted, recvFrame(t, s).Type)
+	assert.Equal(t, CollectionWatchFrameDeleted, recvFrame(t, s).Type)
 	fr := recvFrame(t, s)
-	assert.Equal(t, DeltaFrameAdded, fr.Type, "the re-added row was folded as a modification")
+	assert.Equal(t, CollectionWatchFrameAdded, fr.Type, "the re-added row was folded as a modification")
 	assert.Equal(t, row{UID: "a", Data: "2"}, *fr.Row)
 }
 
@@ -631,7 +631,7 @@ func TestCacheWatchFallsBackWhenItsCursorWasTrimmed(t *testing.T) {
 	s := f.startWithChanges(ctx, time.Millisecond, time.Millisecond)
 	recvFrame(t, s)
 	recvFrame(t, s)
-	require.Equal(t, DeltaFrameBookmark, recvFrame(t, s).Type)
+	require.Equal(t, CollectionWatchFrameBookmark, recvFrame(t, s).Type)
 	require.Equal(t, 1, f.readCount())
 
 	// The mark is above the cursor, and the changes answer is deliberately empty: taking it
@@ -640,13 +640,13 @@ func TestCacheWatchFallsBackWhenItsCursorWasTrimmed(t *testing.T) {
 	f.set(row{UID: "a", Data: "2"})
 	f.ping()
 
-	got := map[DeltaFrameType]row{}
+	got := map[CollectionWatchFrameType]row{}
 	for range 2 {
 		fr := recvFrame(t, s)
 		got[fr.Type] = *fr.Row
 	}
-	assert.Equal(t, row{UID: "a", Data: "2"}, got[DeltaFrameModified])
-	assert.Equal(t, row{UID: "gone", Data: "1"}, got[DeltaFrameDeleted])
+	assert.Equal(t, row{UID: "a", Data: "2"}, got[CollectionWatchFrameModified])
+	assert.Equal(t, row{UID: "gone", Data: "1"}, got[CollectionWatchFrameDeleted])
 	assert.Equal(t, 2, f.readCount(), "the trimmed cursor was taken at face value")
 }
 
@@ -662,7 +662,7 @@ func TestCacheWatchFallsBackWhenTheKindIsGone(t *testing.T) {
 
 	s := f.startWithChanges(ctx, time.Millisecond, time.Millisecond)
 	recvFrame(t, s)
-	require.Equal(t, DeltaFrameBookmark, recvFrame(t, s).Type)
+	require.Equal(t, CollectionWatchFrameBookmark, recvFrame(t, s).Type)
 
 	// The plural resolves to nothing now, so the answer's Kind is empty.
 	f.pushRaw(kubestore.Changes[row]{At: kubestore.Cursor{Seq: 99}})
@@ -671,7 +671,7 @@ func TestCacheWatchFallsBackWhenTheKindIsGone(t *testing.T) {
 	f.ping()
 
 	fr := recvFrame(t, s)
-	assert.Equal(t, DeltaFrameDeleted, fr.Type)
+	assert.Equal(t, CollectionWatchFrameDeleted, fr.Type)
 	assert.Equal(t, row{UID: "a", Data: "1"}, *fr.Row)
 }
 
@@ -686,7 +686,7 @@ func TestCacheWatchRetriesAFailedChangesRead(t *testing.T) {
 
 	s := f.startWithChanges(ctx, time.Millisecond, 5*time.Millisecond)
 	recvFrame(t, s)
-	require.Equal(t, DeltaFrameBookmark, recvFrame(t, s).Type)
+	require.Equal(t, CollectionWatchFrameBookmark, recvFrame(t, s).Type)
 
 	before := f.changesCount()
 	f.failChanges(errors.New("disk I/O error"))
@@ -700,7 +700,7 @@ func TestCacheWatchRetriesAFailedChangesRead(t *testing.T) {
 	f.push(kubestore.Changes[row]{Written: []row{{UID: "a", Data: "2"}}})
 
 	fr := recvFrame(t, s)
-	assert.Equal(t, DeltaFrameModified, fr.Type)
+	assert.Equal(t, CollectionWatchFrameModified, fr.Type)
 	assert.Equal(t, row{UID: "a", Data: "2"}, *fr.Row)
 	assert.Equal(t, 1, f.readCount(), "a failed changes read fell back to a full read")
 	assert.NoError(t, s.Err(), "a recovered read ended the stream")
@@ -715,12 +715,12 @@ func TestCacheWatchBoundLateReadsTheKindFromZero(t *testing.T) {
 	f.push(kubestore.Changes[row]{Written: []row{{UID: "a", Data: "1"}}})
 
 	s := f.startWithChanges(ctx, time.Millisecond, time.Millisecond)
-	require.Equal(t, DeltaFrameBookmark, recvFrame(t, s).Type, "the watch stalled on a cache with no file")
+	require.Equal(t, CollectionWatchFrameBookmark, recvFrame(t, s).Type, "the watch stalled on a cache with no file")
 
 	f.open()
 
 	fr := recvFrame(t, s)
-	assert.Equal(t, DeltaFrameAdded, fr.Type)
+	assert.Equal(t, CollectionWatchFrameAdded, fr.Type)
 	assert.Equal(t, row{UID: "a", Data: "1"}, *fr.Row)
 	assert.Zero(t, f.readCount(), "the empty snapshot left a cursor the changes read could not use")
 }
@@ -738,7 +738,7 @@ func TestCacheWatchFallsBackWhenTheKindBehindThePluralChanges(t *testing.T) {
 
 	s := f.startWithChanges(ctx, time.Millisecond, time.Millisecond)
 	recvFrame(t, s)
-	require.Equal(t, DeltaFrameBookmark, recvFrame(t, s).Type)
+	require.Equal(t, CollectionWatchFrameBookmark, recvFrame(t, s).Type)
 	require.Equal(t, 1, f.readCount())
 
 	// The renamed Kind's ranges carry neither the old row nor the delete its worker logged.
@@ -748,7 +748,7 @@ func TestCacheWatchFallsBackWhenTheKindBehindThePluralChanges(t *testing.T) {
 	f.ping()
 
 	fr := recvFrame(t, s)
-	assert.Equal(t, DeltaFrameDeleted, fr.Type, "the rows of the Kind the plural left were kept")
+	assert.Equal(t, CollectionWatchFrameDeleted, fr.Type, "the rows of the Kind the plural left were kept")
 	assert.Equal(t, row{UID: "a", Data: "1"}, *fr.Row)
 	assert.Equal(t, 2, f.readCount())
 }
@@ -763,7 +763,7 @@ func TestApplyStopsAtAnyFrameWhenTheConsumerIsGone(t *testing.T) {
 	}
 	w := cachedDataWatchSpec[row, frame]{
 		key: func(r row) string { return r.UID },
-		frame: func(_ context.Context, _ *kubestore.Store, t DeltaFrameType, r row) frame {
+		frame: func(_ context.Context, _ *kubestore.Store, t CollectionWatchFrameType, r row) frame {
 			return frame{Type: t, Row: &r}
 		},
 	}
@@ -793,8 +793,8 @@ type goneStores struct {
 
 func (g goneStores) OpenExisting(int64) (*kubestore.Store, bool, error) { return g.store, true, nil }
 
-func (g goneStores) WatchOpen(cacheID int64) kubestore.OpenSubscription {
-	return g.m.WatchOpen(cacheID)
+func (g goneStores) ListenForCacheOpenChanges(cacheID int64) kubestore.CacheOpenChangeNotifications {
+	return g.m.ListenForCacheOpenChanges(cacheID)
 }
 
 // A cache that went between the claim and the subscription ends the watch CLEANLY: it is a
@@ -813,10 +813,10 @@ func TestCacheWatchEndsCleanlyWhenTheCacheGoesBeforeItSubscribes(t *testing.T) {
 		retry:    time.Millisecond,
 		key:      func(r row) string { return r.UID },
 		read:     f.read,
-		frame: func(_ context.Context, _ *kubestore.Store, t DeltaFrameType, r row) frame {
+		frame: func(_ context.Context, _ *kubestore.Store, t CollectionWatchFrameType, r row) frame {
 			return frame{Type: t, Row: &r}
 		},
-		bookmark: frame{Type: DeltaFrameBookmark},
+		bookmark: frame{Type: CollectionWatchFrameBookmark},
 	})
 
 	testutil.WaitClosed(t, s.Frames, "the stream to end")
@@ -842,11 +842,11 @@ func (l *lateBreakStores) OpenExisting(int64) (*kubestore.Store, bool, error) {
 	return nil, false, l.err
 }
 
-func (l *lateBreakStores) WatchOpen(cacheID int64) kubestore.OpenSubscription {
-	return l.m.WatchOpen(cacheID)
+func (l *lateBreakStores) ListenForCacheOpenChanges(cacheID int64) kubestore.CacheOpenChangeNotifications {
+	return l.m.ListenForCacheOpenChanges(cacheID)
 }
 
-// A watch waiting for a file that then will not open reports it. Parking on WatchOpen would
+// A watch waiting for a file that then will not open reports it. Parking on ListenForCacheOpenChanges would
 // leave the client on an empty table with no reason for it, since that signal fires when a
 // file is CREATED and this one already exists.
 func TestCacheWatchReportsAStoreThatBreaksWhileItWaits(t *testing.T) {
@@ -861,13 +861,13 @@ func TestCacheWatchReportsAStoreThatBreaksWhileItWaits(t *testing.T) {
 		retry:    time.Millisecond,
 		key:      func(r row) string { return r.UID },
 		read:     f.read,
-		frame: func(_ context.Context, _ *kubestore.Store, t DeltaFrameType, r row) frame {
+		frame: func(_ context.Context, _ *kubestore.Store, t CollectionWatchFrameType, r row) frame {
 			return frame{Type: t, Row: &r}
 		},
-		bookmark: frame{Type: DeltaFrameBookmark},
+		bookmark: frame{Type: CollectionWatchFrameBookmark},
 	})
 
-	assert.Equal(t, DeltaFrameBookmark, recvFrame(t, s).Type)
+	assert.Equal(t, CollectionWatchFrameBookmark, recvFrame(t, s).Type)
 	testutil.WaitClosed(t, s.Frames, "the stream to end")
 	assert.ErrorIs(t, s.Err(), boom)
 }
@@ -903,7 +903,7 @@ func TestCacheWatchStopsMidBurstWhenTheConsumerLeaves(t *testing.T) {
 
 			s := f.startWithChanges(ctx, time.Millisecond, time.Millisecond)
 			recvFrame(t, s)
-			require.Equal(t, DeltaFrameBookmark, recvFrame(t, s).Type)
+			require.Equal(t, CollectionWatchFrameBookmark, recvFrame(t, s).Type)
 			f.built.Drain()
 
 			burst(f)
@@ -931,7 +931,7 @@ func TestCacheWatchStopsOnTheRetryWhenTheConsumerLeaves(t *testing.T) {
 
 	s := f.startWithChanges(ctx, time.Millisecond, 5*time.Millisecond)
 	recvFrame(t, s)
-	require.Equal(t, DeltaFrameBookmark, recvFrame(t, s).Type)
+	require.Equal(t, CollectionWatchFrameBookmark, recvFrame(t, s).Type)
 	f.built.Drain()
 
 	before := f.changesCount()

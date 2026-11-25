@@ -12,12 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The app's cluster registry: reduces the three per-kind delta watches
-// (`clustersWatch`, `clusterCachesWatch`, `clusterCacheHealthWatch`) into
-// id-keyed maps, then joins client-side — caches onto clusters (active cache =
-// `spec.serverUid` matches `status.server.uid`), the folded sync verdict onto that cache
-// by `cacheID`. Why per-kind streams + client joins:
-// see docs/adr/2026-08-09-delta-watch-protocol.md
+// The app's cluster registry: reduces two collection watches and a keyed state watch
+// (`clusterCollectionWatch`, `clusterCacheCollectionWatch`,
+// `clusterCacheHealthKeyedStateWatch`) into id-keyed maps, then joins client-side — caches
+// onto clusters (active cache = `spec.serverUid` matches `status.server.uid`), the folded
+// sync verdict onto that cache by `cacheID`. See docs/subscriptions.md, *Collection watch*.
 //
 // The verdict is the sidecar's rollup over every kind the cache syncs — the cache's
 // own `Synced` condition is deliberately coarse and NOT what the UI reads. Only
@@ -27,18 +26,21 @@ import { createContext, useContext, useMemo } from 'react';
 
 import { graphql } from '@/gql';
 import type {
-  ClustersWatchSubscription,
-  ClusterCachesWatchSubscription,
-  ClusterCacheHealthWatchSubscription,
+  ClusterCollectionWatchSubscription,
+  ClusterCacheCollectionWatchSubscription,
+  ClusterCacheHealthKeyedStateWatchSubscription,
 } from '@/gql/graphql';
-import { useWatchSubscription } from '@/lib/graphql/use-watch-subscription';
+import { collectionWatchReducer } from '@/lib/graphql/collection-watch';
+import type { Keyed } from '@/lib/graphql/collection-watch';
+import { keyedStateWatchReducer } from '@/lib/graphql/keyed-state-watch';
+import { useFoldedSubscription } from '@/lib/graphql/use-folded-subscription';
 
-// One object on each delta stream (the `cluster` / `cache` / `sync` payload of a change).
-// NonNullable: the entity is null only on a Bookmark, which the reducers fold away,
+// One item on each collection watch (the `cluster` / `cache` payload of a change).
+// NonNullable: the item is null only on a Bookmark, which the reducers fold away,
 // so nothing downstream of them ever sees one.
-type ClusterRow = NonNullable<ClustersWatchSubscription['clustersWatch']['cluster']>;
-type CacheRow = NonNullable<ClusterCachesWatchSubscription['clusterCachesWatch']['cache']>;
-export type ClusterCacheHealth = ClusterCacheHealthWatchSubscription['clusterCacheHealthWatch'];
+type ClusterRow = NonNullable<ClusterCollectionWatchSubscription['clusterCollectionWatch']['cluster']>;
+type CacheRow = NonNullable<ClusterCacheCollectionWatchSubscription['clusterCacheCollectionWatch']['cache']>;
+export type ClusterCacheHealth = ClusterCacheHealthKeyedStateWatchSubscription['clusterCacheHealthKeyedStateWatch'];
 
 // A cache joined with its sync verdict (null until that frame lands). The selection
 // is deliberately thin — omitting the coarse `Synced` condition from the query
@@ -49,9 +51,9 @@ type JoinedCache = CacheRow & { health: ClusterCacheHealth | null };
 // null when never probed or mid-migration.
 export type Cluster = ClusterRow & { activeCache: JoinedCache | null };
 
-const ClustersWatchSubscription = graphql(`
-  subscription ClustersWatch {
-    clustersWatch {
+const ClusterCollectionWatchDocument = graphql(`
+  subscription ClusterCollectionWatch {
+    clusterCollectionWatch {
       type
       cluster {
         id
@@ -101,9 +103,9 @@ const ClustersWatchSubscription = graphql(`
   }
 `);
 
-const ClusterCachesWatchSubscription = graphql(`
-  subscription ClusterCachesWatch {
-    clusterCachesWatch {
+const ClusterCacheCollectionWatchDocument = graphql(`
+  subscription ClusterCacheCollectionWatch {
+    clusterCacheCollectionWatch {
       type
       cache {
         id
@@ -111,15 +113,15 @@ const ClusterCachesWatchSubscription = graphql(`
         spec {
           serverUid
         }
-        # On-disk stats ride clusterCacheStatsWatch, subscribed per expanded row.
+        # On-disk stats ride clusterCacheStatsStateWatch, subscribed per expanded row.
       }
     }
   }
 `);
 
-const ClusterCacheHealthWatchSubscription = graphql(`
-  subscription ClusterCacheHealthWatch {
-    clusterCacheHealthWatch {
+const ClusterCacheHealthKeyedStateWatchDocument = graphql(`
+  subscription ClusterCacheHealthKeyedStateWatch {
+    clusterCacheHealthKeyedStateWatch {
       cacheID
       status
       reason
@@ -142,86 +144,61 @@ type ClustersContextValue = {
   // null until the cluster snapshot's Bookmark lands; [] = no known clusters. The
   // two are distinct on purpose — [] renders "no clusters", null renders a spinner.
   clusters: Cluster[] | null;
-  // Transport up? Sourced from the backbone `clustersWatch` stream; pair with
-  // `clusters` via `watchPhase` to tell "reconnecting" from "live".
+  // Transport up? Sourced from `clusterCollectionWatch`; pair with
+  // `clusters` via `subscriptionPhase` to tell "reconnecting" from "live".
   connected: boolean;
 };
 
 const ClustersContext = createContext<ClustersContextValue | null>(null);
 
-// A map keyed by object id, accumulated from a delta stream.
-export type Keyed<T> = ReadonlyMap<string, T>;
+// The boundary reports the store as it is, tombstones included, and leaves the choice
+// here. One place, at the edge: a per-view filter is one a view forgets. A record being
+// torn down is folded as a removal rather than rendered mid-teardown — the window is
+// microseconds unless children are draining.
+const reduceClusters = collectionWatchReducer(
+  ({ clusterCollectionWatch: { type, cluster } }: ClusterCollectionWatchSubscription) => ({
+    type: cluster?.deletionRequestedAt ? 'Deleted' : type,
+    item: cluster,
+  }),
+);
 
-// A delta stream's accumulator: the id-keyed map plus whether its snapshot is
-// complete. Reading `items` before `synced` shows a partial snapshot as the whole
-// collection.
-type DeltaState<T> = { items: Keyed<T>; synced: boolean };
+// The caches join in as they arrive (the subscriptions carry no mutual ordering), so their
+// Bookmark needs no gate of its own here.
+const reduceCaches = collectionWatchReducer(
+  ({ clusterCacheCollectionWatch: { type, cache } }: ClusterCacheCollectionWatchSubscription) => ({
+    type,
+    item: cache,
+  }),
+);
 
-// Apply one delta-watch change in place: Added/Modified upsert, Deleted removes. A
-// reducer copies its map once per batch, then applies each frame to the copy.
-export function applyChange<T>(items: Map<string, T>, type: string, id: string, entity: T) {
-  if (type === 'Deleted') items.delete(id);
-  else items.set(id, entity);
-}
+// Each frame replaces that cache's verdict outright. Which verdicts are LIVE is decided
+// in the provider, against the cache collection.
+const reduceHealth = keyedStateWatchReducer(
+  ({ clusterCacheHealthKeyedStateWatch: health }: ClusterCacheHealthKeyedStateWatchSubscription) => health,
+  (health) => health.cacheID,
+);
 
 export function ClustersProvider({ children }: { children: React.ReactNode }) {
-  // Each stream reduces into its own id-keyed map; useWatchSubscription resets it
+  // Each subscription reduces into its own id-keyed map; useFoldedSubscription resets it
   // to `undefined` on a transport reconnect.
-  const { data: clusterState, connected } = useWatchSubscription(
-    { query: ClustersWatchSubscription },
-    (prev: DeltaState<ClusterRow> | undefined, frames) => {
-      const items = new Map(prev?.items);
-      let synced = prev?.synced ?? false;
-      frames.forEach(({ clustersWatch: { type, cluster } }) => {
-        // The Bookmark closes the snapshot. Keyed on `type`, never on a missing cluster:
-        // a nested non-null field erroring nulls its parent, and reading that as the
-        // snapshot boundary would show a half-listed fleet as the whole fleet.
-        if (type === 'Bookmark') {
-          synced = true;
-          return;
-        }
-        if (!cluster) return;
-        // The boundary reports the store as it is, tombstones included, and leaves the
-        // choice here. One place, at the edge: a per-view filter is one a view forgets.
-        // A record being torn down is dropped rather than rendered mid-teardown — the
-        // window is microseconds unless children are draining.
-        applyChange(items, cluster.deletionRequestedAt ? 'Deleted' : type, cluster.id, cluster);
-      });
-      return { items, synced };
-    },
+  const { data: clusterState, connected } = useFoldedSubscription(
+    { query: ClusterCollectionWatchDocument },
+    reduceClusters,
   );
   // Held back until the snapshot is complete, so a half-listed fleet never reads as
   // the whole fleet.
-  const clusterMap = clusterState?.synced ? clusterState.items : undefined;
-  const { data: cacheMap } = useWatchSubscription(
-    { query: ClusterCachesWatchSubscription },
-    (prev: Keyed<CacheRow> | undefined, frames) => {
-      const items = new Map(prev);
-      frames.forEach(({ clusterCachesWatch: { type, cache } }) => {
-        // The Bookmark carries no cache; the caches join in as they arrive (the streams
-        // carry no mutual ordering), so it needs no gate of its own here. A change with
-        // no cache is a server-side field error — equally unfoldable.
-        if (type === 'Bookmark' || !cache) return;
-        applyChange(items, type, cache.id, cache);
-      });
-      return items;
-    },
+  const clusterMap = clusterState?.snapshotComplete ? clusterState.items : undefined;
+  const { data: cacheState } = useFoldedSubscription({ query: ClusterCacheCollectionWatchDocument }, reduceCaches);
+  const cacheMap = cacheState?.items;
+  const { data: verdictMap } = useFoldedSubscription(
+    { query: ClusterCacheHealthKeyedStateWatchDocument },
+    reduceHealth,
   );
-  // A latest-value gauge, not a delta stream: each frame replaces that cache's
-  // reading outright. Which verdicts are LIVE is decided below, against the cache stream.
-  const { data: verdictMap } = useWatchSubscription(
-    { query: ClusterCacheHealthWatchSubscription },
-    (prev: Keyed<ClusterCacheHealth> | undefined, frames) => {
-      const items = new Map(prev);
-      frames.forEach(({ clusterCacheHealthWatch: h }) => items.set(h.cacheID, h));
-      return items;
-    },
-  );
-  // A gauge has no Deleted, so a verdict's lifetime is its CACHE's. Derive liveness
-  // here (against the cache stream) rather than sweeping in the verdict reducer: a
-  // sweep gated on verdict traffic never runs once the fleet goes quiet. And since
-  // the streams carry no mutual ordering, an early verdict is only HIDDEN until its
-  // cache lands — eviction would lose it for good.
+  // A keyed state watch has no removal frame, so a verdict's lifetime is its CACHE's.
+  // Derive liveness here (against the cache collection) rather than sweeping in the
+  // verdict reducer: a sweep gated on verdict traffic never runs once the fleet goes
+  // quiet. And since the subscriptions carry no mutual ordering, an early verdict is
+  // only HIDDEN until its cache lands — eviction would lose it for good.
   const healthMap = useMemo<Keyed<ClusterCacheHealth> | undefined>(() => {
     if (!verdictMap) return undefined;
     if (!cacheMap) return new Map();
@@ -232,7 +209,7 @@ export function ClustersProvider({ children }: { children: React.ReactNode }) {
     return live;
   }, [verdictMap, cacheMap]);
 
-  // Join. No mutual ordering across streams: a cluster can briefly lack its cache,
+  // Join. No mutual ordering across subscriptions: a cluster can briefly lack its cache,
   // a cache its verdict — each resolves once its frame lands. null (no cluster
   // frame yet) is distinct from [] (no clusters).
   const clusters = useMemo<Cluster[] | null>(() => {

@@ -82,7 +82,7 @@ The sidecar mirrors each cluster into a SQLite cache on disk, and this page cove
 
 - **Where:** `sidecar/internal/services/cluster/caches.go`
 - **Records:** [a stopped cache is held by its record](../adr/2026-09-03-a-stopped-cache-is-held-by-its-record.md)
-- `TestCachePassStopsACacheOverItsSizeLimit`, `TestCachePassKeepsACacheStoppedOnceItsFileIsClosed`, `TestCachePassDoesNotStopACacheOnBytesAlone`, `TestCachesWatchHealthReportsACacheStoppedByItsCeiling`, `TestClearingACacheRequeuesItsRecord`, `TestCachePassRestartsACacheBackUnderItsLimit` — the cache pass stops the sync and says why.
+- `TestCachePassStopsACacheOverItsSizeLimit`, `TestCachePassKeepsACacheStoppedOnceItsFileIsClosed`, `TestCachePassDoesNotStopACacheOnBytesAlone`, `TestCachesWatchHealthKeyedStateReportsACacheStoppedByItsCeiling`, `TestClearingACacheRequeuesItsRecord`, `TestCachePassRestartsACacheBackUnderItsLimit` — the cache pass stops the sync and says why.
 
 ### DATA-11
 

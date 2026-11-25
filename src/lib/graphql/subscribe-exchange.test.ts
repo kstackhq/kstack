@@ -32,7 +32,7 @@ vi.mock('../error-bus', () => ({
 // The exchange's only job re: connection status is to call this side-channel
 // at the right moments; the generation/connected *semantics* it drives are
 // covered by transport-status.test.ts, and the real end-to-end wiring by
-// use-watch-subscription.test.tsx. So here we mock it and assert the contract.
+// use-folded-subscription.test.tsx. So here we mock it and assert the contract.
 const markConnectedMock = vi.fn();
 const markDisconnectedMock = vi.fn();
 const clearStatusMock = vi.fn();
@@ -172,7 +172,7 @@ describe('tauriSubscriptionExchange', () => {
   });
 
   // The sidecar ends a subscription whose watch died with one data-less frame
-  // carrying the reason (WatchFailureExtension). That is a drop that can explain
+  // carrying the reason (SubscriptionFailureExtension). That is a drop that can explain
   // itself, so it takes the drop path — report, mark disconnected, reconnect —
   // and must NOT reach the sink: urql merges each frame into the previous result,
   // so an errors-only frame would re-deliver the last frame's data and fold it
@@ -187,7 +187,10 @@ describe('tauriSubscriptionExchange', () => {
     liveChannel().onmessage!(
       JSON.stringify({
         type: 'next',
-        payload: { errors: [{ message: 'Cluster watch ended: watch too old' }], extensions: { watchFailed: true } },
+        payload: {
+          errors: [{ message: 'Cluster watch ended: watch too old' }],
+          extensions: { subscriptionFailed: true },
+        },
       }),
     );
     expect(seen).toEqual([1]); // the failure frame delivered no data of its own
@@ -305,7 +308,7 @@ describe('tauriSubscriptionExchange', () => {
       liveChannel().onmessage!(
         JSON.stringify({
           type: 'next',
-          payload: { errors: [{ message: 'permissions revoked' }], extensions: { watchFailed: true } },
+          payload: { errors: [{ message: 'permissions revoked' }], extensions: { subscriptionFailed: true } },
         }),
       );
 

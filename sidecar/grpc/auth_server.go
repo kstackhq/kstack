@@ -13,7 +13,7 @@ import (
 
 // AuthConnector is the Kstack Cloud connector as the tray drives it.
 type AuthConnector interface {
-	Subscribe() (<-chan connectors.State, func())
+	WatchState() (<-chan connectors.State, func())
 	Connect(ctx context.Context) error
 	Disconnect(ctx context.Context) error
 }
@@ -34,7 +34,7 @@ func (s *authServer) AuthStateWatch(_ *authpb.AuthStateWatchRequest, stream auth
 		return nil // clean OK
 	}
 
-	ch, cancel := s.auth.Subscribe()
+	ch, cancel := s.auth.WatchState()
 	defer cancel()
 
 	ctx := stream.Context()

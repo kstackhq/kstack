@@ -13,7 +13,7 @@
 // limitations under the License.
 
 import { Lines, compareTimestamps, containerKey } from './lines';
-import type { Anchor, Cursor, FetchQuery, FollowFrame, LogLine, Notice, Page } from './types';
+import type { Anchor, Cursor, FetchQuery, TailFrame, LogLine, Notice, Page } from './types';
 
 // A window of a log, with no React in it. It holds the lines, both edges, the pin, the pause,
 // where the after edge resumes and the newest line of each container; it takes every event —
@@ -335,7 +335,7 @@ export class LogWindow {
    * the unsubscribe ran — must neither add a line behind the reader nor pull the scroller to
    * the end; the page after that comes next reads those lines again from `resume`.
    */
-  followed(frames: readonly FollowFrame[]): Effect {
+  followed(frames: readonly TailFrame[]): Effect {
     if (!this.following()) return NONE;
     // An `Ended` is the last frame read; what follows it is ignored.
     const ended = frames.findIndex((frame) => frame.kind === 'Ended');

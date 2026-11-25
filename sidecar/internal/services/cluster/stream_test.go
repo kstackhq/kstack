@@ -87,7 +87,7 @@ func TestStreamPumpEndsOnACancelledContext(t *testing.T) {
 
 // --- the shared delta pump ---
 
-// The pump is one implementation every kind's record watch runs on, so its rules are
+// The pump is one implementation every kind's collection watch runs on, so its rules are
 // pinned here over a stand-in kind rather than per kind. What a kind still owes its own
 // tests is the projection and the departure — the two things it supplies.
 type testSpec struct{ Name string }
@@ -95,25 +95,25 @@ type testSpec struct{ Name string }
 type testStatus struct{}
 
 type testFrame struct {
-	Type DeltaFrameType
+	Type CollectionWatchFrameType
 	ID   ObjectID
 }
 
-var testWatch = deltaWatch[testSpec, testStatus, testFrame]{
-	frame: func(t DeltaFrameType, obj *beehive.Object[testSpec, testStatus]) (testFrame, error) {
+var testWatch = collectionWatch[testSpec, testStatus, testFrame]{
+	frame: func(t CollectionWatchFrameType, obj *beehive.Object[testSpec, testStatus]) (testFrame, error) {
 		return testFrame{Type: t, ID: ObjectID(obj.ID)}, nil
 	},
 	departed: func(change beehive.ObjectChange[testSpec, testStatus]) testFrame {
-		return testFrame{Type: DeltaFrameDeleted, ID: ObjectID(change.ID)}
+		return testFrame{Type: CollectionWatchFrameDeleted, ID: ObjectID(change.ID)}
 	},
-	bookmark: testFrame{Type: DeltaFrameBookmark},
+	bookmark: testFrame{Type: CollectionWatchFrameBookmark},
 }
 
 // pumpFrames runs a kind's watch over a snapshot and a hand-driven change stream, and
 // collects what it produced. A departure spans two log entries whose grouping is
 // beehive's to decide, so driving the pump directly is the only way to pin both shapes.
 // Shared by the kinds' tests, which pass their own watch to pin its projection.
-func pumpFrames[Spec, Status, Frame any](t *testing.T, w deltaWatch[Spec, Status, Frame], snapshot []*beehive.Object[Spec, Status], changes ...beehive.ObjectChange[Spec, Status]) []Frame {
+func pumpFrames[Spec, Status, Frame any](t *testing.T, w collectionWatch[Spec, Status, Frame], snapshot []*beehive.Object[Spec, Status], changes ...beehive.ObjectChange[Spec, Status]) []Frame {
 	t.Helper()
 	src := make(chan beehive.ObjectChange[Spec, Status], len(changes))
 	for _, c := range changes {
@@ -141,8 +141,8 @@ func TestPumpEmitsTheSnapshotThenABookmark(t *testing.T) {
 	)
 
 	require.Len(t, frames, 4)
-	assert.Equal(t, []DeltaFrameType{DeltaFrameAdded, DeltaFrameAdded, DeltaFrameBookmark, DeltaFrameModified},
-		[]DeltaFrameType{frames[0].Type, frames[1].Type, frames[2].Type, frames[3].Type})
+	assert.Equal(t, []CollectionWatchFrameType{CollectionWatchFrameAdded, CollectionWatchFrameAdded, CollectionWatchFrameBookmark, CollectionWatchFrameModified},
+		[]CollectionWatchFrameType{frames[0].Type, frames[1].Type, frames[2].Type, frames[3].Type})
 }
 
 // Only a removal arrives without an object, so anything else that does is dropped
@@ -154,7 +154,7 @@ func TestPumpDropsAChangeWithNoObject(t *testing.T) {
 	)
 
 	require.Len(t, frames, 1)
-	assert.Equal(t, DeltaFrameBookmark, frames[0].Type)
+	assert.Equal(t, CollectionWatchFrameBookmark, frames[0].Type)
 }
 
 // A removal whose final row beehive could not decode carries no object, and nothing
@@ -165,7 +165,7 @@ func TestPumpReportsAnUndecodableDeparture(t *testing.T) {
 	)
 
 	require.Len(t, frames, 2)
-	assert.Equal(t, testFrame{Type: DeltaFrameDeleted, ID: 7}, frames[1])
+	assert.Equal(t, testFrame{Type: CollectionWatchFrameDeleted, ID: 7}, frames[1])
 }
 
 // A failing projection ends the stream with its reason rather than skipping the frame:
@@ -173,7 +173,7 @@ func TestPumpReportsAnUndecodableDeparture(t *testing.T) {
 func TestPumpEndsOnAFailedProjection(t *testing.T) {
 	boom := errors.New("read owner: no such row")
 	failing := testWatch
-	failing.frame = func(DeltaFrameType, *beehive.Object[testSpec, testStatus]) (testFrame, error) {
+	failing.frame = func(CollectionWatchFrameType, *beehive.Object[testSpec, testStatus]) (testFrame, error) {
 		return testFrame{}, boom
 	}
 
@@ -234,7 +234,7 @@ func startPump(t *testing.T, snapshot []*beehive.Object[testSpec, testStatus]) *
 // until the pump has taken the change and gone on to send its frame.
 func takeBookmark(t *testing.T, p *parkedPump) {
 	t.Helper()
-	require.Equal(t, DeltaFrameBookmark, testutil.Recv(t, p.out, "the bookmark").Type)
+	require.Equal(t, CollectionWatchFrameBookmark, testutil.Recv(t, p.out, "the bookmark").Type)
 }
 
 // Every send point owes the same thing: a consumer that stopped draining must end the
@@ -291,7 +291,7 @@ func TestStreamOneBookmarksAnAbsentRecord(t *testing.T) {
 
 	s := testWatch.streamOne(context.Background(), &beehive.ObjectStream[testSpec, testStatus]{Changes: changes})
 
-	assert.Equal(t, DeltaFrameBookmark, testutil.Recv(t, s.Frames, "the bookmark").Type)
+	assert.Equal(t, CollectionWatchFrameBookmark, testutil.Recv(t, s.Frames, "the bookmark").Type)
 	testutil.WaitClosed(t, s.Frames, "the stream")
 	assert.NoError(t, s.Err())
 }

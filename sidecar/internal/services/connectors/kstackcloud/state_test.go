@@ -24,13 +24,13 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 )
 
-// Subscribe sends the first state, then only a change of account: a sign-in
+// WatchState sends the first state, then only a change of account: a sign-in
 // under way, failed or cancelled is still signed out.
-func TestSubscribeSendsOnlyAccountChanges(t *testing.T) {
+func TestWatchStateSendsOnlyAccountChanges(t *testing.T) {
 	t.Parallel()
 	e := newFakeEngine()
 	s := newTestService(t, e, &fakeKeyring{})
-	states, cancel := s.Subscribe()
+	states, cancel := s.WatchState()
 	defer cancel()
 
 	signedOut := connectors.State{Phase: connectors.SignedOut}
@@ -55,11 +55,11 @@ func TestSubscribeSendsOnlyAccountChanges(t *testing.T) {
 
 // Cancel ends the engine's subscription, and the stream with it, even while a
 // frame waits on a subscriber that stopped reading.
-func TestSubscribeCancelEndsTheStream(t *testing.T) {
+func TestWatchStateCancelEndsTheStream(t *testing.T) {
 	t.Parallel()
 	e := newFakeEngine()
 	s := newTestService(t, e, &fakeKeyring{})
-	states, cancel := s.Subscribe()
+	states, cancel := s.WatchState()
 
 	e.publish(t, connectors.State{Phase: connectors.SignedOut})
 	cancel()
@@ -70,11 +70,11 @@ func TestSubscribeCancelEndsTheStream(t *testing.T) {
 
 // The frame that leaves Restoring for signed out is a change of account, and
 // is sent.
-func TestSubscribeSendsTheEndOfTheRestore(t *testing.T) {
+func TestWatchStateSendsTheEndOfTheRestore(t *testing.T) {
 	t.Parallel()
 	e := newFakeEngine()
 	s := newTestService(t, e, &fakeKeyring{})
-	states, cancel := s.Subscribe()
+	states, cancel := s.WatchState()
 	defer cancel()
 
 	restoring := connectors.State{Phase: connectors.Restoring}

@@ -31,14 +31,14 @@ type row struct {
 }
 
 type frame struct {
-	Type apimeta.DeltaFrameType
+	Type apimeta.CollectionWatchFrameType
 	Row  *row
 }
 
 func rowKey(r row) string { return r.ID }
 
-func rowFrame(t apimeta.DeltaFrameType, r row) frame {
-	if t == apimeta.DeltaFrameBookmark {
+func rowFrame(t apimeta.CollectionWatchFrameType, r row) frame {
+	if t == apimeta.CollectionWatchFrameBookmark {
 		return frame{Type: t}
 	}
 	return frame{Type: t, Row: &r}
@@ -73,11 +73,11 @@ func TestSnapshotSendsAddedRowsThenABookmark(t *testing.T) {
 	require.True(t, f.Snapshot(t.Context(), out, []row{{"a", "1"}, {"b", "2"}}))
 
 	got := collect(t, out, 3)
-	assert.Equal(t, apimeta.DeltaFrameAdded, got[0].Type)
+	assert.Equal(t, apimeta.CollectionWatchFrameAdded, got[0].Type)
 	assert.Equal(t, "a", got[0].Row.ID)
-	assert.Equal(t, apimeta.DeltaFrameAdded, got[1].Type)
+	assert.Equal(t, apimeta.CollectionWatchFrameAdded, got[1].Type)
 	assert.Equal(t, "b", got[1].Row.ID)
-	assert.Equal(t, frame{Type: apimeta.DeltaFrameBookmark}, got[2])
+	assert.Equal(t, frame{Type: apimeta.CollectionWatchFrameBookmark}, got[2])
 	assert.True(t, f.Has("a"))
 	assert.False(t, f.Has("c"))
 }
@@ -92,9 +92,9 @@ func TestDiffSendsWhatChanged(t *testing.T) {
 
 	require.True(t, f.Diff(t.Context(), out, []row{{"a", "1"}, {"b", "changed"}, {"d", "4"}}))
 	got := collect(t, out, 3)
-	assert.Equal(t, frame{Type: apimeta.DeltaFrameModified, Row: &row{"b", "changed"}}, got[0])
-	assert.Equal(t, frame{Type: apimeta.DeltaFrameAdded, Row: &row{"d", "4"}}, got[1])
-	assert.Equal(t, frame{Type: apimeta.DeltaFrameDeleted, Row: &row{"c", "3"}}, got[2])
+	assert.Equal(t, frame{Type: apimeta.CollectionWatchFrameModified, Row: &row{"b", "changed"}}, got[0])
+	assert.Equal(t, frame{Type: apimeta.CollectionWatchFrameAdded, Row: &row{"d", "4"}}, got[1])
+	assert.Equal(t, frame{Type: apimeta.CollectionWatchFrameDeleted, Row: &row{"c", "3"}}, got[2])
 	assert.False(t, f.Has("c"))
 	assert.True(t, f.Has("d"))
 }
@@ -107,8 +107,8 @@ func TestUpsertSuppressesAnUnchangedRecord(t *testing.T) {
 	require.True(t, f.Upsert(t.Context(), out, row{"a", "1"}))
 	require.True(t, f.Upsert(t.Context(), out, row{"a", "2"}))
 	got := collect(t, out, 2)
-	assert.Equal(t, apimeta.DeltaFrameAdded, got[0].Type)
-	assert.Equal(t, apimeta.DeltaFrameModified, got[1].Type)
+	assert.Equal(t, apimeta.CollectionWatchFrameAdded, got[0].Type)
+	assert.Equal(t, apimeta.CollectionWatchFrameModified, got[1].Type)
 }
 
 // Equality is the caller's, so a record with a slice can still be diffed.
@@ -120,14 +120,14 @@ func TestEqualityIsTheCallers(t *testing.T) {
 	f := New(
 		func(r tagged) string { return r.ID },
 		func(a, b tagged) bool { return a.ID == b.ID && slices.Equal(a.Tags, b.Tags) },
-		func(t apimeta.DeltaFrameType, r tagged) apimeta.DeltaFrameType { return t },
+		func(t apimeta.CollectionWatchFrameType, r tagged) apimeta.CollectionWatchFrameType { return t },
 	)
-	out := make(chan apimeta.DeltaFrameType, 8)
+	out := make(chan apimeta.CollectionWatchFrameType, 8)
 	require.True(t, f.Upsert(t.Context(), out, tagged{"a", []string{"x"}}))
 	require.True(t, f.Upsert(t.Context(), out, tagged{"a", []string{"x"}}))
 	require.True(t, f.Upsert(t.Context(), out, tagged{"a", []string{"x", "y"}}))
-	assert.Equal(t, apimeta.DeltaFrameAdded, <-out)
-	assert.Equal(t, apimeta.DeltaFrameModified, <-out)
+	assert.Equal(t, apimeta.CollectionWatchFrameAdded, <-out)
+	assert.Equal(t, apimeta.CollectionWatchFrameModified, <-out)
 	select {
 	case got := <-out:
 		t.Fatalf("unexpected frame %v", got)

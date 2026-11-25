@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Triggers: the bridge from a change feed outside beehive to the records a change
+// Triggers: the bridge from change notifications outside beehive to the records a change
 // reaches. Each maps a source's own vocabulary onto beehive names and hands the channel
 // to the trigger option declared at registration — beehive owns the receive loop, its
 // rate against the store, and its place in the shutdown order. This is the feed half.
@@ -41,7 +41,7 @@ import (
 // The value names what moved and nothing more — a poke asks for a pass, and the pass
 // reads the source itself, so handing it a snapshot through a queue that coalesces is
 // how an observation gets written from a state that has already moved on.
-type feed[T any] interface {
+type changeSource[T any] interface {
 	Chan() <-chan T
 	Close()
 }
@@ -58,7 +58,7 @@ type feed[T any] interface {
 // kind it pokes re-arms on a cadence of its own, which is what re-reads a source when
 // nothing told it to.
 type trigger[T, W any] struct {
-	subscribe func() feed[T]
+	subscribe func() changeSource[T]
 	// address maps one value from the feed onto the record that moved. An address, never
 	// state. False is a value naming no record, which wakes nothing.
 	address func(T) (W, bool)
@@ -69,7 +69,7 @@ type trigger[T, W any] struct {
 	wg sync.WaitGroup
 }
 
-func newTrigger[T, W any](subscribe func() feed[T], address func(T) (W, bool)) *trigger[T, W] {
+func newTrigger[T, W any](subscribe func() changeSource[T], address func(T) (W, bool)) *trigger[T, W] {
 	return &trigger[T, W]{subscribe: subscribe, address: address, wakes: make(chan W)}
 }
 
@@ -110,7 +110,7 @@ func (t *trigger[T, W]) Start(context.Context) (func(context.Context) error, err
 // run forwards one address per change until stopped or the feed closes. Cancellation ends
 // both waits: a feed is not required to close its channel when released, so the receive
 // needs the same escape the send does.
-func (t *trigger[T, W]) run(ctx context.Context, sub feed[T]) {
+func (t *trigger[T, W]) run(ctx context.Context, sub changeSource[T]) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -135,14 +135,14 @@ func (t *trigger[T, W]) run(ctx context.Context, sub feed[T]) {
 // kubeconfigSource is the subscribe half of kubeconfigService, all a trigger needs,
 // narrow so a test can substitute a hand-driven hub.
 type kubeconfigSource interface {
-	Subscribe() kubeconfig.Subscription
+	WatchConfigState() kubeconfig.ConfigStateWatch
 }
 
 // newKubeconfigTrigger watches the user's kubeconfig for the kubeconfig anchor. Every
 // change names the same record: which contexts moved is that pass's to work out.
 func newKubeconfigTrigger(cfgSource kubeconfigSource) *trigger[*api.Config, string] {
 	return newTrigger(
-		func() feed[*api.Config] { return cfgSource.Subscribe() },
+		func() changeSource[*api.Config] { return cfgSource.WatchConfigState() },
 		always(func(*api.Config) string { return ClusterSourceNameKubeconfig }),
 	)
 }
@@ -150,7 +150,7 @@ func newKubeconfigTrigger(cfgSource kubeconfigSource) *trigger[*api.Config, stri
 // kubeconnSource is the subscribe half of the pool, all a trigger needs, narrow so a test
 // can substitute a hand-driven hub.
 type kubeconnSource interface {
-	Subscribe() kubeconn.Subscription
+	ListenForConnectionChanges() kubeconn.ConnectionChangeNotifications
 }
 
 // newKubeconnTrigger wakes the cluster record for a context whose probe said something
@@ -161,7 +161,7 @@ type kubeconnSource interface {
 // record's name says nothing about its context.
 func newKubeconnTrigger(pool kubeconnSource, clusterFor func(contextName string) (string, bool)) *trigger[gobus.Event[string, struct{}], string] {
 	return newTrigger(
-		func() feed[gobus.Event[string, struct{}]] { return pool.Subscribe() },
+		func() changeSource[gobus.Event[string, struct{}]] { return pool.ListenForConnectionChanges() },
 		// The event's key is the context that moved; its value carries nothing, since what
 		// it now says is the pass's to read.
 		func(ev gobus.Event[string, struct{}]) (string, bool) { return clusterFor(ev.Key) },
@@ -170,7 +170,7 @@ func newKubeconnTrigger(pool kubeconnSource, clusterFor func(contextName string)
 
 // discoveryNewsSource is the discovery-news half of the sync seam, all a trigger needs.
 type discoveryNewsSource interface {
-	WatchDiscoveryNews() kubesync.DiscoveryNews
+	ListenForDiscoveryChanges() kubesync.DiscoveryChangeNotifications
 }
 
 // newKubesyncDiscoveryTrigger wakes the cache record whose sweep said something new. By ID,
@@ -178,28 +178,28 @@ type discoveryNewsSource interface {
 // resolving a name for it would be a read that says nothing the key does not.
 func newKubesyncDiscoveryTrigger(newsSource discoveryNewsSource) *trigger[gobus.Event[int64, struct{}], beehive.ObjectID] {
 	return newTrigger(
-		func() feed[gobus.Event[int64, struct{}]] { return newsSource.WatchDiscoveryNews() },
+		func() changeSource[gobus.Event[int64, struct{}]] { return newsSource.ListenForDiscoveryChanges() },
 		always(func(ev gobus.Event[int64, struct{}]) beehive.ObjectID { return beehive.ObjectID(ev.Key) }),
 	)
 }
 
 // sizeLimitNewsSource is the size-limit half of the store seam, all a trigger needs.
 type sizeLimitNewsSource interface {
-	WatchSizeLimitNews() kubestore.SizeLimitNews
+	ListenForSizeLimitChanges() kubestore.SizeLimitChangeNotifications
 }
 
 // newKubestoreSizeLimitTrigger wakes the cache record whose file crossed its size ceiling. By ID,
 // for the reason the discovery trigger is: the key already IS the record's id.
 func newKubestoreSizeLimitTrigger(newsSource sizeLimitNewsSource) *trigger[gobus.Event[int64, struct{}], beehive.ObjectID] {
 	return newTrigger(
-		func() feed[gobus.Event[int64, struct{}]] { return newsSource.WatchSizeLimitNews() },
+		func() changeSource[gobus.Event[int64, struct{}]] { return newsSource.ListenForSizeLimitChanges() },
 		always(func(ev gobus.Event[int64, struct{}]) beehive.ObjectID { return beehive.ObjectID(ev.Key) }),
 	)
 }
 
 // kindNewsSource is the kind-news half of the sync seam, all a trigger needs.
 type kindNewsSource interface {
-	WatchKindNews() kubesync.KindNews
+	ListenForKindChanges() kubesync.KindChangeNotifications
 }
 
 // newKubesyncKindTrigger wakes the record standing for one kind in one cache. By NAME, because
@@ -210,7 +210,7 @@ type kindNewsSource interface {
 // plural addresses the same record twice: a duplicate wake, never a missed one.
 func newKubesyncKindTrigger(newsSource kindNewsSource) *trigger[gobus.Event[kubesync.KindKey, struct{}], string] {
 	return newTrigger(
-		func() feed[gobus.Event[kubesync.KindKey, struct{}]] { return newsSource.WatchKindNews() },
+		func() changeSource[gobus.Event[kubesync.KindKey, struct{}]] { return newsSource.ListenForKindChanges() },
 		always(func(ev gobus.Event[kubesync.KindKey, struct{}]) string {
 			return ClusterCachedKindName(beehive.ObjectID(ev.Key.CacheID), ev.Key.APIVersion, ev.Key.Resource)
 		}),

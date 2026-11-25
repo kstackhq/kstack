@@ -345,29 +345,29 @@ func awaitFrame[T any](t *testing.T, frames <-chan T, want func(T) bool) T {
 }
 
 // collectSnapshot reads a messages watch up to its Bookmark.
-func collectSnapshot(t *testing.T, frames <-chan ChatMessageWatchFrame) []ChatMessage {
+func collectSnapshot(t *testing.T, frames <-chan ChatMessageCollectionWatchFrame) []ChatMessage {
 	t.Helper()
 	var out []ChatMessage
 	for {
 		f := testutil.Recv(t, frames, "a snapshot frame")
-		if f.Type == DeltaFrameBookmark {
+		if f.Type == CollectionWatchFrameBookmark {
 			return out
 		}
-		require.Equal(t, DeltaFrameAdded, f.Type)
+		require.Equal(t, CollectionWatchFrameAdded, f.Type)
 		out = append(out, *f.Message)
 	}
 }
 
 // collectChatSnapshot reads a list watch up to its Bookmark.
-func collectChatSnapshot(t *testing.T, frames <-chan ChatWatchFrame) []Chat {
+func collectChatSnapshot(t *testing.T, frames <-chan ChatCollectionWatchFrame) []Chat {
 	t.Helper()
 	var out []Chat
 	for {
 		f := testutil.Recv(t, frames, "a snapshot frame")
-		if f.Type == DeltaFrameBookmark {
+		if f.Type == CollectionWatchFrameBookmark {
 			return out
 		}
-		require.Equal(t, DeltaFrameAdded, f.Type)
+		require.Equal(t, CollectionWatchFrameAdded, f.Type)
 		out = append(out, *f.Chat)
 	}
 }
@@ -412,9 +412,9 @@ func awaitSettled(t *testing.T, s *service, chatID ChatID, id MessageID) ChatMes
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	st, err := s.WatchMessages(ctx, chatID)
+	st, err := s.WatchMessageCollection(ctx, chatID)
 	require.NoError(t, err)
-	f := awaitFrame(t, st.Frames, func(f ChatMessageWatchFrame) bool {
+	f := awaitFrame(t, st.Frames, func(f ChatMessageCollectionWatchFrame) bool {
 		return f.Message != nil && f.Message.ID == id && !f.Message.Status.inFlight()
 	})
 	return *f.Message
@@ -435,9 +435,9 @@ func awaitLiveContent(t *testing.T, s *service, chatID ChatID) ChatMessage {
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	st, err := s.WatchMessages(ctx, chatID)
+	st, err := s.WatchMessageCollection(ctx, chatID)
 	require.NoError(t, err)
-	f := awaitFrame(t, st.Frames, func(f ChatMessageWatchFrame) bool {
+	f := awaitFrame(t, st.Frames, func(f ChatMessageCollectionWatchFrame) bool {
 		return f.Message != nil && f.Message.Role == RoleAssistant && f.Message.Content != emptyContent
 	})
 	return *f.Message
@@ -511,9 +511,9 @@ func awaitContent(t *testing.T, s *service, chatID ChatID, id MessageID, want ra
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	st, err := s.WatchMessages(ctx, chatID)
+	st, err := s.WatchMessageCollection(ctx, chatID)
 	require.NoError(t, err)
-	f := awaitFrame(t, st.Frames, func(f ChatMessageWatchFrame) bool {
+	f := awaitFrame(t, st.Frames, func(f ChatMessageCollectionWatchFrame) bool {
 		return f.Message != nil && f.Message.ID == id && f.Message.Content == want
 	})
 	return *f.Message

@@ -149,7 +149,7 @@ func (targetOnly) Mount(context.Context, bash.CloudRun) (bash.CloudMount, error)
 }
 
 // Every keyed provider is in llm.Service from launch; one with no credential lists
-// no model, a save lists its written catalog on modelsWatch and a delete
+// no model, a save lists its written catalog on modelsStateWatch and a delete
 // empties it.
 func TestAKeyedRowListsItsModelsWhileItHasACredential(t *testing.T) {
 	rt, err := build(t.Context(), withDirs(t, Config{}))
@@ -163,7 +163,7 @@ func TestAKeyedRowListsItsModelsWhileItHasACredential(t *testing.T) {
 		assert.True(t, ok, "%s is listed from launch", id)
 	}
 
-	frames, cancel := rt.LLM.Subscribe()
+	frames, cancel := rt.LLM.WatchProvidersState()
 	defer cancel()
 	listed := func() bool {
 		p, _ := rt.LLM.Provider("groq")
@@ -239,17 +239,17 @@ func TestTheGoogleRowFollowsTheProject(t *testing.T) {
 	assert.True(t, ok, "a Gemini key does not hide Vertex AI")
 }
 
-// The gauge lists exactly the providers the catalog holds, less the fake, with
+// The state watch lists exactly the providers the catalog holds, less the fake, with
 // and without a project, and the service signs each one. One part syncs every
 // provider's catalog.
-func TestTheGaugeListsEveryProviderTheCatalogHolds(t *testing.T) {
+func TestTheStateWatchListsEveryProviderTheCatalogHolds(t *testing.T) {
 	for _, getenv := range []func(string) string{nil, googleEnv("my-project")} {
 		a, err := New(t.Context(), withDirs(t, Config{Getenv: getenv, AddFake: true}))
 		require.NoError(t, err)
 		t.Cleanup(func() { assert.NoError(t, a.Close()) })
 		rt := a.rt
 
-		var held, gauge []string
+		var held, listed []string
 		for _, p := range rt.LLM.Providers() {
 			if p.ID != "fake" {
 				held = append(held, p.ID)
@@ -257,11 +257,11 @@ func TestTheGaugeListsEveryProviderTheCatalogHolds(t *testing.T) {
 			}
 		}
 		for _, st := range rt.ProviderCredentials.States() {
-			gauge = append(gauge, st.ID)
+			listed = append(listed, st.ID)
 		}
-		assert.Equal(t, held, gauge)
-		assert.Contains(t, gauge, chatgpt.ID)
-		assert.Equal(t, getenv != nil, slices.Contains(gauge, google.ID))
+		assert.Equal(t, held, listed)
+		assert.Contains(t, listed, chatgpt.ID)
+		assert.Equal(t, getenv != nil, slices.Contains(listed, google.ID))
 		assert.GreaterOrEqual(t, partIndex(t, a, "provider catalogs"), 0)
 		for _, gone := range []string{"chatgpt catalog", "google catalog"} {
 			assert.False(t, slices.ContainsFunc(rt.parts, func(p lifecycle.Part) bool { return p.Name == gone }), gone)

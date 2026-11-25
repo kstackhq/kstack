@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // The ClusterCachedKind kind: one record per kind a cache mirrors. Its beehive
-// shapes, the record served to resolvers, its delta-watch frame, the CachedKinds
+// shapes, the record served to resolvers, its collection watch frame, the CachedKinds
 // implementation, and its controller. Mirrors the ClusterCachedKind section of
 // graph/schema.graphqls.
 package cluster
@@ -105,7 +105,7 @@ type ClusterCachedKindStatus struct{}
 // would be a firehose.
 type ClusterCachedKind struct {
 	// ID is the ClusterCachedKindID; see RecordMeta for the rest. Conditions there are
-	// empty in practice: a kind's verdict is a read-side gauge rather than a stored
+	// empty in practice: a kind's verdict is a read-side state watch rather than a stored
 	// condition, so nothing writes one. → docs/adr/2026-08-28-records-as-timeline-anchors.md.
 	RecordMeta
 	// Owner is the ClusterCache this kind is mirrored into — the join key a client
@@ -114,10 +114,10 @@ type ClusterCachedKind struct {
 	Spec  ClusterCachedKindSpec
 }
 
-// ClusterCachedKindWatchFrame is one frame on the cache-scoped per-kind sync watch.
+// ClusterCachedKindCollectionWatchFrame is one frame on the cache-scoped per-kind sync watch.
 // Consumers key on Kind.ID.
-type ClusterCachedKindWatchFrame struct {
-	Type DeltaFrameType
+type ClusterCachedKindCollectionWatchFrame struct {
+	Type CollectionWatchFrameType
 	Kind *ClusterCachedKind
 }
 
@@ -184,7 +184,7 @@ func (a cachedKindsAPI) List(ctx context.Context) ([]*ClusterCachedKind, error) 
 	return toClusterCachedKinds(objs)
 }
 
-func (a cachedKindsAPI) Watch(ctx context.Context, id ClusterCachedKindID) (*Stream[ClusterCachedKindWatchFrame], error) {
+func (a cachedKindsAPI) WatchCollectionByID(ctx context.Context, id ClusterCachedKindID) (*Stream[ClusterCachedKindCollectionWatchFrame], error) {
 	src, err := a.s.kindClient.Watch(ctx, beehive.ObjectID(id), loadKindOwner)
 	if err != nil {
 		return nil, fmt.Errorf("watch cached kind %d: %w", id, err)
@@ -193,10 +193,10 @@ func (a cachedKindsAPI) Watch(ctx context.Context, id ClusterCachedKindID) (*Str
 	return kindWatch.streamOne(ctx, src), nil
 }
 
-// WatchList is the fleet's largest stream by an order of magnitude — a record per served
+// WatchCollection is the fleet's largest stream by an order of magnitude — a record per served
 // kind per cache. Served because the boundary fills its matrix, but a view scoped to one
-// cache opens WatchByCache instead; the schema exposes only the scoped one.
-func (a cachedKindsAPI) WatchList(ctx context.Context) (*Stream[ClusterCachedKindWatchFrame], error) {
+// cache opens WatchCollectionByCache instead; the schema exposes only the scoped one.
+func (a cachedKindsAPI) WatchCollection(ctx context.Context) (*Stream[ClusterCachedKindCollectionWatchFrame], error) {
 	src, err := a.s.kindClient.WatchList(ctx, loadKindOwner)
 	if err != nil {
 		return nil, fmt.Errorf("watch cached kinds: %w", err)
@@ -213,7 +213,7 @@ func (a cachedKindsAPI) ListByCache(ctx context.Context, cacheID ClusterCacheID)
 	return toClusterCachedKinds(objs)
 }
 
-func (a cachedKindsAPI) WatchByCache(ctx context.Context, cacheID ClusterCacheID) (*Stream[ClusterCachedKindWatchFrame], error) {
+func (a cachedKindsAPI) WatchCollectionByCache(ctx context.Context, cacheID ClusterCacheID) (*Stream[ClusterCachedKindCollectionWatchFrame], error) {
 	src, err := a.s.kindClient.WatchOwnedObjects(ctx, beehive.ObjectID(cacheID), loadKindOwner)
 	if err != nil {
 		return nil, fmt.Errorf("watch cache %d cached kinds: %w", cacheID, err)
@@ -334,23 +334,23 @@ var loadKindOwner = beehive.WithLoads(beehive.LoadOwner())
 // kindWatch projects this kind into delta frames. The departure carries the spec but no
 // owner: the row is gone, so beehive loads no edge for it and reading one would fail the whole
 // stream — and a consumer keys the record it is dropping by id anyway.
-var kindWatch = deltaWatch[ClusterCachedKindSpec, ClusterCachedKindStatus, ClusterCachedKindWatchFrame]{
-	frame: func(t DeltaFrameType, obj *beehive.Object[ClusterCachedKindSpec, ClusterCachedKindStatus]) (ClusterCachedKindWatchFrame, error) {
+var kindWatch = collectionWatch[ClusterCachedKindSpec, ClusterCachedKindStatus, ClusterCachedKindCollectionWatchFrame]{
+	frame: func(t CollectionWatchFrameType, obj *beehive.Object[ClusterCachedKindSpec, ClusterCachedKindStatus]) (ClusterCachedKindCollectionWatchFrame, error) {
 		kind, err := toClusterCachedKind(obj)
 		if err != nil {
-			return ClusterCachedKindWatchFrame{}, err
+			return ClusterCachedKindCollectionWatchFrame{}, err
 		}
-		return ClusterCachedKindWatchFrame{Type: t, Kind: kind}, nil
+		return ClusterCachedKindCollectionWatchFrame{Type: t, Kind: kind}, nil
 	},
-	departed: func(change beehive.ObjectChange[ClusterCachedKindSpec, ClusterCachedKindStatus]) ClusterCachedKindWatchFrame {
+	departed: func(change beehive.ObjectChange[ClusterCachedKindSpec, ClusterCachedKindStatus]) ClusterCachedKindCollectionWatchFrame {
 		kind := &ClusterCachedKind{RecordMeta: RecordMeta{ID: ObjectID(change.ID)}}
 		if obj := change.Object; obj != nil {
 			kind.RecordMeta = toRecordMeta(obj)
 			kind.Spec = obj.Spec
 		}
-		return ClusterCachedKindWatchFrame{Type: DeltaFrameDeleted, Kind: kind}
+		return ClusterCachedKindCollectionWatchFrame{Type: CollectionWatchFrameDeleted, Kind: kind}
 	},
-	bookmark: ClusterCachedKindWatchFrame{Type: DeltaFrameBookmark},
+	bookmark: ClusterCachedKindCollectionWatchFrame{Type: CollectionWatchFrameBookmark},
 }
 
 // clusterCachedKindController arms one kind's sync and logs its transitions. The record is
@@ -416,7 +416,7 @@ func (c *clusterCachedKindController) Reconcile(
 	if err := c.logSyncVerdict(ctx, client, cacheID, obj.Spec); err != nil {
 		return beehive.Fail(err)
 	}
-	// No condition: the verdict is the gauge's, and a stored one would serve a dead
+	// No condition: the verdict is the state watch's, and a stored one would serve a dead
 	// process's answer until the passes caught up.
 	return beehive.Settled()
 }

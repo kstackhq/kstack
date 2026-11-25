@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // Asks before deleting a chat, since deletion is instant, permanent, and disappears from
-// every window at once. Open while `chat` is set. The chat goes when `chatsWatch` says so,
+// every window at once. Open while `chat` is set. The chat goes when `chatCollectionWatch` says so,
 // so a refused delete leaves it where it was.
 import { Button } from '@kubetail/ui/elements/button';
 import { useState } from 'react';

@@ -23,12 +23,12 @@ const { watch, client } = vi.hoisted(() => {
   const frames: { frames?: unknown[]; options?: unknown } = {};
   return { watch: frames, client: { mutation: vi.fn() } };
 });
-vi.mock('@/lib/graphql/use-watch-subscription', () => ({
+vi.mock('@/lib/graphql/use-folded-subscription', () => ({
   perFrame:
     <D, R>(step: (prev: R | undefined, frame: D) => R) =>
     (prev: R | undefined, frames: D[]) =>
       frames.reduce<R | undefined>(step, prev),
-  useWatchSubscription: (_args: unknown, reduce: (prev: unknown, frames: unknown[]) => unknown, options: unknown) => {
+  useFoldedSubscription: (_args: unknown, reduce: (prev: unknown, frames: unknown[]) => unknown, options: unknown) => {
     watch.options = options;
     return { data: watch.frames ? reduce(undefined, watch.frames) : undefined, connected: true };
   },
@@ -68,14 +68,14 @@ beforeEach(() => {
 describe('useProviderCredentials', () => {
   it('has not loaded before the first frame, then holds the latest list', () => {
     const { result, rerender } = renderHook(() => useProviderCredentials());
-    expect(result.current).toMatchObject({ credentials: [], loaded: false });
+    expect(result.current).toMatchObject({ credentials: [], snapshotComplete: false });
 
     watch.frames = [
-      { providerCredentialsWatch: [credential()] },
-      { providerCredentialsWatch: [credential({ source: 'SavedKey', hasSavedKey: true })] },
+      { providerCredentialsStateWatch: [credential()] },
+      { providerCredentialsStateWatch: [credential({ source: 'SavedKey', hasSavedKey: true })] },
     ];
     rerender();
-    expect(result.current.loaded).toBe(true);
+    expect(result.current.snapshotComplete).toBe(true);
     expect(result.current.credentials).toEqual([credential({ source: 'SavedKey', hasSavedKey: true })]);
     expect(watch.options).toEqual({ unshared: true });
   });

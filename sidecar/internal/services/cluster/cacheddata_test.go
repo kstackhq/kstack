@@ -96,7 +96,7 @@ func TestCachedDataReadsACacheWhoseWorkersStopped(t *testing.T) {
 	require.Len(t, kinds, 1, "ListKinds lost a paused cache's catalog")
 	assert.Equal(t, 1, kinds[0].Count)
 
-	stream, err := f.data().WatchObjects(ctx, f.clusterID, f.cacheID, "v1", "pods")
+	stream, err := f.data().WatchObjectCollection(ctx, f.clusterID, f.cacheID, "v1", "pods")
 	require.NoError(t, err)
 	first := testutil.Recv(t, stream.Frames, "the object")
 	require.NotNil(t, first.Object, "WatchObjects lost a paused cache's rows")
@@ -133,9 +133,9 @@ func TestCachedDataGatesAnUnknownPair(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, kinds)
 
-	stream, err := f.data().WatchKinds(ctx, f.clusterID, 9999, "")
+	stream, err := f.data().WatchKindCollection(ctx, f.clusterID, 9999, "")
 	require.NoError(t, err)
-	assert.Equal(t, DeltaFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
+	assert.Equal(t, CollectionWatchFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
 	_, open := <-stream.Frames
 	assert.False(t, open, "a scope that can never be filled stayed open")
 }
@@ -183,34 +183,34 @@ func TestListKindsReadsTheCatalog(t *testing.T) {
 
 // An advertised kind shows before its worker has synced anything — Count 0, not absent,
 // which is what the nav promises.
-func TestWatchKindsStreamsTheCatalogWithCounts(t *testing.T) {
+func TestWatchKindCollectionStreamsTheCatalogWithCounts(t *testing.T) {
 	ctx := t.Context()
 	f := newDataFixture(t)
 	require.NoError(t, f.store.SyncKinds(ctx, []kubestore.KindRow{
 		{APIVersion: "v1", Kind: "Pod", Resource: "pods", Scope: kubestore.ScopeNamespaced},
 	}, true, 7))
 
-	stream, err := f.data().WatchKinds(ctx, f.clusterID, f.cacheID, "")
+	stream, err := f.data().WatchKindCollection(ctx, f.clusterID, f.cacheID, "")
 	require.NoError(t, err)
 
 	first := testutil.Recv(t, stream.Frames, "the kind")
 	require.NotNil(t, first.Kind)
 	assert.Equal(t, 0, first.Kind.Count)
 	assert.Equal(t, f.cacheID, first.CacheID, "the frame carries no provenance")
-	assert.Equal(t, DeltaFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
+	assert.Equal(t, CollectionWatchFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
 
 	require.NoError(t, f.store.ApplyChange(ctx, kubestore.Kind{
 		APIVersion: "v1", Kind: "Pod", Resource: "pods",
 	}, watch.Added, dataPod("uid-1", "api-0", "42")))
 
 	moved := testutil.Recv(t, stream.Frames, "the count moving")
-	assert.Equal(t, DeltaFrameModified, moved.Type)
+	assert.Equal(t, CollectionWatchFrameModified, moved.Type)
 	assert.Equal(t, 1, moved.Kind.Count)
 }
 
 // Under a namespace a namespaced kind counts its objects there alone, and every frame
 // names the namespace, so a client can drop one from a watch of another.
-func TestWatchKindsCountsInANamespace(t *testing.T) {
+func TestWatchKindCollectionCountsInANamespace(t *testing.T) {
 	ctx := t.Context()
 	f := newDataFixture(t)
 	require.NoError(t, f.store.SyncKinds(ctx, []kubestore.KindRow{
@@ -219,7 +219,7 @@ func TestWatchKindsCountsInANamespace(t *testing.T) {
 	podKind := kubestore.Kind{APIVersion: "v1", Kind: "Pod", Resource: "pods"}
 	require.NoError(t, f.store.ApplyChange(ctx, podKind, watch.Added, dataPod("uid-1", "api-0", "42")))
 
-	stream, err := f.data().WatchKinds(ctx, f.clusterID, f.cacheID, "staging")
+	stream, err := f.data().WatchKindCollection(ctx, f.clusterID, f.cacheID, "staging")
 	require.NoError(t, err)
 
 	first := testutil.Recv(t, stream.Frames, "the kind")
@@ -227,7 +227,7 @@ func TestWatchKindsCountsInANamespace(t *testing.T) {
 	assert.Equal(t, 0, first.Kind.Count, "the pod is in prod")
 	assert.Equal(t, "staging", first.Namespace)
 	bookmark := testutil.Recv(t, stream.Frames, "the bookmark")
-	assert.Equal(t, DeltaFrameBookmark, bookmark.Type)
+	assert.Equal(t, CollectionWatchFrameBookmark, bookmark.Type)
 	assert.Equal(t, "staging", bookmark.Namespace)
 
 	staging := dataPod("uid-2", "api-1", "43")
@@ -235,7 +235,7 @@ func TestWatchKindsCountsInANamespace(t *testing.T) {
 	require.NoError(t, f.store.ApplyChange(ctx, podKind, watch.Added, staging))
 
 	moved := testutil.Recv(t, stream.Frames, "the count moving")
-	assert.Equal(t, DeltaFrameModified, moved.Type)
+	assert.Equal(t, CollectionWatchFrameModified, moved.Type)
 	assert.Equal(t, 1, moved.Kind.Count)
 	assert.Equal(t, "staging", moved.Namespace)
 }
@@ -263,10 +263,10 @@ func TestListKindsCountsInANamespace(t *testing.T) {
 }
 
 // An unknown pair's empty answer names the namespace too.
-func TestWatchKindsNamesTheNamespaceOnAnEmptyAnswer(t *testing.T) {
+func TestWatchKindCollectionNamesTheNamespaceOnAnEmptyAnswer(t *testing.T) {
 	f := newDataFixture(t)
 
-	stream, err := f.data().WatchKinds(t.Context(), f.clusterID, 9999, "staging")
+	stream, err := f.data().WatchKindCollection(t.Context(), f.clusterID, 9999, "staging")
 	require.NoError(t, err)
 
 	assert.Equal(t, "staging", testutil.Recv(t, stream.Frames, "the bookmark").Namespace)
@@ -274,7 +274,7 @@ func TestWatchKindsNamesTheNamespaceOnAnEmptyAnswer(t *testing.T) {
 
 // The store carries a CRD's printer columns as JSON, and this projection is where they become
 // the typed value the wire serves.
-func TestWatchKindsDecodesPrinterColumns(t *testing.T) {
+func TestWatchKindCollectionDecodesPrinterColumns(t *testing.T) {
 	ctx := t.Context()
 	f := newDataFixture(t)
 	require.NoError(t, f.store.SyncKinds(ctx, []kubestore.KindRow{{
@@ -283,7 +283,7 @@ func TestWatchKindsDecodesPrinterColumns(t *testing.T) {
 		PrinterColumns: `[{"name":"Replicas","type":"integer","jsonPath":".spec.replicas","priority":1}]`,
 	}}, true, 7))
 
-	stream, err := f.data().WatchKinds(ctx, f.clusterID, f.cacheID, "")
+	stream, err := f.data().WatchKindCollection(ctx, f.clusterID, f.cacheID, "")
 	require.NoError(t, err)
 
 	first := testutil.Recv(t, stream.Frames, "the kind")
@@ -308,7 +308,7 @@ func TestAMalformedPrinterColumnBlobYieldsNoColumns(t *testing.T) {
 // The kinds watch diffs whole rows, which is what makes an edited CRD reach a client already
 // sitting on the dashboard. Decoding anywhere before the diff would leave the columns out of the
 // compared value, and the table would only pick them up on the next reconnect.
-func TestWatchKindsReportsAColumnsOnlyChange(t *testing.T) {
+func TestWatchKindCollectionReportsAColumnsOnlyChange(t *testing.T) {
 	ctx := t.Context()
 	f := newDataFixture(t)
 	row := kubestore.KindRow{
@@ -317,23 +317,23 @@ func TestWatchKindsReportsAColumnsOnlyChange(t *testing.T) {
 	}
 	require.NoError(t, f.store.SyncKinds(ctx, []kubestore.KindRow{row}, true, 7))
 
-	stream, err := f.data().WatchKinds(ctx, f.clusterID, f.cacheID, "")
+	stream, err := f.data().WatchKindCollection(ctx, f.clusterID, f.cacheID, "")
 	require.NoError(t, err)
 	testutil.Recv(t, stream.Frames, "the kind")
-	require.Equal(t, DeltaFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
+	require.Equal(t, CollectionWatchFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
 
 	edited := row
 	edited.PrinterColumns = `[{"name":"Phase","type":"string","jsonPath":".status.phase","priority":0}]`
 	require.NoError(t, f.store.SyncKinds(ctx, []kubestore.KindRow{edited}, true, 8))
 
 	moved := testutil.Recv(t, stream.Frames, "the edited CRD")
-	assert.Equal(t, DeltaFrameModified, moved.Type)
+	assert.Equal(t, CollectionWatchFrameModified, moved.Type)
 	assert.Equal(t, "Phase", moved.Kind.PrinterColumns[0].Name)
 }
 
 // The objects watch carries the kind as provenance beside the cache, since one client
 // switching resources within a cache has to reject the previous subscription's stragglers.
-func TestWatchObjectsCarriesItsKindAsProvenance(t *testing.T) {
+func TestWatchObjectCollectionCarriesItsKindAsProvenance(t *testing.T) {
 	ctx := t.Context()
 	f := newDataFixture(t)
 	require.NoError(t, f.store.SyncKinds(ctx, []kubestore.KindRow{
@@ -343,7 +343,7 @@ func TestWatchObjectsCarriesItsKindAsProvenance(t *testing.T) {
 		APIVersion: "v1", Kind: "Pod", Resource: "pods",
 	}, watch.Added, dataPod("uid-1", "api-0", "42")))
 
-	stream, err := f.data().WatchObjects(ctx, f.clusterID, f.cacheID, "v1", "pods")
+	stream, err := f.data().WatchObjectCollection(ctx, f.clusterID, f.cacheID, "v1", "pods")
 	require.NoError(t, err)
 
 	first := testutil.Recv(t, stream.Frames, "the object")
@@ -356,9 +356,9 @@ func TestWatchObjectsCarriesItsKindAsProvenance(t *testing.T) {
 }
 
 // A Deleted frame's object is the key the client removes by, so it stays non-null — but its
-// body is dead weight: applyChange deletes by uid and never looks at the entity. Nothing
+// body is dead weight: the client deletes by uid and never looks at the item. Nothing
 // else would catch a hydrate that fired on every frame type.
-func TestWatchObjectsSendsADeletedFrameWithoutABody(t *testing.T) {
+func TestWatchObjectCollectionSendsADeletedFrameWithoutABody(t *testing.T) {
 	ctx := t.Context()
 	f := newDataFixture(t)
 	podKind := kubestore.Kind{APIVersion: "v1", Kind: "Pod", Resource: "pods"}
@@ -367,15 +367,15 @@ func TestWatchObjectsSendsADeletedFrameWithoutABody(t *testing.T) {
 	}, true, 7))
 	require.NoError(t, f.store.ApplyChange(ctx, podKind, watch.Added, dataPod("uid-1", "api-0", "42")))
 
-	stream, err := f.data().WatchObjects(ctx, f.clusterID, f.cacheID, "v1", "pods")
+	stream, err := f.data().WatchObjectCollection(ctx, f.clusterID, f.cacheID, "v1", "pods")
 	require.NoError(t, err)
 	testutil.Recv(t, stream.Frames, "the object")
-	require.Equal(t, DeltaFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
+	require.Equal(t, CollectionWatchFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
 
 	require.NoError(t, f.store.ApplyChange(ctx, podKind, watch.Deleted, dataPod("uid-1", "api-0", "42")))
 
 	gone := testutil.Recv(t, stream.Frames, "the removal")
-	assert.Equal(t, DeltaFrameDeleted, gone.Type)
+	assert.Equal(t, CollectionWatchFrameDeleted, gone.Type)
 	require.NotNil(t, gone.Object, "the client keys the removal off the object")
 	assert.Equal(t, "uid-1", gone.Object.UID)
 	assert.Empty(t, gone.Object.RawJSON, "a removal carries no body")
@@ -383,7 +383,7 @@ func TestWatchObjectsSendsADeletedFrameWithoutABody(t *testing.T) {
 
 // A watch narrowed to namespaces sends only their objects, with no body, and a
 // change elsewhere sends nothing.
-func TestWatchObjectsInSendsOnlyItsNamespaces(t *testing.T) {
+func TestWatchObjectCollectionByNamespacesSendsOnlyItsNamespaces(t *testing.T) {
 	ctx := t.Context()
 	f := newDataFixture(t)
 	podKind := kubestore.Kind{APIVersion: "v1", Kind: "Pod", Resource: "pods"}
@@ -398,21 +398,21 @@ func TestWatchObjectsInSendsOnlyItsNamespaces(t *testing.T) {
 	require.NoError(t, f.store.ApplyChange(ctx, podKind, watch.Added, dataPod("uid-1", "api-0", "42")))
 	require.NoError(t, f.store.ApplyChange(ctx, podKind, watch.Added, elsewhere("uid-2", "api-0", "43")))
 
-	stream, err := f.data().WatchObjectsIn(ctx, f.clusterID, f.cacheID, "v1", "pods", []string{"prod"})
+	stream, err := f.data().WatchObjectCollectionByNamespaces(ctx, f.clusterID, f.cacheID, "v1", "pods", []string{"prod"})
 	require.NoError(t, err)
 
 	first := testutil.Recv(t, stream.Frames, "the object")
 	require.NotNil(t, first.Object)
 	assert.Equal(t, "uid-1", first.Object.UID)
 	assert.Empty(t, first.Object.RawJSON, "a narrowed watch carries no body")
-	require.Equal(t, DeltaFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
+	require.Equal(t, CollectionWatchFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
 
 	require.NoError(t, f.store.ApplyChange(ctx, podKind, watch.Added, elsewhere("uid-3", "api-1", "44")))
 	require.NoError(t, f.store.ApplyChange(ctx, podKind, watch.Deleted, elsewhere("uid-2", "api-0", "43")))
 	require.NoError(t, f.store.ApplyChange(ctx, podKind, watch.Added, dataPod("uid-4", "api-1", "45")))
 
 	next := testutil.Recv(t, stream.Frames, "the next object in prod")
-	assert.Equal(t, DeltaFrameAdded, next.Type)
+	assert.Equal(t, CollectionWatchFrameAdded, next.Type)
 	assert.Equal(t, "uid-4", next.Object.UID)
 }
 
@@ -424,7 +424,7 @@ func TestHydrateObjectServesNoBodyForARowThatIsGone(t *testing.T) {
 	ctx := context.Background()
 	f := newDataFixture(t)
 
-	obj := hydrateObject(ctx, f.store, DeltaFrameAdded, kubestore.ObjectRow{
+	obj := hydrateObject(ctx, f.store, CollectionWatchFrameAdded, kubestore.ObjectRow{
 		UID: "uid-gone", APIVersion: "v1", Kind: "Pod", Namespace: "prod", Name: "api-0",
 	})
 
@@ -433,7 +433,7 @@ func TestHydrateObjectServesNoBodyForARowThatIsGone(t *testing.T) {
 }
 
 // The events watch is its own bus, so an event storm does not drive the object watches.
-func TestWatchEventsStreamsTheNewestWindow(t *testing.T) {
+func TestWatchEventCollectionStreamsTheNewestWindow(t *testing.T) {
 	ctx := t.Context()
 	f := newDataFixture(t)
 	require.NoError(t, f.store.ApplyChange(ctx, kubestore.Kind{
@@ -444,7 +444,7 @@ func TestWatchEventsStreamsTheNewestWindow(t *testing.T) {
 		"reason":   "Pulled", "message": "ok", "type": "Normal",
 	}}))
 
-	stream, err := f.data().WatchEvents(ctx, f.clusterID, f.cacheID)
+	stream, err := f.data().WatchEventCollection(ctx, f.clusterID, f.cacheID)
 	require.NoError(t, err)
 
 	first := testutil.Recv(t, stream.Frames, "the event")
@@ -467,17 +467,17 @@ func TestTheObjectAndEventWatchesGateOnThePairToo(t *testing.T) {
 	ctx := t.Context()
 	f := newDataFixture(t)
 
-	objects, err := f.data().WatchObjects(ctx, ClusterID("9999"), f.cacheID, "v1", "pods")
+	objects, err := f.data().WatchObjectCollection(ctx, ClusterID("9999"), f.cacheID, "v1", "pods")
 	require.NoError(t, err)
-	assert.Equal(t, DeltaFrameBookmark, testutil.Recv(t, objects.Frames, "the bookmark").Type)
+	assert.Equal(t, CollectionWatchFrameBookmark, testutil.Recv(t, objects.Frames, "the bookmark").Type)
 
-	events, err := f.data().WatchEvents(ctx, ClusterID("9999"), f.cacheID)
+	events, err := f.data().WatchEventCollection(ctx, ClusterID("9999"), f.cacheID)
 	require.NoError(t, err)
-	assert.Equal(t, DeltaFrameBookmark, testutil.Recv(t, events.Frames, "the bookmark").Type)
+	assert.Equal(t, CollectionWatchFrameBookmark, testutil.Recv(t, events.Frames, "the bookmark").Type)
 
-	narrowed, err := f.data().WatchObjectsIn(ctx, ClusterID("9999"), f.cacheID, "v1", "pods", []string{"prod"})
+	narrowed, err := f.data().WatchObjectCollectionByNamespaces(ctx, ClusterID("9999"), f.cacheID, "v1", "pods", []string{"prod"})
 	require.NoError(t, err)
-	assert.Equal(t, DeltaFrameBookmark, testutil.Recv(t, narrowed.Frames, "the bookmark").Type)
+	assert.Equal(t, CollectionWatchFrameBookmark, testutil.Recv(t, narrowed.Frames, "the bookmark").Type)
 	testutil.WaitClosed(t, narrowed.Frames, "a scope that can never be filled to end")
 }
 
@@ -509,7 +509,7 @@ func TestListKindsReportsACatalogItCannotRead(t *testing.T) {
 // ClearKind logs a delete per row and the sync writes the same objects back above it, so a
 // watch reading both in one burst must end holding the rows. Final state, not frame count —
 // the two land in one burst here and in two on a kind large enough to outrun the debounce.
-func TestWatchObjectsKeepsRowsThatWereClearedAndRelisted(t *testing.T) {
+func TestWatchObjectCollectionKeepsRowsThatWereClearedAndRelisted(t *testing.T) {
 	ctx := t.Context()
 	f := newDataFixture(t)
 	podKind := kubestore.Kind{APIVersion: "v1", Kind: "Pod", Resource: "pods"}
@@ -518,10 +518,10 @@ func TestWatchObjectsKeepsRowsThatWereClearedAndRelisted(t *testing.T) {
 	}, true, 7))
 	require.NoError(t, f.store.ApplyChange(ctx, podKind, watch.Added, dataPod("uid-1", "api-0", "42")))
 
-	stream, err := f.data().WatchObjects(ctx, f.clusterID, f.cacheID, "v1", "pods")
+	stream, err := f.data().WatchObjectCollection(ctx, f.clusterID, f.cacheID, "v1", "pods")
 	require.NoError(t, err)
 	testutil.Recv(t, stream.Frames, "the object")
-	require.Equal(t, DeltaFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
+	require.Equal(t, CollectionWatchFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
 
 	require.NoError(t, f.store.ClearKind(ctx, podKind))
 	require.NoError(t, f.store.ApplyChange(ctx, podKind, watch.Added, dataPod("uid-1", "api-0", "43")))
@@ -530,7 +530,7 @@ func TestWatchObjectsKeepsRowsThatWereClearedAndRelisted(t *testing.T) {
 	for range 2 {
 		fr := testutil.Recv(t, stream.Frames, "a frame")
 		require.NotNil(t, fr.Object)
-		if fr.Type == DeltaFrameDeleted {
+		if fr.Type == CollectionWatchFrameDeleted {
 			delete(held, fr.Object.UID)
 			continue
 		}
@@ -543,7 +543,7 @@ func TestWatchObjectsKeepsRowsThatWereClearedAndRelisted(t *testing.T) {
 // (stmtResolveKindRename). The rows and the deletes the old worker logged are keyed by the
 // OLD Kind, so a cursor read under the new one sees neither — the watch would hold the old
 // rows for as long as it stayed connected.
-func TestWatchObjectsDropsRowsWhenTheKindBehindThePluralIsRenamed(t *testing.T) {
+func TestWatchObjectCollectionDropsRowsWhenTheKindBehindThePluralIsRenamed(t *testing.T) {
 	ctx := t.Context()
 	f := newDataFixture(t)
 	was := kubestore.Kind{APIVersion: "v1", Kind: "Widget", Resource: "widgets"}
@@ -552,10 +552,10 @@ func TestWatchObjectsDropsRowsWhenTheKindBehindThePluralIsRenamed(t *testing.T) 
 	}, true, 7))
 	require.NoError(t, f.store.ApplyChange(ctx, was, watch.Added, dataPod("uid-1", "api-0", "42")))
 
-	stream, err := f.data().WatchObjects(ctx, f.clusterID, f.cacheID, "v1", "widgets")
+	stream, err := f.data().WatchObjectCollection(ctx, f.clusterID, f.cacheID, "v1", "widgets")
 	require.NoError(t, err)
 	testutil.Recv(t, stream.Frames, "the object")
-	require.Equal(t, DeltaFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
+	require.Equal(t, CollectionWatchFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
 
 	// The sweep remaps the plural onto the new Kind, and the old kind's worker clears its
 	// rows on the way out.
@@ -565,32 +565,32 @@ func TestWatchObjectsDropsRowsWhenTheKindBehindThePluralIsRenamed(t *testing.T) 
 	require.NoError(t, f.store.ClearKind(ctx, was))
 
 	gone := testutil.Recv(t, stream.Frames, "the removal")
-	assert.Equal(t, DeltaFrameDeleted, gone.Type)
+	assert.Equal(t, CollectionWatchFrameDeleted, gone.Type)
 	assert.Equal(t, "uid-1", gone.Object.UID)
 }
 
 // The events watch reads what moved past its cursor like the objects watch does, so a
 // re-fired event reaches the client as a Modified rather than waiting for a reconnect.
-func TestWatchEventsSendsWhatMovedAfterTheSnapshot(t *testing.T) {
+func TestWatchEventCollectionSendsWhatMovedAfterTheSnapshot(t *testing.T) {
 	ctx := t.Context()
 	f := newDataFixture(t)
 	eventsKind := kubestore.Kind{APIVersion: "v1", Kind: "Event", Resource: "events"}
 	require.NoError(t, f.store.ApplyChange(ctx, eventsKind, watch.Added, dataEvent("ev-1", "10", 1)))
 
-	stream, err := f.data().WatchEvents(ctx, f.clusterID, f.cacheID)
+	stream, err := f.data().WatchEventCollection(ctx, f.clusterID, f.cacheID)
 	require.NoError(t, err)
 	testutil.Recv(t, stream.Frames, "the event")
-	require.Equal(t, DeltaFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
+	require.Equal(t, CollectionWatchFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
 
 	require.NoError(t, f.store.ApplyChange(ctx, eventsKind, watch.Modified, dataEvent("ev-1", "11", 2)))
 
 	fr := testutil.Recv(t, stream.Frames, "the re-fired event")
-	assert.Equal(t, DeltaFrameModified, fr.Type)
+	assert.Equal(t, CollectionWatchFrameModified, fr.Type)
 	require.NotNil(t, fr.Event)
 	assert.Equal(t, 2, fr.Event.Count)
 }
 
-// ListObjects is the snapshot WatchObjects would open with, bodies never loaded: a
+// ListObjects is the snapshot WatchObjectCollection would open with, bodies never loaded: a
 // reader that wants names alone does not pay for a body per row.
 func TestListObjectsReadsTheIdentityRowsWithoutBodies(t *testing.T) {
 	ctx := context.Background()

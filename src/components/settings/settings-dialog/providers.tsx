@@ -14,7 +14,7 @@
 
 // The Settings dialog's Providers tab: every provider, in one alphabetical
 // list, each set up or not, and each set up or configured from a dialog. Each
-// row the sidecar's credential gauge sends follows it.
+// row the sidecar's credential state watch sends follows it.
 import { Button } from '@kubetail/ui/elements/button';
 import {
   DropdownMenu,
@@ -45,7 +45,7 @@ type Provider = {
   id: string;
   label: string;
   sources: CredentialSource[];
-  /** The provider's credential, from the gauge. */
+  /** The provider's credential, from the state watch. */
   credential?: ProviderCredentialState;
   /** What a provider with no key lacks until it is set up. */
   missing?: string;
@@ -69,12 +69,12 @@ const CONNECTORS: Record<string, CredentialSource> = {
   [OPENROUTER_ID]: 'openrouter-connector',
 };
 
-// Every provider, by name: those from the gauge, then PROVIDERS, set up while
+// Every provider, by name: those from the state watch, then PROVIDERS, set up while
 // the catalog serves them, then any other provider the catalog serves, with no
 // sources.
 function providersFrom(models: Catalog['models'], credentials: ProviderCredentialState[]): Provider[] {
   const served = providersOf(models);
-  const gauged = credentials.map((c): Provider => {
+  const reported = credentials.map((c): Provider => {
     const keys: CredentialSource[] = c.keyVariable === null ? [] : ['environment', 'api-key'];
     const connector = CONNECTORS[c.id];
     return {
@@ -89,11 +89,11 @@ function providersFrom(models: Catalog['models'], credentials: ProviderCredentia
     ...p,
     status: served.some((s) => s.id === p.id) ? 'set-up' : 'not-set-up',
   }));
-  const known = new Set([...gauged, ...others].map((p) => p.id));
+  const known = new Set([...reported, ...others].map((p) => p.id));
   const unknown = served
     .filter((s) => !known.has(s.id))
     .map(({ id, label }): Provider => ({ id, label, sources: [], status: 'set-up' }));
-  return [...gauged, ...others, ...unknown].toSorted((a, b) => a.label.localeCompare(b.label));
+  return [...reported, ...others, ...unknown].toSorted((a, b) => a.label.localeCompare(b.label));
 }
 
 function statusOf(source: ProviderCredentialState['source']): Provider['status'] {
@@ -109,14 +109,20 @@ export function ProvidersSettings() {
   );
 }
 
-function ProviderList({ catalog: { models, loaded }, keys }: { catalog: Catalog; keys: ProviderCredentials }) {
+function ProviderList({
+  catalog: { models, snapshotComplete },
+  keys,
+}: {
+  catalog: Catalog;
+  keys: ProviderCredentials;
+}) {
   // The id of the provider whose dialog was last opened. It outlives `open` so
   // the dialog keeps its content while it animates closed; the provider is read
-  // from each render's list, so an open dialog follows the gauge.
+  // from each render's list, so an open dialog follows the state watch.
   const [targetID, setTargetID] = useState<string | null>(null);
   const [open, setOpen] = useState<'configure' | 'remove' | null>(null);
   // Nothing before both first frames: until then every row would read as not set up.
-  if (!loaded || !keys.loaded) return null;
+  if (!snapshotComplete || !keys.snapshotComplete) return null;
   const providers = providersFrom(models, keys.credentials);
   const target = providers.find((p) => p.id === targetID);
   const show = (p: Provider, dialog: 'configure' | 'remove') => {

@@ -14,7 +14,7 @@
 
 // The Settings dialog's Clusters tab: every kubeconfig cluster Kstack tracks,
 // then the archived ones, each with its cache size and its actions. An action
-// writes through and the row redraws from clustersWatch; a failure reaches the
+// writes through and the row redraws from clusterCollectionWatch; a failure reaches the
 // error bus through the client.
 import { Button } from '@kubetail/ui/elements/button';
 import {
@@ -30,7 +30,7 @@ import { type ReactNode } from 'react';
 import { useMutation } from 'urql';
 
 import { VisibleText } from '@/components/primitives/visible-text';
-import { useCacheContents } from '@/lib/cluster-diagnostics';
+import { useClusterCacheStatsStateWatch } from '@/lib/cluster-diagnostics';
 import {
   ClusterCacheClearMutation,
   ClusterDeleteMutation,
@@ -83,7 +83,7 @@ function ClusterRow({ cluster }: { cluster: Cluster }) {
   const { spec, activeCache } = cluster;
   const source = cluster.status.source.kubeconfig;
   const title = spec.name || spec.source.kubeconfig?.context || '—';
-  const contents = useCacheContents(cluster.id, activeCache?.id ?? '', !activeCache);
+  const contents = useClusterCacheStatsStateWatch(cluster.id, activeCache?.id ?? '', !activeCache);
   const stored = activeCache && contents?.exists ? contents : null;
   return (
     <li className="flex items-center gap-3 px-4 py-2.5">

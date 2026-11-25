@@ -20,12 +20,12 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/connectors"
 )
 
-// Subscribe streams the state: current on subscribe, then each change of
+// WatchState streams the state: current on subscribe, then each change of
 // account, the end of the restore included. The engine also publishes a
 // sign-in under way, failed or cancelled, each of which the wire draws as
 // signed out.
-func (s *Service) Subscribe() (<-chan connectors.State, func()) {
-	in, unsubscribe := s.engine.Subscribe()
+func (s *Service) WatchState() (<-chan connectors.State, func()) {
+	in, unsubscribe := s.engine.WatchState()
 	out := make(chan connectors.State)
 	done := make(chan struct{})
 	go func() {

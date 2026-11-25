@@ -32,7 +32,7 @@ import { VisibleText } from '@/components/primitives/visible-text';
 import type { ClusterCachedDataObject } from '@/lib/cluster-cached-data-objects';
 import { TONE } from '@/lib/cluster-health';
 import type { PrinterColumn } from '@/lib/dashboard-resources';
-import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
+import type { SubscriptionPhase } from '@/lib/graphql/use-folded-subscription';
 import type { ObjectAction } from '@/lib/object-actions';
 import { matchesFilter } from '@/lib/object-filter';
 import { ownerOf } from '@/lib/object-owner';
@@ -56,7 +56,7 @@ type ObjectsTableProps = {
   // The watch's rows, already filtered to `namespace`.
   objects: ClusterCachedDataObject[];
   active: boolean;
-  phase: WatchPhase;
+  phase: SubscriptionPhase;
   // The namespace the rows are filtered to, if any.
   namespace?: string;
   onAction: (action: ObjectAction, object: ClusterCachedDataObject) => void;

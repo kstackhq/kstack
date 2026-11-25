@@ -18,8 +18,8 @@
 // never rewrites the kubeconfig's current-context.
 import { useNavigate, useSearch } from '@tanstack/react-router';
 
-import { watchPhase } from '@/lib/graphql/use-watch-subscription';
-import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
+import { subscriptionPhase } from '@/lib/graphql/use-folded-subscription';
+import type { SubscriptionPhase } from '@/lib/graphql/use-folded-subscription';
 import { useKubeConfig } from '@/lib/kube-config';
 import type { KubeContextInfo } from '@/lib/kube-config';
 
@@ -31,7 +31,7 @@ type ActiveKubeContext = {
   active: KubeContextInfo | undefined;
   contexts: KubeContextInfo[];
   // Distinguishes "connecting" from "connected, empty kubeconfig" for the picker.
-  phase: WatchPhase;
+  phase: SubscriptionPhase;
   // Writes the URL search param, leaving the rest of the window's scope alone.
   setContext: (name: string) => void;
 };
@@ -44,7 +44,7 @@ export function useActiveKubeContext(): ActiveKubeContext {
 
   // `kubeConfig === null` is exactly "the registry's snapshot is not complete" — it
   // is derived from `clusters`, which the provider holds back until the Bookmark.
-  const phase = watchPhase(kubeConfig !== null, connected);
+  const phase = subscriptionPhase(kubeConfig !== null, connected);
   const contexts = kubeConfig?.contexts ?? [];
   // A param naming a gone context yields to the default — a stale deep link
   // never points at nothing.

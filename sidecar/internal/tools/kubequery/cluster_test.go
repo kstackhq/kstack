@@ -100,8 +100,8 @@ func (f fakeCaches) Health(context.Context, cluster.ClusterID, cluster.ClusterCa
 	return f.health, !f.healthGone, f.healthErr
 }
 
-func (f fakeCaches) SyncStatus(context.Context, cluster.ClusterID, cluster.ClusterCacheID) (cluster.ClusterCacheSyncStatus, bool, error) {
-	return cluster.ClusterCacheSyncStatus{}, false, errRead
+func (f fakeCaches) SyncState(context.Context, cluster.ClusterID, cluster.ClusterCacheID) (cluster.ClusterCacheSyncState, bool, error) {
+	return cluster.ClusterCacheSyncState{}, false, errRead
 }
 
 func (f fakeCachedData) ListKinds(context.Context, cluster.ClusterID, cluster.ClusterCacheID, string) ([]cluster.ClusterCachedDataKind, error) {

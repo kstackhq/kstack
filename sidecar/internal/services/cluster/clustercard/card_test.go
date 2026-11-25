@@ -39,7 +39,7 @@ type fakeService struct {
 	active  cluster.ActiveCluster
 	readErr error
 	health  cluster.ClusterCacheHealth
-	sync    cluster.ClusterCacheSyncStatus
+	sync    cluster.ClusterCacheSyncState
 	kinds   []cluster.ClusterCachedDataKind
 	names   []string
 	// fail names the cache read that errors: health, sync, kinds or objects.
@@ -89,9 +89,9 @@ func (f fakeCaches) Health(_ context.Context, _ cluster.ClusterID, cacheID clust
 	return f.health, f.gone != "health", nil
 }
 
-func (f fakeCaches) SyncStatus(context.Context, cluster.ClusterID, cluster.ClusterCacheID) (cluster.ClusterCacheSyncStatus, bool, error) {
+func (f fakeCaches) SyncState(context.Context, cluster.ClusterID, cluster.ClusterCacheID) (cluster.ClusterCacheSyncState, bool, error) {
 	if f.fail == "sync" {
-		return cluster.ClusterCacheSyncStatus{}, false, errRead
+		return cluster.ClusterCacheSyncState{}, false, errRead
 	}
 	return f.sync, f.gone != "sync", nil
 }
@@ -147,7 +147,7 @@ func healthy() *fakeService {
 			Cache:   &cluster.ClusterCache{RecordMeta: cluster.RecordMeta{ID: 11}, Spec: cluster.ClusterCacheSpec{ServerUID: "uid-2"}},
 		},
 		health: cluster.ClusterCacheHealth{Reason: "Watching", TotalKinds: 2},
-		sync: cluster.ClusterCacheSyncStatus{
+		sync: cluster.ClusterCacheSyncState{
 			Discovery: cluster.ClusterCacheDiscoveryStatus{Reason: "Discovered"},
 			Kinds: []cluster.ClusterCacheKindSyncStatus{
 				{APIVersion: "v1", Resource: "namespaces", Reason: "Watching"},

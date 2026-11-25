@@ -6,6 +6,7 @@ status: Accepted
 amended_by:
   - [Cached-data watches ping, re-read and diff, and a cleared cache ends one cleanly](2026-08-26-cached-data-read-loop.md)
   - [Cache health is a read-side fold over the records, with paused kinds resolved first](2026-09-02-cache-health-fold.md)
+  - [Name every subscription for its family and kind](2026-11-25-name-every-subscription-for-its-family-and-kind.md)
 ---
 
 # Report a dead watch as a terminal GraphQL error, not a graceful end

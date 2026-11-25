@@ -126,9 +126,9 @@ func messagesKey(id ChatID) string { return appdb.MessagesKey(string(id)) }
 
 func grantsKey(id ChatID) string { return appdb.GrantsKey(string(id)) }
 
-// GrantsNews pings after each write or revoke of a chat's rules commits,
+// GrantChangeNotifications pings after each write or revoke of a chat's rules commits,
 // coalesced. The key is the whole news: re-read on each. Close it when done.
-type GrantsNews = *conflate.Receiver[string, struct{}]
+type GrantChangeNotifications = *conflate.Receiver[string, struct{}]
 
 // ClusterCards renders the cluster card: what the model is told about a chat's
 // cluster, the one section of a question's context block today. The text is what
@@ -183,8 +183,8 @@ type Service interface {
 	// List is every chat, newest activity first.
 	List(ctx context.Context) ([]Chat, error)
 
-	WatchList(ctx context.Context) (*Stream[ChatWatchFrame], error)
-	WatchMessages(ctx context.Context, chatID ChatID) (*Stream[ChatMessageWatchFrame], error)
+	WatchCollection(ctx context.Context) (*Stream[ChatCollectionWatchFrame], error)
+	WatchMessageCollection(ctx context.Context, chatID ChatID) (*Stream[ChatMessageCollectionWatchFrame], error)
 
 	// Approve decides a command a turn is waiting on. true when a turn was
 	// waiting on it; a decision nothing waits on returns false and changes nothing.
@@ -216,9 +216,9 @@ type Service interface {
 	// answers the rules left: ErrChatGone or ErrGrantGone for a chat or an id
 	// gone.
 	RemoveChatKubeRule(ctx context.Context, chatID ChatID, id string) ([]permissions.Rule, error)
-	// WatchGrants pings on the chat's rules and folder grants. Watch before
-	// the first read.
-	WatchGrants(chatID ChatID) GrantsNews
+	// ListenForGrantChanges notifies of each change to the chat's rules and folder
+	// grants. Listen before the first read.
+	ListenForGrantChanges(chatID ChatID) GrantChangeNotifications
 
 	// RunMonitor takes one monitor run on the cluster: a run of target over
 	// brief in the monitor's session, settled when it returns.
@@ -937,11 +937,11 @@ func (s *service) List(ctx context.Context) ([]Chat, error) {
 	return listChats(ctx, s.store.Stmts())
 }
 
-// WatchList streams every chat, newest activity first, then every change to the list.
-func (s *service) WatchList(ctx context.Context) (*Stream[ChatWatchFrame], error) {
-	return newStream(s, ctx, func(ctx context.Context, out chan<- ChatWatchFrame) error {
-		// Subscribe, then read: a snapshot taken first would miss a commit in between.
-		rx := s.db.Subscribe(chatsKey)
+// WatchCollection streams every chat, newest activity first, then every change to the list.
+func (s *service) WatchCollection(ctx context.Context) (*Stream[ChatCollectionWatchFrame], error) {
+	return newStream(s, ctx, func(ctx context.Context, out chan<- ChatCollectionWatchFrame) error {
+		// Listen, then read: a snapshot taken first would miss a commit in between.
+		rx := s.db.ListenForChanges(chatsKey)
 		defer rx.Close()
 
 		f := newChatFold()
@@ -969,10 +969,10 @@ func (s *service) WatchList(ctx context.Context) (*Stream[ChatWatchFrame], error
 	}), nil
 }
 
-// WatchMessages streams one chat's transcript, then every change to it.
-func (s *service) WatchMessages(ctx context.Context, chatID ChatID) (*Stream[ChatMessageWatchFrame], error) {
-	return newStream(s, ctx, func(ctx context.Context, out chan<- ChatMessageWatchFrame) error {
-		rx := s.db.Subscribe(messagesKey(chatID))
+// WatchMessageCollection streams one chat's transcript, then every change to it.
+func (s *service) WatchMessageCollection(ctx context.Context, chatID ChatID) (*Stream[ChatMessageCollectionWatchFrame], error) {
+	return newStream(s, ctx, func(ctx context.Context, out chan<- ChatMessageCollectionWatchFrame) error {
+		rx := s.db.ListenForChanges(messagesKey(chatID))
 		defer rx.Close()
 
 		f := newMessageFold()

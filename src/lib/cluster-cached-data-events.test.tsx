@@ -15,10 +15,10 @@
 import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Same seams as dashboard-nav.test.tsx: mock useWatchSubscription (an accumulator
-// stand-in that captures the reducer), the clusters provider (keeping the real
-// applyChange reducer), and the active-context hook.
-const { useWatchSubscriptionMock } = vi.hoisted(() => ({ useWatchSubscriptionMock: vi.fn() }));
+// Same seams as dashboard-nav.test.tsx: mock useFoldedSubscription (an accumulator
+// stand-in that captures the reducer), the clusters provider, and the active-context
+// hook.
+const { useFoldedSubscriptionMock } = vi.hoisted(() => ({ useFoldedSubscriptionMock: vi.fn() }));
 const { useClustersMock, useActiveKubeContextMock } = vi.hoisted(() => ({
   useClustersMock: vi.fn(),
   useActiveKubeContextMock: vi.fn(),
@@ -27,9 +27,9 @@ const { statusState } = vi.hoisted(() => ({
   statusState: { snapshot: { connected: true, generation: 0 } },
 }));
 
-vi.mock('@/lib/graphql/use-watch-subscription', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/graphql/use-watch-subscription')>()),
-  useWatchSubscription: useWatchSubscriptionMock,
+vi.mock('@/lib/graphql/use-folded-subscription', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/graphql/use-folded-subscription')>()),
+  useFoldedSubscription: useFoldedSubscriptionMock,
 }));
 vi.mock('@/lib/clusters', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/clusters')>()),
@@ -74,12 +74,12 @@ let lastArgs: { variables?: { cacheID?: string }; pause?: boolean } | undefined;
 let lastReducer: ((prev: unknown, frames: unknown[]) => unknown) | undefined;
 
 function pushFrame(type: string, event: unknown, cacheID = lastArgs?.variables?.cacheID) {
-  acc = lastReducer!(acc, [{ clusterCachedDataEventsWatch: { type, cacheID, event } }]);
+  acc = lastReducer!(acc, [{ clusterCachedDataEventCollectionWatch: { type, cacheID, event } }]);
 }
 
 // The Bookmark closing the snapshot: what flips the watch from connecting to live.
 function pushBookmark(cacheID = lastArgs?.variables?.cacheID) {
-  acc = lastReducer!(acc, [{ clusterCachedDataEventsWatch: { type: 'Bookmark', cacheID, event: null } }]);
+  acc = lastReducer!(acc, [{ clusterCachedDataEventCollectionWatch: { type: 'Bookmark', cacheID, event: null } }]);
 }
 
 function pushReset() {
@@ -94,7 +94,7 @@ beforeEach(() => {
   lastReducer = undefined;
   statusState.snapshot = { connected: true, generation: 0 };
   useActiveKubeContextMock.mockReturnValue({ context: 'prod' });
-  useWatchSubscriptionMock.mockImplementation((args: typeof lastArgs, reducer: typeof lastReducer) => {
+  useFoldedSubscriptionMock.mockImplementation((args: typeof lastArgs, reducer: typeof lastReducer) => {
     lastArgs = args;
     lastReducer = reducer;
     return { data: acc, connected: statusState.snapshot.connected };
@@ -208,7 +208,7 @@ describe('useClusterCachedDataEvents', () => {
     expect(lastArgs?.pause).toBe(true);
   });
 
-  // The Bookmark carries no entity. Keying it would put a phantom row in every table.
+  // The Bookmark carries no item. Keying it would put a phantom row in every table.
   it('folds the Bookmark away instead of keying it as a row', () => {
     useClustersMock.mockReturnValue({ clusters: [clusterFixture(true)] });
     const { result, rerender } = renderHook(() => useClusterCachedDataEvents());
@@ -219,10 +219,10 @@ describe('useClusterCachedDataEvents', () => {
     expect(uids(result.current.events)).toEqual(['a']);
   });
 
-  // A change whose entity is null is a server-side field error (a nested non-null
+  // A change whose item is null is a server-side field error (a nested non-null
   // field erroring nulls its parent), not the snapshot boundary. Folding it as one
   // would report a still-loading table as live and empty.
-  it('does not treat a change with no entity as the Bookmark', () => {
+  it('does not treat a change with no item as the Bookmark', () => {
     useClustersMock.mockReturnValue({ clusters: [clusterFixture(true)] });
     const { result, rerender } = renderHook(() => useClusterCachedDataEvents());
 

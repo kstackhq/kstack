@@ -329,19 +329,19 @@ func TestAToolCallChangeIsAModifiedFrame(t *testing.T) {
 	}})
 	fakeOf(s).SetToolCalls(llm.StagedCall("echo", `{}`))
 	msg := send(t, s, nil, "1", "hi")
-	st, err := s.WatchMessages(t.Context(), msg.ChatID)
+	st, err := s.WatchMessageCollection(t.Context(), msg.ChatID)
 	require.NoError(t, err)
 
-	running := awaitFrame(t, st.Frames, func(f ChatMessageWatchFrame) bool {
+	running := awaitFrame(t, st.Frames, func(f ChatMessageCollectionWatchFrame) bool {
 		return f.Message != nil && f.Message.ID == msg.ID && strings.Contains(string(f.Message.ToolCalls), `"status":"Running"`)
 	})
 	seen := running.Message.ToolCalls
 	close(release)
-	done := awaitFrame(t, st.Frames, func(f ChatMessageWatchFrame) bool {
+	done := awaitFrame(t, st.Frames, func(f ChatMessageCollectionWatchFrame) bool {
 		return f.Message != nil && f.Message.ID == msg.ID && strings.Contains(string(f.Message.ToolCalls), `"status":"Succeeded"`)
 	})
 
-	assert.Equal(t, DeltaFrameModified, done.Type)
+	assert.Equal(t, CollectionWatchFrameModified, done.Type)
 	assert.Equal(t, seen, running.Message.ToolCalls, "an emitted frame is never mutated")
 	assert.Contains(t, string(running.Message.ToolCalls), `"output":""`)
 }
@@ -486,10 +486,10 @@ func TestCitationsAreReadByTheRunsDialect(t *testing.T) {
 	fakeOf(s).SetCitations(source)
 	fakeOf(s).SetToolCalls(llm.StagedCall("echo", `{}`))
 	msg := send(t, s, nil, "1", "what shipped in 1.36?")
-	st, err := s.WatchMessages(t.Context(), msg.ChatID)
+	st, err := s.WatchMessageCollection(t.Context(), msg.ChatID)
 	require.NoError(t, err)
 
-	live := awaitFrame(t, st.Frames, func(f ChatMessageWatchFrame) bool {
+	live := awaitFrame(t, st.Frames, func(f ChatMessageCollectionWatchFrame) bool {
 		return f.Message != nil && f.Message.ID == msg.ID && strings.Contains(string(f.Message.Citations), "kubernetes.io")
 	})
 	close(release)
@@ -554,9 +554,9 @@ func TestAnInterruptedReplyKeepsItsQueries(t *testing.T) {
 		fakeOf(s).SetServerUses(map[string]int{anthropicwebsearch.Name: 1})
 		fakeOf(s).SetGate(make(chan struct{}))
 		msg := send(t, s, nil, "1", "what shipped in 1.36?")
-		st, err := s.WatchMessages(t.Context(), msg.ChatID)
+		st, err := s.WatchMessageCollection(t.Context(), msg.ChatID)
 		require.NoError(t, err)
-		awaitFrame(t, st.Frames, func(f ChatMessageWatchFrame) bool {
+		awaitFrame(t, st.Frames, func(f ChatMessageCollectionWatchFrame) bool {
 			return f.Message != nil && f.Message.ID == msg.ID && strings.Contains(string(f.Message.ToolCalls), `"runsOn":"Provider"`)
 		})
 
@@ -600,10 +600,10 @@ func TestASearchIsAProviderRow(t *testing.T) {
 	fakeOf(s).SetReply(llm.Chunk{Kind: llm.ChunkServer, Call: searched}, llm.Chunk{Text: "It "}, llm.Chunk{Text: "shipped."})
 	fakeOf(s).SetGate(gate)
 	msg := send(t, s, nil, "1", "what shipped in 1.36?")
-	st, err := s.WatchMessages(t.Context(), msg.ChatID)
+	st, err := s.WatchMessageCollection(t.Context(), msg.ChatID)
 	require.NoError(t, err)
 
-	live := awaitFrame(t, st.Frames, func(f ChatMessageWatchFrame) bool {
+	live := awaitFrame(t, st.Frames, func(f ChatMessageCollectionWatchFrame) bool {
 		return f.Message != nil && f.Message.ID == msg.ID && strings.Contains(string(f.Message.ToolCalls), `"runsOn":"Provider"`)
 	})
 	close(gate)
@@ -1050,7 +1050,7 @@ func TestASettleThatLandsOnRetryReachesTheListWatch(t *testing.T) {
 	stepClock(s)
 	answers := settleSeam(s)
 	msg := send(t, s, nil, "1", "hi")
-	st, err := s.WatchList(t.Context())
+	st, err := s.WatchCollection(t.Context())
 	require.NoError(t, err)
 	sent := collectChatSnapshot(t, st.Frames)
 	require.Len(t, sent, 1)
@@ -1058,8 +1058,8 @@ func TestASettleThatLandsOnRetryReachesTheListWatch(t *testing.T) {
 	answers <- errRefused
 	answers <- nil
 
-	awaitFrame(t, st.Frames, func(f ChatWatchFrame) bool {
-		return f.Type == DeltaFrameModified && f.Chat.ID == msg.ChatID && f.Chat.UpdatedAt.After(sent[0].UpdatedAt)
+	awaitFrame(t, st.Frames, func(f ChatCollectionWatchFrame) bool {
+		return f.Type == CollectionWatchFrameModified && f.Chat.ID == msg.ChatID && f.Chat.UpdatedAt.After(sent[0].UpdatedAt)
 	})
 }
 

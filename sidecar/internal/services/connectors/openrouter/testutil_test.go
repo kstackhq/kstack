@@ -413,7 +413,7 @@ func (r *rig) storedKey() (string, bool) {
 // await waits for the service to publish a state matching ok, and answers it.
 func await(t *testing.T, s *Service, what string, ok func(connectors.State) bool) connectors.State {
 	t.Helper()
-	states, cancel := s.Subscribe()
+	states, cancel := s.WatchState()
 	defer cancel()
 	deadline := time.After(testutil.Timeout)
 	for {

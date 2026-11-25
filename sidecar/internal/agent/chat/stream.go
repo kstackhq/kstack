@@ -22,28 +22,28 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/deltafold"
 )
 
-// The delta-watch frame type is shared vocabulary (internal/lib/apimeta), aliased here so
+// The collection watch frame type is shared vocabulary (internal/lib/apimeta), aliased here so
 // this package's watches keep speaking their own name. The same four the cluster
 // watches use.
-type DeltaFrameType = apimeta.DeltaFrameType
+type CollectionWatchFrameType = apimeta.CollectionWatchFrameType
 
 const (
-	DeltaFrameAdded    = apimeta.DeltaFrameAdded
-	DeltaFrameModified = apimeta.DeltaFrameModified
-	DeltaFrameDeleted  = apimeta.DeltaFrameDeleted
-	DeltaFrameBookmark = apimeta.DeltaFrameBookmark
+	CollectionWatchFrameAdded    = apimeta.CollectionWatchFrameAdded
+	CollectionWatchFrameModified = apimeta.CollectionWatchFrameModified
+	CollectionWatchFrameDeleted  = apimeta.CollectionWatchFrameDeleted
+	CollectionWatchFrameBookmark = apimeta.CollectionWatchFrameBookmark
 )
 
-// ChatWatchFrame is one frame on the list watch. Chat is nil on the Bookmark.
-type ChatWatchFrame struct {
-	Type DeltaFrameType
+// ChatCollectionWatchFrame is one frame on the list watch. Chat is nil on the Bookmark.
+type ChatCollectionWatchFrame struct {
+	Type CollectionWatchFrameType
 	Chat *Chat
 }
 
-// ChatMessageWatchFrame is one frame on a chat's transcript watch. Message is nil
+// ChatMessageCollectionWatchFrame is one frame on a chat's transcript watch. Message is nil
 // on the Bookmark.
-type ChatMessageWatchFrame struct {
-	Type    DeltaFrameType
+type ChatMessageCollectionWatchFrame struct {
+	Type    CollectionWatchFrameType
 	Message *ChatMessage
 }
 
@@ -92,8 +92,8 @@ func newStream[T any](s *service, ctx context.Context, pump func(context.Context
 
 // One fold per watch. Chat and ChatMessage are comparable, so a change is !=.
 type (
-	chatFold    = deltafold.Fold[ChatID, Chat, ChatWatchFrame]
-	messageFold = deltafold.Fold[MessageID, ChatMessage, ChatMessageWatchFrame]
+	chatFold    = deltafold.Fold[ChatID, Chat, ChatCollectionWatchFrame]
+	messageFold = deltafold.Fold[MessageID, ChatMessage, ChatMessageCollectionWatchFrame]
 )
 
 func newChatFold() *chatFold {
@@ -106,18 +106,18 @@ func newMessageFold() *messageFold {
 
 func chatKey(c Chat) ChatID { return c.ID }
 
-func chatFrame(t DeltaFrameType, c Chat) ChatWatchFrame {
-	if t == DeltaFrameBookmark {
-		return ChatWatchFrame{Type: t}
+func chatFrame(t CollectionWatchFrameType, c Chat) ChatCollectionWatchFrame {
+	if t == CollectionWatchFrameBookmark {
+		return ChatCollectionWatchFrame{Type: t}
 	}
-	return ChatWatchFrame{Type: t, Chat: &c}
+	return ChatCollectionWatchFrame{Type: t, Chat: &c}
 }
 
 func messageKey(m ChatMessage) MessageID { return m.ID }
 
-func messageFrame(t DeltaFrameType, m ChatMessage) ChatMessageWatchFrame {
-	if t == DeltaFrameBookmark {
-		return ChatMessageWatchFrame{Type: t}
+func messageFrame(t CollectionWatchFrameType, m ChatMessage) ChatMessageCollectionWatchFrame {
+	if t == CollectionWatchFrameBookmark {
+		return ChatMessageCollectionWatchFrame{Type: t}
 	}
-	return ChatMessageWatchFrame{Type: t, Message: &m}
+	return ChatMessageCollectionWatchFrame{Type: t, Message: &m}
 }

@@ -154,7 +154,7 @@ func TestAPathSettingReadThatFailsIsAnError(t *testing.T) {
 func TestASavedPathSettingPublishes(t *testing.T) {
 	t.Parallel()
 	s := newStore(t)
-	rx := s.WatchSandboxPath()
+	rx := s.ListenForSandboxPathChanges()
 	t.Cleanup(rx.Close)
 
 	require.NoError(t, s.SetPath(t.Context(), "/opt/bin:$PATH"))

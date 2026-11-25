@@ -70,10 +70,10 @@ type Manager struct {
 	// both: an open waits the stale file out first, and every path that records one has
 	// retired the entry.
 	stale map[int64]*file
-	// opens says a cache's file has come into existence, keyed by cache. A read never
+	// cacheOpenHub says a cache's file has come into existence, keyed by cache. A read never
 	// creates one, so a watch opened before the first worker or sweep has nothing to bind
 	// to and would otherwise wait out a poll.
-	opens *conflate.Hub[int64, struct{}]
+	cacheOpenHub *conflate.Hub[int64, struct{}]
 	// sizeLimitHub says a cache's size verdict has changed, keyed by cache. The manager's
 	// rather than a file's: the reader watches every cache, and the file a verdict is about
 	// is the one a Clear replaces.
@@ -100,13 +100,13 @@ type entry struct {
 	refs int
 }
 
-// OpenSubscription reports that a cache's file has come into existence. The value carries
+// CacheOpenChangeNotifications reports that a cache's file has come into existence. The value carries
 // nothing — the key is the whole news, and the reader answers it by binding.
-type OpenSubscription = *conflate.Receiver[int64, struct{}]
+type CacheOpenChangeNotifications = *conflate.Receiver[int64, struct{}]
 
-// SizeLimitNews carries the caches whose size verdict has changed. The key is the whole
+// SizeLimitChangeNotifications carries the caches whose size verdict has changed. The key is the whole
 // news; the reader answers it by calling Stats.
-type SizeLimitNews = *conflate.Receiver[int64, struct{}]
+type SizeLimitChangeNotifications = *conflate.Receiver[int64, struct{}]
 
 var (
 	// ErrRemoved is what OpenOrCreate answers for a cache Remove retired.
@@ -154,7 +154,7 @@ func newManagerWithOptions(dir string, opts ...option) *Manager {
 		closeBudget:  sqlitepool.CloseBudget,
 		entries:      map[int64]*entry{},
 		stale:        map[int64]*file{},
-		opens:        conflate.New[int64, struct{}](),
+		cacheOpenHub: conflate.New[int64, struct{}](),
 		sizeLimitHub: conflate.New[int64, struct{}](),
 		deleteFiles:  deleteStoreFiles,
 		closeFile:    (*file).close,
@@ -197,35 +197,37 @@ func (m *Manager) openOrCreateLocked(cacheID int64) (*Store, error) {
 		// Under the lock, so a waiter that registered before the entry landed cannot miss
 		// it. Send never blocks and reaches no caller's code, so holding mu across it is
 		// safe.
-		_ = m.opens.Sender().Send(cacheID, struct{}{})
+		_ = m.cacheOpenHub.Sender().Send(cacheID, struct{}{})
 	}
 	e.refs++
 	return &Store{m: m, cacheID: cacheID, e: e}, nil
 }
 
-// WatchOpen reports when cacheID's file next comes into existence, for a reader that found
+// ListenForCacheOpenChanges reports when cacheID's file next comes into existence, for a reader that found
 // none. **Close it when done.** A cache that already has a file never fires: the caller
 // tries OpenExisting first, and this exists only for the gap before anything created one.
 //
 // Keyed at enqueue, so a cache opening never wakes a watch on another one — the same shape
-// as Store.Subscribe, over the manager's own bus rather than a file's.
-func (m *Manager) WatchOpen(cacheID int64) OpenSubscription {
-	return m.opens.Receiver(m.opens.WithKey(cacheID))
+// as Store.ListenForChanges, over the manager's own bus rather than a file's.
+func (m *Manager) ListenForCacheOpenChanges(cacheID int64) CacheOpenChangeNotifications {
+	return m.cacheOpenHub.Receiver(m.cacheOpenHub.WithKey(cacheID))
 }
 
-// WatchSizeLimitNews reports every cache that crossed its size limit or came back under
+// ListenForSizeLimitChanges reports every cache that crossed its size limit or came back under
 // it. **Close it when done.** Edge-triggered: a reader hears that the verdict changed, and
 // reads what it is now from Stats.
-func (m *Manager) WatchSizeLimitNews() SizeLimitNews { return m.sizeLimitHub.Receiver() }
+func (m *Manager) ListenForSizeLimitChanges() SizeLimitChangeNotifications {
+	return m.sizeLimitHub.Receiver()
+}
 
-// Subscribe returns the change feed for a cache someone already holds open, narrowed to
-// keys — or ok false, since the feed lives on the open file and there is none. **It takes
+// ListenForChanges returns the change notifications for a cache someone already holds open,
+// narrowed to keys — or ok false, since the feed lives on the open file and there is none. **It takes
 // no claim**, so a caller cannot keep a cache alive by watching it.
 //
 // The condition costs nothing where it belongs: an idle cache has no writer, so it cannot
 // change, so there is nothing for a feed to carry. A caller that must read an idle cache's
 // contents claims it through OpenExisting instead.
-func (m *Manager) Subscribe(cacheID int64, keys ...string) (Subscription, bool) {
+func (m *Manager) ListenForChanges(cacheID int64, keys ...string) (ChangeNotifications, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -393,12 +395,12 @@ func (m *Manager) closeStaleLocked(cacheID int64) error {
 //
 // It takes no claim. The counts come through whatever is already open, and otherwise by
 // opening the file read-only: a cache whose workers are all stopped — a paused cluster —
-// still holds its rows, and a gauge answering zero beside a megabyte-sized file would
+// still holds its rows, and a state watch answering zero beside a megabyte-sized file would
 // read as data loss. Read-only is what keeps this a read: the file is never created.
 func (m *Manager) Stats(ctx context.Context, cacheID int64) (Stats, error) {
 	// The whole measurement in one critical section, the file included: a clear holds
 	// the lock across close → unlink → create → migrate, and a stat taken inside that
-	// window answers that the cache does not exist — which is what the gauge in the very
+	// window answers that the cache does not exist — which is what the state watch in the very
 	// view holding the Clear button would render as data loss.
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -429,7 +431,7 @@ func (m *Manager) Stats(ctx context.Context, cacheID int64) (Stats, error) {
 
 // diskUsage is the size of the three files a cache is: the database and its -wal/-shm
 // sidecars. The one measurement of a cache's size — Stats reports it and the janitor judges
-// it, so the gauge and the size limit can never disagree.
+// it, so the state watch and the size limit can never disagree.
 type diskUsage struct{ db, wal, shm int64 }
 
 func (u diskUsage) total() int64 { return u.db + u.wal + u.shm }
@@ -485,7 +487,7 @@ func (m *Manager) countsLocked(ctx context.Context, path string, cacheID int64) 
 // countsFromDisk opens the file read-only and reads it, **under the manager's lock**.
 // Clear holds that lock across close → unlink → create → migrate, and for the middle of
 // it the file exists with no schema: a read slipping in there fails on a missing table
-// and, through the gauge above it, ends a subscription the user is watching while
+// and, through the state watch above it, ends a subscription the user is watching while
 // clearing. The lock costs one point read on an indexed table, and only for a cache
 // nothing has open.
 func (m *Manager) countsFromDiskLocked(ctx context.Context, path string, cacheID int64) (Counts, error) {
@@ -581,7 +583,7 @@ func (m *Manager) Start(ctx context.Context) (func(context.Context) error, error
 func (m *Manager) Close() error {
 	// Ends every waiter, including one on a cache nothing ever opened — the only thing
 	// that would otherwise hold it is its own context.
-	m.opens.Close()
+	m.cacheOpenHub.Close()
 	m.sizeLimitHub.Close()
 
 	m.mu.Lock()

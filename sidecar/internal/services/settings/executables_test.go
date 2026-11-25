@@ -166,7 +166,7 @@ func TestEachExecutableWritePublishes(t *testing.T) {
 	t.Parallel()
 	s := newStore(t)
 	ctx := t.Context()
-	rx := s.WatchExecutables()
+	rx := s.ListenForExecutableChanges()
 	t.Cleanup(rx.Close)
 	published := func(what string, err error) {
 		t.Helper()

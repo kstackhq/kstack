@@ -42,7 +42,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ===== The follow =====
+// ===== The tail =====
 
 // webPod is a pod under web's replica set on node, running containers.
 func webPod(name, node string, containers ...container) map[string]any {
@@ -73,45 +73,45 @@ func donePod() map[string]any {
 }
 
 // bookmark closes a watch's snapshot.
-var bookmark = cluster.ClusterCachedDataObjectWatchFrame{Type: cluster.DeltaFrameBookmark}
+var bookmark = cluster.ClusterCachedDataObjectCollectionWatchFrame{Type: cluster.CollectionWatchFrameBookmark}
 
 // A view of more containers than Kstack reads at once is refused before any is
 // read.
-func TestAFollowOfTooManyContainersIsRefused(t *testing.T) {
+func TestATailOfTooManyContainersIsRefused(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	addPods(t, f, 99)
 	svc, _ := serviceOver(t, f, s)
 
-	_, err := svc.Follow(t.Context(), "7", FollowRequest{Scope: webScope})
+	_, err := svc.TailFromCursor(t.Context(), "7", TailRequest{Scope: webScope})
 	assert.ErrorIs(t, err, ErrTooMany)
 	assert.Empty(t, s.Requests())
 }
 
-// A follow is refused before it opens: a bad page cursor, a view the mirror
+// A tail is refused before it opens: a bad page cursor, a view the mirror
 // refuses, a cluster that cannot be claimed, and a pods watch that cannot be
 // opened, which releases the claim.
-func TestFollowIsRefusedBeforeItOpens(t *testing.T) {
+func TestTailIsRefusedBeforeItOpens(t *testing.T) {
 	t.Parallel()
 	bad := "yesterday"
 	svc, _ := serviceOver(t, webMirror(t), newLogServer())
-	_, err := svc.Follow(t.Context(), "7", FollowRequest{Cursor: &bad})
+	_, err := svc.TailFromCursor(t.Context(), "7", TailRequest{Cursor: &bad})
 	assert.Equal(t, errBadPageCursor, err)
 
 	svc, f := serviceOver(t, webMirror(t), newLogServer())
 	f.active.Cache = nil
-	_, err = svc.Follow(t.Context(), "7", FollowRequest{Scope: webScope})
+	_, err = svc.TailFromCursor(t.Context(), "7", TailRequest{Scope: webScope})
 	assert.ErrorIs(t, err, ErrNoCache)
 
 	svc, f = serviceOver(t, webMirror(t), newLogServer())
 	f.acquireErr = cluster.ErrNotConnectable
-	_, err = svc.Follow(t.Context(), "7", FollowRequest{Scope: webScope})
+	_, err = svc.TailFromCursor(t.Context(), "7", TailRequest{Scope: webScope})
 	assert.ErrorIs(t, err, kubelet.ErrRevoked)
 
 	svc, f = serviceOver(t, webMirror(t), newLogServer())
 	f.watchObjectsErr = errors.New("no watch")
-	_, err = svc.Follow(t.Context(), "7", FollowRequest{Scope: webScope})
+	_, err = svc.TailFromCursor(t.Context(), "7", TailRequest{Scope: webScope})
 	assert.EqualError(t, err, "no watch")
 	assert.Equal(t, int32(1), f.lease.released.Load())
 }
@@ -124,22 +124,22 @@ func keyIn(c pageCursor, pod string) logstore.Pos { return c.keyFor(psOf(pod, "a
 func fromMoment(d time.Duration) logstore.Pos { return pos(d, -1) }
 func pastLine(d time.Duration) logstore.Pos   { return pos(d, 0) }
 
-// A follow starts from now, or from Since, its moment's lines in, and Seen names
+// A tail starts from now, or from Since, its moment's lines in, and Seen names
 // where each stream it names picks up: past its line, never before Since, the
 // newer of two standing, whatever their order (rules 1 and 2).
-func TestAFollowStartsFromAMoment(t *testing.T) {
+func TestATailStartsFromAMoment(t *testing.T) {
 	t.Parallel()
 	now := at(time.Hour)
-	c, err := followStart(FollowRequest{Scope: webScope}, now)
+	c, err := tailStartCursor(TailRequest{Scope: webScope}, now)
 	require.NoError(t, err)
 	assert.Equal(t, webScope, c.Scope)
 	assert.Equal(t, fromMoment(time.Hour), keyIn(c, "web-1"), "from now")
 
-	c, err = followStart(FollowRequest{Scope: webScope, Since: moment(time.Second)}, now)
+	c, err = tailStartCursor(TailRequest{Scope: webScope, Since: moment(time.Second)}, now)
 	require.NoError(t, err)
 	assert.Equal(t, fromMoment(time.Second), keyIn(c, "web-1"), "from since, its lines in")
 
-	c, err = followStart(FollowRequest{Scope: webScope, Since: moment(time.Second), Seen: slices.Concat(seenAt("web-1", "app", 3*time.Second), seenAt("web-2", "app", 0), seenAt("web-9", "app", 5*time.Second))}, now)
+	c, err = tailStartCursor(TailRequest{Scope: webScope, Since: moment(time.Second), Seen: slices.Concat(seenAt("web-1", "app", 3*time.Second), seenAt("web-2", "app", 0), seenAt("web-9", "app", 5*time.Second))}, now)
 	require.NoError(t, err)
 	assert.Equal(t, pastLine(3*time.Second), keyIn(c, "web-1"), "past its line")
 	assert.Equal(t, fromMoment(time.Second), keyIn(c, "web-2"), "a line older than since reads from since")
@@ -149,17 +149,17 @@ func TestAFollowStartsFromAMoment(t *testing.T) {
 		slices.Concat(seenAt("web-1", "app", 3*time.Second), seenAt("web-1", "app", 2*time.Second)),
 		slices.Concat(seenAt("web-1", "app", 2*time.Second), seenAt("web-1", "app", 3*time.Second)),
 	} {
-		c, err = followStart(FollowRequest{Scope: webScope, Since: moment(0), Seen: seen}, now)
+		c, err = tailStartCursor(TailRequest{Scope: webScope, Since: moment(0), Seen: seen}, now)
 		require.NoError(t, err)
 		assert.Equal(t, pastLine(3*time.Second), keyIn(c, "web-1"), "the newer stands")
 	}
 }
 
-// A follow from a page's Next or Follow takes the cursor's scope and entries, the
+// A tail from a page's Next or Follow takes the cursor's scope and entries, the
 // request's Seen merged in, the newer line standing; an entry is clipped to the
 // window's start, and a counted Before still to be found seeds from Since. Its
 // Until and After are cleared (rules 1 to 3).
-func TestAFollowStartsFromAPageCursor(t *testing.T) {
+func TestATailStartsFromAPageCursor(t *testing.T) {
 	t.Parallel()
 	now := at(time.Hour)
 	entry := lineAt(web1Key(), 4*time.Second, 0)
@@ -174,7 +174,7 @@ func TestAFollowStartsFromAPageCursor(t *testing.T) {
 	}
 	cursor := encodePageCursor(page)
 
-	c, err := followStart(FollowRequest{Cursor: &cursor}, now)
+	c, err := tailStartCursor(TailRequest{Cursor: &cursor}, now)
 	require.NoError(t, err)
 	assert.Equal(t, webScope, c.Scope)
 	assert.Equal(t, pastLine(4*time.Second), keyIn(c, "web-1"), "its entry")
@@ -184,11 +184,11 @@ func TestAFollowStartsFromAPageCursor(t *testing.T) {
 	assert.Zero(t, c.after)
 	assert.True(t, c.live(at(48*time.Hour)), "the window's end is open")
 
-	c, err = followStart(FollowRequest{Cursor: &cursor, Seen: slices.Concat(seenAt("web-1", "app", 3*time.Second), seenAt("web-2", "app", 6*time.Second))}, now)
+	c, err = tailStartCursor(TailRequest{Cursor: &cursor, Seen: slices.Concat(seenAt("web-1", "app", 3*time.Second), seenAt("web-2", "app", 6*time.Second))}, now)
 	require.NoError(t, err)
 	assert.Equal(t, pastLine(4*time.Second), keyIn(c, "web-1"), "an older request entry yields")
 	assert.Equal(t, pastLine(6*time.Second), keyIn(c, "web-2"), "a request entry stands")
-	c, err = followStart(FollowRequest{Cursor: &cursor, Seen: slices.Concat(seenAt("web-1", "app", 5*time.Second), seenAt("web-2", "app", 0))}, now)
+	c, err = tailStartCursor(TailRequest{Cursor: &cursor, Seen: slices.Concat(seenAt("web-1", "app", 5*time.Second), seenAt("web-2", "app", 0))}, now)
 	require.NoError(t, err)
 	assert.Equal(t, pastLine(5*time.Second), keyIn(c, "web-1"), "a newer request entry stands")
 	assert.Equal(t, fromMoment(time.Second), keyIn(c, "web-2"), "clipped to the window's start")
@@ -196,7 +196,7 @@ func TestAFollowStartsFromAPageCursor(t *testing.T) {
 	counted := page
 	counted.Window.Before, counted.Start, counted.seen = Padding{Lines: 3}, logline.Cursor{}, nil
 	cursor = encodePageCursor(counted)
-	c, err = followStart(FollowRequest{Cursor: &cursor}, now)
+	c, err = tailStartCursor(TailRequest{Cursor: &cursor}, now)
 	require.NoError(t, err)
 	assert.Equal(t, fromMoment(time.Second), keyIn(c, "web-1"), "a count still to be found, from since")
 }
@@ -206,8 +206,8 @@ func web1Key() logline.StreamKey {
 	return logline.StreamKey{Namespace: "prod", Pod: "web-1", Container: "app"}
 }
 
-// A follow's start that does not go together is refused before it opens.
-func TestAFollowsStartIsChecked(t *testing.T) {
+// A tail's start that does not go together is refused before it opens.
+func TestATailsStartIsChecked(t *testing.T) {
 	t.Parallel()
 	page := pageCursor{Scope: webScope, newer: true, resolvedWindow: resolvedWindow{ResolvedAt: at(time.Hour)}}
 	next := encodePageCursor(page)
@@ -216,62 +216,62 @@ func TestAFollowsStartIsChecked(t *testing.T) {
 	other := pageCursorOfJSON(t, strings.Replace(rawPageCursor(t, next), `"v":1`, `"v":2`, 1))
 	notALine := logline.Encode(logline.MomentAt(at(0)))
 	for name, tc := range map[string]struct {
-		q    FollowRequest
+		q    TailRequest
 		code refusal.Code
 	}{
-		"a cursor beside since":   {FollowRequest{Cursor: &next, Since: moment(0)}, refusal.CodeConflictingParameters},
-		"seen alone":              {FollowRequest{Scope: webScope, Seen: seenAt("web-1", "app", 0)}, refusal.CodeConflictingParameters},
-		"a scope beside a cursor": {FollowRequest{Scope: webScope, Cursor: &next}, refusal.CodeConflictingParameters},
-		"no scope and no cursor":  {FollowRequest{Since: moment(0)}, refusal.CodeConflictingParameters},
-		"a prev":                  {FollowRequest{Cursor: &prev}, refusal.CodeCursorInvalid},
-		"another version":         {FollowRequest{Cursor: &other}, refusal.CodeCursorInvalid},
-		"a seen not a line":       {FollowRequest{Scope: webScope, Since: moment(0), Seen: []string{notALine}}, refusal.CodeCursorInvalid},
-		"a seen not a cursor":     {FollowRequest{Cursor: &next, Seen: []string{"yesterday"}}, refusal.CodeCursorInvalid},
+		"a cursor beside since":   {TailRequest{Cursor: &next, Since: moment(0)}, refusal.CodeConflictingParameters},
+		"seen alone":              {TailRequest{Scope: webScope, Seen: seenAt("web-1", "app", 0)}, refusal.CodeConflictingParameters},
+		"a scope beside a cursor": {TailRequest{Scope: webScope, Cursor: &next}, refusal.CodeConflictingParameters},
+		"no scope and no cursor":  {TailRequest{Since: moment(0)}, refusal.CodeConflictingParameters},
+		"a prev":                  {TailRequest{Cursor: &prev}, refusal.CodeCursorInvalid},
+		"another version":         {TailRequest{Cursor: &other}, refusal.CodeCursorInvalid},
+		"a seen not a line":       {TailRequest{Scope: webScope, Since: moment(0), Seen: []string{notALine}}, refusal.CodeCursorInvalid},
+		"a seen not a cursor":     {TailRequest{Cursor: &next, Seen: []string{"yesterday"}}, refusal.CodeCursorInvalid},
 	} {
-		_, err := followStart(tc.q, at(time.Hour))
+		_, err := tailStartCursor(tc.q, at(time.Hour))
 		assert.Equal(t, tc.code, codeOf(err), name)
 	}
 }
 
-// openFollow opens a follow of webScope over f, failing the test on an error, and
-// closes the pods watch's snapshot, returning once the follow has resolved the
+// openTail opens a tail of webScope over f, failing the test on an error, and
+// closes the pods watch's snapshot, returning once the tail has resolved the
 // view against it.
-func openFollow(t *testing.T, svc *Service, f *fakeService) (*cluster.Stream[FollowFrame], context.CancelFunc) {
+func openTail(t *testing.T, svc *Service, f *fakeService) (*cluster.Stream[TailFrame], context.CancelFunc) {
 	t.Helper()
-	return openFollowOf(t, svc, f, webScope)
+	return openTailOf(t, svc, f, webScope)
 }
 
-// startFollow opens a follow of q on ctx, which must open, and answers its frames.
-func startFollow(t *testing.T, ctx context.Context, svc *Service, q FollowRequest) *cluster.Stream[FollowFrame] {
+// startTail opens a tail of q on ctx, which must open, and answers its frames.
+func startTail(t *testing.T, ctx context.Context, svc *Service, q TailRequest) *cluster.Stream[TailFrame] {
 	t.Helper()
-	opened, err := svc.Follow(ctx, "7", q)
+	opened, err := svc.TailFromCursor(ctx, "7", q)
 	require.NoError(t, err)
 	return opened.Frames
 }
 
-// openFollowOf is openFollow of view.
-func openFollowOf(t *testing.T, svc *Service, f *fakeService, view Scope) (*cluster.Stream[FollowFrame], context.CancelFunc) {
+// openTailOf is openTail of view.
+func openTailOf(t *testing.T, svc *Service, f *fakeService, view Scope) (*cluster.Stream[TailFrame], context.CancelFunc) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
-	stream := startFollow(t, ctx, svc, FollowRequest{Scope: view})
+	stream := startTail(t, ctx, svc, TailRequest{Scope: view})
 	closeSnapshot(t, f, f.pods)
 	return stream, cancel
 }
 
-// openEndingFollow opens a follow of webScope over f that ends on its own. It
-// leaves the pods watch's snapshot open: the follow opens its streams before the
+// openEndingTail opens a tail of webScope over f that ends on its own. It
+// leaves the pods watch's snapshot open: the tail opens its streams before the
 // snapshot closes and can end before the test could close it, after which nothing
 // reads the watch.
-func openEndingFollow(t *testing.T, svc *Service) *cluster.Stream[FollowFrame] {
+func openEndingTail(t *testing.T, svc *Service) *cluster.Stream[TailFrame] {
 	t.Helper()
-	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: webScope})
+	stream := startTail(t, t.Context(), svc, TailRequest{Scope: webScope})
 	return stream
 }
 
 // closeSnapshot closes watch's snapshot and returns once the resolve that starts
 // has read the mirror, so a change the test makes next cannot race that read.
-func closeSnapshot(t *testing.T, f *fakeService, watch chan<- cluster.ClusterCachedDataObjectWatchFrame) {
+func closeSnapshot(t *testing.T, f *fakeService, watch chan<- cluster.ClusterCachedDataObjectCollectionWatchFrame) {
 	t.Helper()
 	read := testutil.NewProbe[struct{}](1)
 	f.set(func() { f.mirrorRead = read })
@@ -280,25 +280,25 @@ func closeSnapshot(t *testing.T, f *fakeService, watch chan<- cluster.ClusterCac
 	f.set(func() { f.mirrorRead = nil })
 }
 
-// A follow on a deployment picks up a pod added to the mirror after it opened,
-// from the follow's start, and goes on after one is deleted.
-func TestAFollowTracksTheDeploymentsPods(t *testing.T) {
+// A tail on a deployment picks up a pod added to the mirror after it opened,
+// from the tail's start, and goes on after one is deleted.
+func TestATailTracksTheDeploymentsPods(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
-	stream, _ := openFollow(t, svc, f)
+	stream, _ := openTail(t, svc, f)
 
 	s.Add("prod/web-1/app", logstest.Stamped(time.Hour+time.Second, "from web-1"))
 	assert.Equal(t, "from web-1", recvLine(t, stream, "web-1's line").Message)
 
 	f.store.Apply(t, web3())
-	f.pods <- podFrame(cluster.DeltaFrameAdded, "web-3")
+	f.pods <- podFrame(cluster.CollectionWatchFrameAdded, "web-3")
 	s.Add("prod/web-3/app", logstest.Stamped(time.Hour+2*time.Second, "from web-3"))
 	assert.Equal(t, "from web-3", recvLine(t, stream, "web-3's line").Message)
 
 	f.store.Delete(t, web1())
-	f.pods <- podFrame(cluster.DeltaFrameDeleted, "web-1")
+	f.pods <- podFrame(cluster.CollectionWatchFrameDeleted, "web-1")
 	s.Add("prod/web-2/app", logstest.Stamped(time.Hour+3*time.Second, "from web-2"))
 	assert.Equal(t, "from web-2", recvLine(t, stream, "web-2's line").Message)
 
@@ -311,14 +311,14 @@ func TestAFollowTracksTheDeploymentsPods(t *testing.T) {
 	assert.Equal(t, []string{"2026-10-08T11:00:00Z", "2026-10-08T11:00:00Z", "2026-10-08T11:00:00Z"}, sinces)
 }
 
-// A follow with no cursor reads each log from the moment it started.
-func TestAFollowOpensAtItsStart(t *testing.T) {
+// A tail with no cursor reads each log from the moment it started.
+func TestATailOpensAtItsStart(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	s.Add("prod/web-1/app", logstest.Stamped(0, "old"))
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
-	stream, _ := openFollow(t, svc, f)
+	stream, _ := openTail(t, svc, f)
 
 	s.Add("prod/web-1/app", logstest.Stamped(time.Hour, "new"))
 
@@ -328,21 +328,21 @@ func TestAFollowOpensAtItsStart(t *testing.T) {
 
 // A stream Seen names reads past its line, and every other from Since: the
 // named line's moment is delivered for the other stream alone.
-func TestAFollowReadsEachSeenStreamPastItsLine(t *testing.T) {
+func TestATailReadsEachSeenStreamPastItsLine(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	s.Add("prod/web-1/app", logstest.Stamped(time.Second, "a1"), logstest.Stamped(2*time.Second, "a2"))
 	s.Add("prod/web-2/app", logstest.Stamped(time.Second, "b1"), logstest.Stamped(2*time.Second, "b2"))
 	svc, _ := serviceOver(t, webMirror(t), s)
 
-	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: webScope, Since: moment(0), Seen: seenAt("web-1", "app", time.Second)})
+	stream := startTail(t, t.Context(), svc, TailRequest{Scope: webScope, Since: moment(0), Seen: seenAt("web-1", "app", time.Second)})
 
 	assert.ElementsMatch(t, []string{"a2", "b1", "b2"}, recvLines(t, stream, 3))
 }
 
 // A workload's follow reads a pod deleted since, Seen naming a line of it, from the
 // file past its line.
-func TestAFollowReadsAGonePodSeenNames(t *testing.T) {
+func TestATailReadsAGonePodSeenNames(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	s.Add("prod/web-1/app", logstest.Stamped(time.Second, "a1"), logstest.Stamped(2*time.Second, "a2"))
@@ -352,14 +352,14 @@ func TestAFollowReadsAGonePodSeenNames(t *testing.T) {
 	require.Equal(t, []string{"a1", "b1", "a2"}, messages(page.Records))
 	f.store.Delete(t, web1())
 
-	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: webScope, Since: moment(0), Seen: seenAt("web-1", "app", time.Second)})
+	stream := startTail(t, t.Context(), svc, TailRequest{Scope: webScope, Since: moment(0), Seen: seenAt("web-1", "app", time.Second)})
 
 	assert.ElementsMatch(t, []string{"a2", "b1"}, recvLines(t, stream, 2))
 }
 
 // A workload's follow from a moment reads the pods it no longer runs from the file
 // first, found by their chain though nothing names them, then follows the live ones.
-func TestAFollowReadsAWorkloadsGonePodsFirst(t *testing.T) {
+func TestATailReadsAWorkloadsGonePodsFirst(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	s.Add("prod/web-1/app", logstest.Stamped(time.Second, "a1"), logstest.Stamped(3*time.Second, "a3"))
@@ -369,14 +369,14 @@ func TestAFollowReadsAWorkloadsGonePodsFirst(t *testing.T) {
 	require.Equal(t, []string{"a1", "b2", "a3"}, messages(page.Records))
 	f.store.Delete(t, web1())
 
-	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: webScope, Since: moment(0)})
+	stream := startTail(t, t.Context(), svc, TailRequest{Scope: webScope, Since: moment(0)})
 
 	assert.Equal(t, []string{"a1", "a3", "b2"}, recvLines(t, stream, 3))
 }
 
-// A follow from a page's Follow reads each stream where the page left it: one
+// A tail from a page's Follow reads each stream where the page left it: one
 // the page passed past its last line, one it did not from the window's start.
-func TestAFollowFromAPagesFollow(t *testing.T) {
+func TestATailFromAPagesFollow(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	s.Add("prod/web-1/app", logstest.Stamped(time.Second, "a1"))
@@ -386,15 +386,15 @@ func TestAFollowFromAPagesFollow(t *testing.T) {
 	s.Add("prod/web-1/app", logstest.Stamped(2*time.Second, "a2"))
 	s.Add("prod/web-2/app", logstest.Stamped(500*time.Millisecond, "b0"))
 
-	stream := startFollow(t, t.Context(), svc, FollowRequest{Cursor: page.Page.Follow})
+	stream := startTail(t, t.Context(), svc, TailRequest{Cursor: page.Page.Follow})
 
 	assert.ElementsMatch(t, []string{"b0", "a2"}, recvLines(t, stream, 2))
 }
 
-// A follow takes a cursor's start and ignores its end: from a Follow whose
+// A tail takes a cursor's start and ignores its end: from a Follow whose
 // window's Until is past, from one whose counted After is met, and from a Next of
 // a bounded window, it delivers the lines past the window's end (rule 3).
-func TestAFollowIgnoresItsCursorsEnd(t *testing.T) {
+func TestATailIgnoresItsCursorsEnd(t *testing.T) {
 	t.Parallel()
 	bounded := Window{Since: moment(0), Until: moment(time.Second)}
 	follow := func(w Window, after int) func(*Service) *string {
@@ -422,16 +422,16 @@ func TestAFollowIgnoresItsCursorsEnd(t *testing.T) {
 			s.Add("prod/web-1/app", logstest.Stamped(0, "0"), logstest.Stamped(time.Second, "1"), logstest.Stamped(2*time.Second, "2"), logstest.Stamped(3*time.Second, "3"))
 			svc, _ := serviceOver(t, webMirror(t), s)
 
-			stream := startFollow(t, t.Context(), svc, FollowRequest{Cursor: tc.cursor(svc)})
+			stream := startTail(t, t.Context(), svc, TailRequest{Cursor: tc.cursor(svc)})
 
 			assert.Equal(t, tc.want, recvLines(t, stream, len(tc.want)))
 		})
 	}
 }
 
-// A follow echoes its request as it ran: from a cursor, the cursor's scope and
+// A tail echoes its request as it ran: from a cursor, the cursor's scope and
 // its first page's clock; from a moment, its own scope and the service's clock.
-func TestAFollowEchoesItsRequest(t *testing.T) {
+func TestATailEchoesItsRequest(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	s.Add("prod/web-1/app", logstest.Stamped(0, "0"), logstest.Stamped(time.Second, "1"))
@@ -440,21 +440,21 @@ func TestAFollowEchoesItsRequest(t *testing.T) {
 	require.NotNil(t, page.Page.Next)
 	svc.now = func() time.Time { return at(2 * time.Hour) }
 
-	resp, err := svc.Follow(t.Context(), "7", FollowRequest{Cursor: page.Page.Next, ForModel: true})
+	resp, err := svc.TailFromCursor(t.Context(), "7", TailRequest{Cursor: page.Page.Next, ForModel: true})
 	require.NoError(t, err)
-	assert.Equal(t, FollowRequest{Scope: web1Scope, Cursor: page.Page.Next, MaxMessageBytes: MaxMessageBytesCap, ForModel: true}, resp.Request)
+	assert.Equal(t, TailRequest{Scope: web1Scope, Cursor: page.Page.Next, MaxMessageBytes: MaxMessageBytesCap, ForModel: true}, resp.Request)
 	assert.Equal(t, at(time.Hour), resp.ResolvedAt)
 	assert.Equal(t, []string{"1"}, recvLines(t, resp.Frames, 1))
 
-	resp, err = svc.Follow(t.Context(), "7", FollowRequest{Scope: web1Scope, Since: moment(0), MaxMessageBytes: 10})
+	resp, err = svc.TailFromCursor(t.Context(), "7", TailRequest{Scope: web1Scope, Since: moment(0), MaxMessageBytes: 10})
 	require.NoError(t, err)
-	assert.Equal(t, FollowRequest{Scope: web1Scope, Since: moment(0), MaxMessageBytes: 10}, resp.Request)
+	assert.Equal(t, TailRequest{Scope: web1Scope, Since: moment(0), MaxMessageBytes: 10}, resp.Request)
 	assert.Equal(t, at(2*time.Hour), resp.ResolvedAt)
 }
 
-// A follow greps every line it sends: a padding line on either side of the
+// A tail greps every line it sends: a padding line on either side of the
 // cursor's range that fails the grep, which a poll passes, is not sent.
-func TestAFollowGrepsTheCursorsPadding(t *testing.T) {
+func TestATailGrepsTheCursorsPadding(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	s.Add("prod/web-1/app", logstest.Stamped(0, "pad 0"), logstest.Stamped(time.Second, "keep 1"), logstest.Stamped(2*time.Second, "pad 2"), logstest.Stamped(3*time.Second, "keep 3"))
@@ -466,14 +466,14 @@ func TestAFollowGrepsTheCursorsPadding(t *testing.T) {
 	require.Equal(t, []string{"pad 0"}, messages(poll.Records), "a poll passes padding")
 	c := encodePageCursor(pageCursor{Scope: scope, newer: true, resolvedWindow: cursorIn(t, poll.Page.Next).resolvedWindow})
 
-	stream := startFollow(t, t.Context(), svc, FollowRequest{Cursor: &c})
+	stream := startTail(t, t.Context(), svc, TailRequest{Cursor: &c})
 
 	assert.Equal(t, []string{"keep 1", "keep 3"}, recvLines(t, stream, 2))
 }
 
-// A follow cuts each message at MaxMessageBytes, saying the bytes cut; 0 is the
+// A tail cuts each message at MaxMessageBytes, saying the bytes cut; 0 is the
 // service's own cap, past which none is wider, and a negative is bad-page (rule 4).
-func TestAFollowCutsItsMessages(t *testing.T) {
+func TestATailCutsItsMessages(t *testing.T) {
 	t.Parallel()
 	long := strings.Repeat("x", 100)
 	for name, tc := range map[string]struct {
@@ -491,7 +491,7 @@ func TestAFollowCutsItsMessages(t *testing.T) {
 			s.Add("prod/web-1/app", logstest.Stamped(0, long), logstest.Stamped(time.Second, "ab"))
 			svc, _ := serviceOver(t, webMirror(t), s)
 
-			stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: web1Scope, Since: moment(0), MaxMessageBytes: tc.max})
+			stream := startTail(t, t.Context(), svc, TailRequest{Scope: web1Scope, Since: moment(0), MaxMessageBytes: tc.max})
 
 			recs := recvRecords(t, stream, 2)
 			assert.Equal(t, tc.want, messages(recs))
@@ -500,87 +500,87 @@ func TestAFollowCutsItsMessages(t *testing.T) {
 	}
 
 	svc, _ := serviceOver(t, webMirror(t), newLogServer())
-	_, err := svc.Follow(t.Context(), "7", FollowRequest{Scope: web1Scope, MaxMessageBytes: -1})
+	_, err := svc.TailFromCursor(t.Context(), "7", TailRequest{Scope: web1Scope, MaxMessageBytes: -1})
 	assert.Equal(t, refusal.CodeBadPage, codeOf(err))
 }
 
-// A follow for the model redacts each message before it cuts it, as a page does;
+// A tail for the model redacts each message before it cuts it, as a page does;
 // one for the viewer cuts the stored line.
-func TestAFollowRedactsAMessageBeforeItIsCut(t *testing.T) {
+func TestATailRedactsAMessageBeforeItIsCut(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	s.Add("prod/web-1/app", logstest.Stamped(0, "xxxxxxxxxx \x1b[31msk-"+strings.Repeat("A", 30)+"\x1b[0m"))
 	svc, _ := serviceOver(t, webMirror(t), s)
 
-	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: web1Scope, Since: moment(0), MaxMessageBytes: 20, ForModel: true})
+	stream := startTail(t, t.Context(), svc, TailRequest{Scope: web1Scope, Since: moment(0), MaxMessageBytes: 20, ForModel: true})
 	recs := recvRecords(t, stream, 1)
 	assert.Equal(t, "xxxxxxxxxx [redacted", recs[0].Message)
 	assert.Equal(t, 1, recs[0].TruncatedBytes)
 
-	stream = startFollow(t, t.Context(), svc, FollowRequest{Scope: web1Scope, Since: moment(0), MaxMessageBytes: 20})
+	stream = startTail(t, t.Context(), svc, TailRequest{Scope: web1Scope, Since: moment(0), MaxMessageBytes: 20})
 	assert.Equal(t, "xxxxxxxxxx \x1b[31msk-A", recvRecords(t, stream, 1)[0].Message)
 }
 
-// A follow's walk stamps nothing: what it sends is in the viewer's window, so the file
+// A tail's walk stamps nothing: what it sends is in the viewer's window, so the file
 // keeps it only while the budget allows.
-func TestAFollowStampsNothing(t *testing.T) {
+func TestATailStampsNothing(t *testing.T) {
 	t.Parallel()
 	f := webMirror(t)
 	svc, _ := serviceIn(t, f, newLogServer(), t.TempDir(), testRetention)
 	seedUnread(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(0, time.Second), AtBeginning: true})
 
-	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: web1Scope, Since: moment(-time.Second)})
+	stream := startTail(t, t.Context(), svc, TailRequest{Scope: web1Scope, Since: moment(-time.Second)})
 	assert.Equal(t, "0", recvLine(t, stream, "the first line").Message)
 	assert.Equal(t, "1", recvLine(t, stream, "the second line").Message)
 
 	assert.Zero(t, chunksOf(t, svc, f, "web-1", "app")[0].ReadAt)
 }
 
-// A follow and its tailers hold the rows of the streams they read until they end, so
-// a sweep while the follow runs leaves a row with nothing in it yet; once they have
+// A tail and its tailers hold the rows of the streams they read until they end, so
+// a sweep while the tail runs leaves a row with nothing in it yet; once they have
 // ended, the sweep takes it.
-func TestAFollowHoldsItsRows(t *testing.T) {
+func TestATailHoldsItsRows(t *testing.T) {
 	t.Parallel()
 	backend := newFakeBackend()
 	backend.set("web-1/app", fakeRead{wait: never})
 	svc, f := serviceOn(t, backend)
 	everyPodGone(svc)
-	_, cancel := openFollowOf(t, svc, f, web1Scope)
+	_, cancel := openTailOf(t, svc, f, web1Scope)
 	backend.opened.Await(t, "the tailer's read")
 
 	sweepFile(t, svc, f)
-	assert.Len(t, rowsOf(t, svc, f, "web-1"), 1, "held while the follow runs")
+	assert.Len(t, rowsOf(t, svc, f, "web-1"), 1, "held while the tail runs")
 
 	cancel()
 	require.Eventually(t, func() bool {
 		sweepFile(t, svc, f)
 		return len(rowsOf(t, svc, f, "web-1")) == 0
-	}, testutil.Timeout, time.Millisecond, "let go once the follow and its tailer end")
+	}, testutil.Timeout, time.Millisecond, "let go once the tail and its tailer end")
 }
 
-// A follow from a moment reads every line from it first, a line stamped at the
+// A tail from a moment reads every line from it first, a line stamped at the
 // moment included.
-func TestAFollowFromAMoment(t *testing.T) {
+func TestATailFromAMoment(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	s.Add("prod/web-1/app", logstest.Stamped(0, "before"), logstest.Stamped(time.Second, "at"), logstest.Stamped(2*time.Second, "after"))
 	svc, _ := serviceOver(t, webMirror(t), s)
 
-	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: webScope, Since: moment(time.Second)})
+	stream := startTail(t, t.Context(), svc, TailRequest{Scope: webScope, Since: moment(time.Second)})
 
 	assert.Equal(t, []string{"at", "after"}, recvLines(t, stream, 2))
 }
 
-// A follow sends only the lines its grep matches: the kubelet reads every line,
+// A tail sends only the lines its grep matches: the kubelet reads every line,
 // and the grep runs where the lines are read.
-func TestAFollowGrepsWhatItSends(t *testing.T) {
+func TestATailGrepsWhatItSends(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
 	view := webScope
 	view.Grep = "^keep"
-	stream, _ := openFollowOf(t, svc, f, view)
+	stream, _ := openTailOf(t, svc, f, view)
 
 	s.Add("prod/web-1/app", logstest.Stamped(time.Hour, "skip me"), logstest.Stamped(time.Hour+time.Second, "keep me"))
 
@@ -589,7 +589,7 @@ func TestAFollowGrepsWhatItSends(t *testing.T) {
 }
 
 // recvLine waits for stream's next frame, a line, and answers it.
-func recvLine(t *testing.T, stream *cluster.Stream[FollowFrame], what string) logline.Record {
+func recvLine(t *testing.T, stream *cluster.Stream[TailFrame], what string) logline.Record {
 	t.Helper()
 	frame := testutil.Recv(t, stream.Frames, what)
 	require.NotNil(t, frame.Record, "%s: %+v", what, frame)
@@ -598,23 +598,23 @@ func recvLine(t *testing.T, stream *cluster.Stream[FollowFrame], what string) lo
 
 // endedWith waits for stream's next frame, its Ended, then for it to end clean,
 // and answers the Ended refusal.
-func endedWith(t *testing.T, stream *cluster.Stream[FollowFrame]) refusal.Refusal {
+func endedWith(t *testing.T, stream *cluster.Stream[TailFrame]) refusal.Refusal {
 	t.Helper()
-	frame := testutil.Recv(t, stream.Frames, "the follow's end")
+	frame := testutil.Recv(t, stream.Frames, "the tail's end")
 	require.NotNil(t, frame.Ended, "%+v", frame)
-	testutil.RecvClosed(t, stream.Frames, "the follow to end")
+	testutil.RecvClosed(t, stream.Frames, "the tail to end")
 	require.NoError(t, stream.Err())
 	return *frame.Ended
 }
 
 // failsWith waits for stream to end with no Ended frame and answers its Err.
-func failsWith(t *testing.T, stream *cluster.Stream[FollowFrame]) error {
+func failsWith(t *testing.T, stream *cluster.Stream[TailFrame]) error {
 	t.Helper()
-	testutil.RecvClosed(t, stream.Frames, "the follow to end")
+	testutil.RecvClosed(t, stream.Frames, "the tail to end")
 	return stream.Err()
 }
 
-// awaitClosed waits for key's first follow to end, and awaitReadAgain for a read of
+// awaitClosed waits for key's first tail to end, and awaitReadAgain for a read of
 // key from since.
 func awaitClosed(t *testing.T, s *logstest.Server, key string) {
 	t.Helper()
@@ -629,42 +629,42 @@ func awaitReadAgain(t *testing.T, s *logstest.Server, key, since string) {
 	}, testutil.Timeout, time.Millisecond, "a read of "+key+" again from "+since)
 }
 
-// A cluster disabled under a follow ends it, saying so.
-func TestAFollowEndsWhenTheClusterIsDisabled(t *testing.T) {
+// A cluster disabled under a tail ends it, saying so.
+func TestATailEndsWhenTheClusterIsDisabled(t *testing.T) {
 	t.Parallel()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, newLogServer())
-	f.frames = make(chan cluster.ClusterWatchFrame)
-	stream, _ := openFollow(t, svc, f)
+	f.frames = make(chan cluster.ClusterCollectionWatchFrame)
+	stream, _ := openTail(t, svc, f)
 
 	disabled := enabledCluster()
 	disabled.Spec.Enabled = false
-	f.frames <- cluster.ClusterWatchFrame{Type: cluster.DeltaFrameModified, Cluster: disabled}
+	f.frames <- cluster.ClusterCollectionWatchFrame{Type: cluster.CollectionWatchFrameModified, Cluster: disabled}
 
 	assert.Equal(t, kubelet.ErrRevoked, endedWith(t, stream))
 }
 
-// A 401 on a stream the follow opens ends it: the user's credentials, not a pod's
+// A 401 on a stream the tail opens ends it: the user's credentials, not a pod's
 // state.
-func TestAFollowEndsOnAnUnauthorizedStream(t *testing.T) {
+func TestATailEndsOnAnUnauthorizedStream(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	s.Refuse["prod/web-1/app"] = logstest.Denial{Code: http.StatusUnauthorized, Message: "unauthorized"}
 	svc, _ := serviceOver(t, webMirror(t), s)
-	stream := openEndingFollow(t, svc)
+	stream := openEndingTail(t, svc)
 
 	assert.Equal(t, refusal.New(refusal.CodeUnauthorized, "the cluster refused to show this log: unauthorized"), endedWith(t, stream))
 }
 
-// A 403 is one namespace's, so it ends its own stream alone, and the follow ends
-// with it only once every stream has: then following again would end the same way.
+// A 403 is one namespace's, so it ends its own stream alone, and the tail ends
+// with it only once every stream has: then tailing again would end the same way.
 func TestAForbiddenStreamEndsItselfAlone(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	s.Refuse["prod/web-2/app"] = logstest.Denial{Code: http.StatusForbidden, Message: "forbidden"}
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
-	stream, _ := openFollow(t, svc, f)
+	stream, _ := openTail(t, svc, f)
 
 	s.Add("prod/web-1/app", logstest.Stamped(time.Hour+time.Second, "from web-1"))
 	// web-2's refusal and web-1's line race each other.
@@ -686,9 +686,9 @@ func TestAForbiddenStreamEndsItselfAlone(t *testing.T) {
 	assert.Equal(t, refusal.New(refusal.CodeUnauthorized, "the cluster refused to show this log: forbidden"), endedWith(t, stream))
 }
 
-// A follow that ends on its own, with its caller still waiting, ends its pods
+// A tail that ends on its own, with its caller still waiting, ends its pods
 // watch too, and keeps the reason it ended.
-func TestAFollowThatEndsReleasesItsWatch(t *testing.T) {
+func TestATailThatEndsReleasesItsWatch(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	s.Refuse["prod/web-1/app"] = logstest.Denial{Code: http.StatusForbidden, Message: "forbidden"}
@@ -696,7 +696,7 @@ func TestAFollowThatEndsReleasesItsWatch(t *testing.T) {
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
 	f.podsDone = make(chan struct{})
-	stream := openEndingFollow(t, svc)
+	stream := openEndingTail(t, svc)
 
 	recvNotice(t, stream, "one stream's refusal")
 	recvNotice(t, stream, "the other's")
@@ -704,13 +704,13 @@ func TestAFollowThatEndsReleasesItsWatch(t *testing.T) {
 	testutil.Wait(t, f.podsDone, "the pods watch to end")
 }
 
-// A follow whose every container has finished ends, saying so.
-func TestAFollowEndsWhenEveryStreamIsGone(t *testing.T) {
+// A tail whose every container has finished ends, saying so.
+func TestATailEndsWhenEveryStreamIsGone(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
-	stream, _ := openFollow(t, svc, f)
+	stream, _ := openTail(t, svc, f)
 
 	f.store.Apply(t, finished(web1()))
 	f.store.Apply(t, finished(web2()))
@@ -720,10 +720,10 @@ func TestAFollowEndsWhenEveryStreamIsGone(t *testing.T) {
 	assert.Equal(t, errStopped, endedWith(t, stream))
 }
 
-// A follow whose containers have all finished reads each to its end, sends their
+// A tail whose containers have all finished reads each to its end, sends their
 // lines, then says every container stopped. Each fills on its own, so the order is
 // per container alone.
-func TestAFollowDeliversWhatItHeldBeforeItEnds(t *testing.T) {
+func TestATailDeliversWhatItHeldBeforeItEnds(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	s.Add("prod/web-1/app", logstest.Stamped(time.Second, "a"))
@@ -733,7 +733,7 @@ func TestAFollowDeliversWhatItHeldBeforeItEnds(t *testing.T) {
 	s.End("prod/web-1/app")
 	s.End("prod/web-2/app")
 
-	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: webScope, Since: moment(-time.Second)})
+	stream := startTail(t, t.Context(), svc, TailRequest{Scope: webScope, Since: moment(-time.Second)})
 
 	assert.ElementsMatch(t, []string{"a", "b"}, recvLines(t, stream, 2))
 	assert.Equal(t, errStopped, endedWith(t, stream))
@@ -741,53 +741,53 @@ func TestAFollowDeliversWhatItHeldBeforeItEnds(t *testing.T) {
 
 // A pod that joined the view between its resolving and the pods watch opening is
 // followed once the watch's snapshot closes, though no frame names it after.
-func TestAFollowReconcilesTheSnapshot(t *testing.T) {
+func TestATailReconcilesTheSnapshot(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
-	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: webScope})
+	stream := startTail(t, t.Context(), svc, TailRequest{Scope: webScope})
 
 	f.store.Apply(t, web3())
-	f.pods <- podFrame(cluster.DeltaFrameAdded, "web-3")
+	f.pods <- podFrame(cluster.CollectionWatchFrameAdded, "web-3")
 	f.pods <- bookmark
 
 	s.Add("prod/web-3/app", logstest.Stamped(time.Hour+time.Second, "from web-3"))
 	assert.Equal(t, "from web-3", recvLine(t, stream, "web-3's line").Message)
 }
 
-// A follow whose last pods leave the view waits for the next, as a Deployment
+// A tail whose last pods leave the view waits for the next, as a Deployment
 // scaled to zero and back has it.
-func TestAFollowWaitsWhenItsLastPodsLeave(t *testing.T) {
+func TestATailWaitsWhenItsLastPodsLeave(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
-	stream, _ := openFollow(t, svc, f)
+	stream, _ := openTail(t, svc, f)
 
 	f.store.Delete(t, web1())
 	f.store.Delete(t, web2())
-	f.pods <- podFrame(cluster.DeltaFrameDeleted, "web-1")
+	f.pods <- podFrame(cluster.CollectionWatchFrameDeleted, "web-1")
 
 	f.store.Apply(t, web3())
-	f.pods <- podFrame(cluster.DeltaFrameAdded, "web-3")
+	f.pods <- podFrame(cluster.CollectionWatchFrameAdded, "web-3")
 	s.Add("prod/web-3/app", logstest.Stamped(time.Hour+time.Second, "from web-3"))
 	assert.Equal(t, "from web-3", recvLine(t, stream, "web-3's line").Message)
 }
 
-// A follow of a view with no container yet waits for its pods rather than being
+// A tail of a view with no container yet waits for its pods rather than being
 // refused, and reads them from the moment it started.
-func TestAFollowOfAnEmptyViewWaitsForItsPods(t *testing.T) {
+func TestATailOfAnEmptyViewWaitsForItsPods(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	f.store.Mirror(t, "batch/v1", "Job")
 	svc, _ := serviceOver(t, f, s)
-	stream, _ := openFollowOf(t, svc, f, Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourceJob, Name: "batch"}}})
+	stream, _ := openTailOf(t, svc, f, Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourceJob, Name: "batch"}}})
 
 	f.store.Apply(t, workload("batch/v1", "Job", "batch", "uid-batch", nil))
 	f.store.Apply(t, pod("batch-1", "uid-batch-1", "", controller("batch/v1", "Job", "batch", "uid-batch"), container{name: "main"}))
-	f.pods <- podFrame(cluster.DeltaFrameAdded, "batch-1")
+	f.pods <- podFrame(cluster.CollectionWatchFrameAdded, "batch-1")
 	s.Add("prod/batch-1/main", logstest.Stamped(time.Hour+time.Second, "started"))
 
 	assert.Equal(t, "started", recvLine(t, stream, "batch-1's line").Message)
@@ -796,12 +796,12 @@ func TestAFollowOfAnEmptyViewWaitsForItsPods(t *testing.T) {
 
 // A stream that ends clean on a container the view sees running is opened again
 // past its last line: a proxy or the API server can close an idle stream.
-func TestAFollowReopensAStreamClosedOnARunningContainer(t *testing.T) {
+func TestATailReopensAStreamClosedOnARunningContainer(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
-	stream, _ := openFollow(t, svc, f)
+	stream, _ := openTail(t, svc, f)
 	s.Add("prod/web-1/app", logstest.Stamped(time.Hour+time.Second, "before"))
 	recvLine(t, stream, "web-1's line")
 
@@ -810,8 +810,8 @@ func TestAFollowReopensAStreamClosedOnARunningContainer(t *testing.T) {
 	awaitReadAgain(t, s, "prod/web-1/app", "2026-10-08T11:00:01Z")
 }
 
-// A follow narrows its pods watch to the view's namespaces.
-func TestAFollowWatchesOnlyItsNamespaces(t *testing.T) {
+// A tail narrows its pods watch to the view's namespaces.
+func TestATailWatchesOnlyItsNamespaces(t *testing.T) {
 	t.Parallel()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, newLogServer())
@@ -820,7 +820,7 @@ func TestAFollowWatchesOnlyItsNamespaces(t *testing.T) {
 		{Namespace: "prod", Kind: SourcePod, Name: "web-2"},
 		{Namespace: "staging", Kind: SourcePod, Name: "web-1"},
 	}}
-	_, err := svc.Follow(t.Context(), "7", FollowRequest{Scope: view})
+	_, err := svc.TailFromCursor(t.Context(), "7", TailRequest{Scope: view})
 	require.NoError(t, err)
 
 	f.mu.Lock()
@@ -828,9 +828,9 @@ func TestAFollowWatchesOnlyItsNamespaces(t *testing.T) {
 	assert.Equal(t, []string{"prod", "staging"}, f.podNamespaces)
 }
 
-// A follow of a pod ends when the pod is deleted, and when a pod of the same name
+// A tail of a pod ends when the pod is deleted, and when a pod of the same name
 // with another UID stands in its place.
-func TestAFollowOfAPodEndsWithThePod(t *testing.T) {
+func TestATailOfAPodEndsWithThePod(t *testing.T) {
 	t.Parallel()
 	for name, replacement := range map[string]map[string]any{
 		"gone":     nil,
@@ -839,13 +839,13 @@ func TestAFollowOfAPodEndsWithThePod(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			f := webMirror(t)
 			svc, _ := serviceOver(t, f, newLogServer())
-			stream, _ := openFollowOf(t, svc, f, podView("web-1"))
+			stream, _ := openTailOf(t, svc, f, podView("web-1"))
 
 			f.store.Delete(t, web1())
 			if replacement != nil {
 				f.store.Apply(t, replacement)
 			}
-			f.pods <- uidFrame(cluster.DeltaFrameDeleted, "web-1", "uid-web-1")
+			f.pods <- uidFrame(cluster.CollectionWatchFrameDeleted, "web-1", "uid-web-1")
 
 			assert.Equal(t, refusal.New(refusal.CodeFinished, "pod prod/web-1 was deleted"), endedWith(t, stream))
 		})
@@ -868,22 +868,22 @@ func TestADeletedPodLeavesItsViewsOtherSources(t *testing.T) {
 	svc, _ := serviceOver(t, f, s)
 	view := webScope
 	view.Sources = append(slices.Clone(view.Sources), ScopeSource{Namespace: "prod", Kind: SourcePod, Name: "solo"})
-	stream, _ := openFollowOf(t, svc, f, view)
-	soloOpens.Await(t, "solo's first follow")
+	stream, _ := openTailOf(t, svc, f, view)
+	soloOpens.Await(t, "solo's first tail")
 
 	f.store.Delete(t, solo)
 	f.store.Apply(t, pod("solo", "uid-b", "node-a", nil, container{name: "app"}))
-	f.pods <- uidFrame(cluster.DeltaFrameDeleted, "solo", "uid-a")
+	f.pods <- uidFrame(cluster.CollectionWatchFrameDeleted, "solo", "uid-a")
 	// The API server ends a deleted pod's stream.
 	s.End("prod/solo/app")
 	f.store.Apply(t, web3())
-	f.pods <- podFrame(cluster.DeltaFrameAdded, "web-3")
+	f.pods <- podFrame(cluster.CollectionWatchFrameAdded, "web-3")
 
 	s.Add("prod/web-3/app", logstest.Stamped(time.Hour+time.Second, "from web-3"))
 	assert.Equal(t, "from web-3", recvLine(t, stream, "web-3's line").Message)
 	// A negative assertion, so a bounded window: a reopen would follow the stream's
 	// end after one retry, and a hundred retries is far past a local request's round trip.
-	testutil.NoRecv(t, soloOpens.Chan(), 100*svc.retry, "a follow of the pod that took solo's name")
+	testutil.NoRecv(t, soloOpens.Chan(), 100*svc.retry, "a tail of the pod that took solo's name")
 }
 
 // A pod deleted under a view that also reads it through its workload leaves the
@@ -895,27 +895,27 @@ func TestADeletedPodLeavesItsWorkloadReadingItsReplacement(t *testing.T) {
 	first := pod("db-0", "uid-db-0", "node-a", db, container{name: "app"})
 	f := newMirror(t, append(webNodes(), workload("apps/v1", "StatefulSet", "db", "uid-db", nil), first)...)
 	svc, _ := serviceOver(t, f, s)
-	stream, _ := openFollowOf(t, svc, f, Scope{Sources: []ScopeSource{
+	stream, _ := openTailOf(t, svc, f, Scope{Sources: []ScopeSource{
 		{Namespace: "prod", Kind: SourceStatefulSet, Name: "db"},
 		{Namespace: "prod", Kind: SourcePod, Name: "db-0"},
 	}})
 	s.Add("prod/db-0/app", logstest.Stamped(time.Hour+time.Second, "from db-0"))
 	recvLine(t, stream, "db-0's line")
 
-	// On another node, so the follow ends the first pod's stream and opens the
+	// On another node, so the tail ends the first pod's stream and opens the
 	// replacement's at once.
 	f.store.Delete(t, first)
 	f.store.Apply(t, pod("db-0", "uid-db-0b", "node-b", db, container{name: "app"}))
-	f.pods <- uidFrame(cluster.DeltaFrameDeleted, "db-0", "uid-db-0")
+	f.pods <- uidFrame(cluster.CollectionWatchFrameDeleted, "db-0", "uid-db-0")
 
 	require.Eventually(t, func() bool { return s.FollowsOpened("prod/db-0/app") >= 2 },
 		testutil.Timeout, time.Millisecond, "the replacement's stream to open")
 }
 
-// A follow of a pod ends when the pod is deleted, or a pod of its name with
+// A tail of a pod ends when the pod is deleted, or a pod of its name with
 // another UID stands in its place, with no Deleted frame naming it: before the
 // pods watch opened, or while a cache's clear had it closed.
-func TestAFollowOfAPodEndsWhenNoFrameNamesItsEnd(t *testing.T) {
+func TestATailOfAPodEndsWhenNoFrameNamesItsEnd(t *testing.T) {
 	t.Parallel()
 	for name, replacement := range map[string]map[string]any{
 		"deleted":  nil,
@@ -930,7 +930,7 @@ func TestAFollowOfAPodEndsWhenNoFrameNamesItsEnd(t *testing.T) {
 		t.Run(name+" before the watch", func(t *testing.T) {
 			f := webMirror(t)
 			svc, _ := serviceOver(t, f, newLogServer())
-			stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: podView("web-1")})
+			stream := startTail(t, t.Context(), svc, TailRequest{Scope: podView("web-1")})
 
 			end(f)
 			f.pods <- bookmark
@@ -941,14 +941,14 @@ func TestAFollowOfAPodEndsWhenNoFrameNamesItsEnd(t *testing.T) {
 			f := webMirror(t)
 			svc, _ := serviceOver(t, f, newLogServer())
 			// No snapshot closes before the clear, so no resolve it starts races the end.
-			stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: podView("web-1")})
-			pods := make(chan cluster.ClusterCachedDataObjectWatchFrame)
-			var ended chan cluster.ClusterCachedDataObjectWatchFrame
+			stream := startTail(t, t.Context(), svc, TailRequest{Scope: podView("web-1")})
+			pods := make(chan cluster.ClusterCachedDataObjectCollectionWatchFrame)
+			var ended chan cluster.ClusterCachedDataObjectCollectionWatchFrame
 			f.set(func() { ended, f.pods = f.pods, pods })
 
 			end(f)
 			close(ended)
-			// A replacement ends the follow at the resolve after the retry, before the
+			// A replacement ends the tail at the resolve after the retry, before the
 			// watches open again; a pod missing is only gone once a snapshot says so.
 			if replacement == nil {
 				pods <- bookmark
@@ -960,7 +960,7 @@ func TestAFollowOfAPodEndsWhenNoFrameNamesItsEnd(t *testing.T) {
 }
 
 // A view of several pods ends once every one of them is deleted, naming them.
-func TestAFollowOfPodsEndsWhenEveryPodIsDeleted(t *testing.T) {
+func TestATailOfPodsEndsWhenEveryPodIsDeleted(t *testing.T) {
 	t.Parallel()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, newLogServer())
@@ -968,79 +968,79 @@ func TestAFollowOfPodsEndsWhenEveryPodIsDeleted(t *testing.T) {
 		{Namespace: "prod", Kind: SourcePod, Name: "web-1"},
 		{Namespace: "prod", Kind: SourcePod, Name: "web-2"},
 	}}
-	stream, _ := openFollowOf(t, svc, f, view)
+	stream, _ := openTailOf(t, svc, f, view)
 
 	f.store.Delete(t, web1())
 	f.store.Delete(t, web2())
-	f.pods <- podFrame(cluster.DeltaFrameDeleted, "web-1")
-	f.pods <- podFrame(cluster.DeltaFrameDeleted, "web-2")
+	f.pods <- podFrame(cluster.CollectionWatchFrameDeleted, "web-1")
+	f.pods <- podFrame(cluster.CollectionWatchFrameDeleted, "web-2")
 
 	assert.Equal(t, refusal.New(refusal.CodeFinished, "pods prod/web-1, prod/web-2 were deleted"), endedWith(t, stream))
 }
 
 // A pod the watch deletes and the mirror still holds, as a cache's clear and
 // relist send it, is followed on.
-func TestAFollowOfAPodOutlastsAResync(t *testing.T) {
+func TestATailOfAPodOutlastsAResync(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
-	stream, _ := openFollowOf(t, svc, f, podView("web-1"))
+	stream, _ := openTailOf(t, svc, f, podView("web-1"))
 
-	f.pods <- uidFrame(cluster.DeltaFrameDeleted, "web-1", "uid-web-1")
-	f.pods <- uidFrame(cluster.DeltaFrameAdded, "web-1", "uid-web-1")
+	f.pods <- uidFrame(cluster.CollectionWatchFrameDeleted, "web-1", "uid-web-1")
+	f.pods <- uidFrame(cluster.CollectionWatchFrameAdded, "web-1", "uid-web-1")
 	s.Add("prod/web-1/app", logstest.Stamped(time.Hour+time.Second, "still here"))
 
 	assert.Equal(t, "still here", recvLine(t, stream, "web-1's line").Message)
 }
 
-// A crash-looping container, waiting to start again, keeps the follow open after
+// A crash-looping container, waiting to start again, keeps the tail open after
 // its stream is refused, says nothing of the refusal, and is read once it runs.
-func TestAFollowWaitsForAWaitingContainer(t *testing.T) {
+func TestATailWaitsForAWaitingContainer(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	s.Refuse["prod/crash/app"] = logstest.Denial{Code: http.StatusBadRequest, Message: "container is waiting to start"}
 	f := newMirror(t, append(webObjects(), waiting(pod("crash", "uid-crash", "node-a", nil, container{name: "app", restarted: true})))...)
 	svc, _ := serviceOver(t, f, s)
-	stream, _ := openFollowOf(t, svc, f, podView("crash"))
+	stream, _ := openTailOf(t, svc, f, podView("crash"))
 	require.Eventually(t, func() bool { return len(s.RequestsOf("prod/crash/app")) >= 1 }, testutil.Timeout, time.Millisecond, "crash asked")
-	// A negative assertion, so a bounded window: the follow would end or send the
+	// A negative assertion, so a bounded window: the tail would end or send the
 	// notice at once, and a hundred retries is far past it.
 	testutil.NoRecv(t, stream.Frames, 100*svc.retry, "a frame for the refusal")
 
 	s.SetRefusal("prod/crash/app", nil)
 	f.store.Apply(t, pod("crash", "uid-crash", "node-a", nil, container{name: "app", restarted: true}))
-	f.pods <- podFrame(cluster.DeltaFrameModified, "crash")
+	f.pods <- podFrame(cluster.CollectionWatchFrameModified, "crash")
 	s.Add("prod/crash/app", logstest.Stamped(time.Hour+time.Second, "started"))
 
 	assert.Equal(t, "started", recvLine(t, stream, "crash's line").Message)
 }
 
 // An init container that finishes while the main one has yet to start does not
-// end the follow of their pod: the main container has no log yet, but will.
+// end the tail of their pod: the main container has no log yet, but will.
 func TestAFinishedInitContainerLeavesItsPodFollowed(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	boot := func() map[string]any { return pod("boot", "uid-boot", "node-a", nil, container{name: "app"}) }
 	f := newMirror(t, append(webObjects(), withInit(waiting(boot()), "init"))...)
 	svc, _ := serviceOver(t, f, s)
-	stream, _ := openFollowOf(t, svc, f, Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourcePod, Name: "boot", AllContainers: true}}})
+	stream, _ := openTailOf(t, svc, f, Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourcePod, Name: "boot", AllContainers: true}}})
 	require.Eventually(t, func() bool { return len(s.RequestsOf("prod/boot/init")) >= 1 }, testutil.Timeout, time.Millisecond, "init read to its end")
-	// A negative assertion, so a bounded window: the follow would end on the init
+	// A negative assertion, so a bounded window: the tail would end on the init
 	// container's end at once, and a hundred retries is far past it.
-	testutil.NoRecv(t, stream.Frames, 100*svc.retry, "the follow to end")
+	testutil.NoRecv(t, stream.Frames, 100*svc.retry, "the tail to end")
 
 	f.store.Apply(t, withInit(boot(), "init"))
-	f.pods <- podFrame(cluster.DeltaFrameModified, "boot")
+	f.pods <- podFrame(cluster.CollectionWatchFrameModified, "boot")
 	s.Add("prod/boot/app", logstest.Stamped(time.Hour+time.Second, "started"))
 
 	assert.Equal(t, "started", recvLine(t, stream, "app's line").Message)
 }
 
 // A resolve reads one state of the mirror, whatever commits between its statements:
-// a container that starts while the follow asks whether any is starting is still
+// a container that starts while the tail asks whether any is starting is still
 // waiting to it, never a container that neither runs nor starts, which would end
-// the follow.
+// the tail.
 func TestAResolveReadsOneStateOfTheMirror(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
@@ -1052,7 +1052,7 @@ func TestAResolveReadsOneStateOfTheMirror(t *testing.T) {
 	gate := make(chan struct{})
 	p := &logstest.Pauser{Gate: gate}
 	svc.backends = []namedBackend{{"kubelet", func(get kubelet.Getter) kubelet.Backend { return kubelet.New(p.On(get)) }}}
-	stream, _ := openFollowOf(t, svc, f, Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourcePod, Name: "boot", AllContainers: true}}})
+	stream, _ := openTailOf(t, svc, f, Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourcePod, Name: "boot", AllContainers: true}}})
 	var started sync.Once
 	read := testutil.NewProbe[struct{}](1)
 	f.set(func() {
@@ -1070,52 +1070,52 @@ func TestAResolveReadsOneStateOfTheMirror(t *testing.T) {
 	})
 
 	close(gate)
-	// Once that resolve has read the mirror, the follow either ends or waits on its
+	// Once that resolve has read the mirror, the tail either ends or waits on its
 	// watches.
 	read.Await(t, "the resolve after init's read")
 	select {
-	case f.pods <- podFrame(cluster.DeltaFrameModified, "boot"):
+	case f.pods <- podFrame(cluster.CollectionWatchFrameModified, "boot"):
 	case frame := <-stream.Frames:
-		t.Fatalf("the follow sent %+v while its pod was starting", frame)
+		t.Fatalf("the tail sent %+v while its pod was starting", frame)
 	}
 	s.Add("prod/boot/app", logstest.Stamped(time.Hour+time.Second, "started"))
 
 	assert.Equal(t, "started", recvLine(t, stream, "app's line").Message)
 }
 
-// A mirror answer cut at its bounds ends the follow, since asking again would be
+// A mirror answer cut at its bounds ends the tail, since asking again would be
 // cut the same way.
-func TestAFollowEndsOnACutMirrorAnswer(t *testing.T) {
+func TestATailEndsOnACutMirrorAnswer(t *testing.T) {
 	t.Parallel()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, newLogServer())
-	stream, _ := openFollow(t, svc, f)
+	stream, _ := openTail(t, svc, f)
 
 	f.set(func() { f.moreOn = "FROM objects p" })
-	f.pods <- podFrame(cluster.DeltaFrameAdded, "web-3")
+	f.pods <- podFrame(cluster.CollectionWatchFrameAdded, "web-3")
 
 	assert.Equal(t, errCut, endedWith(t, stream))
 }
 
 // A mirror watch that ends clean, as a cache's clear ends it, is opened again after
-// the retry, and the follow goes on with what its new snapshot shows.
-func TestAFollowOutlastsACacheClear(t *testing.T) {
+// the retry, and the tail goes on with what its new snapshot shows.
+func TestATailOutlastsACacheClear(t *testing.T) {
 	t.Parallel()
 	for _, watch := range []string{"pods", "nodes"} {
 		t.Run(watch, func(t *testing.T) {
 			s := newLogServer()
 			f := webMirror(t)
 			svc, _ := serviceOver(t, f, s)
-			stream, _ := openFollow(t, svc, f)
+			stream, _ := openTail(t, svc, f)
 
-			pods := make(chan cluster.ClusterCachedDataObjectWatchFrame)
-			var ended chan cluster.ClusterCachedDataObjectWatchFrame
+			pods := make(chan cluster.ClusterCachedDataObjectCollectionWatchFrame)
+			var ended chan cluster.ClusterCachedDataObjectCollectionWatchFrame
 			f.set(func() {
 				ended = f.nodes
 				if watch == "pods" {
 					ended, f.pods = f.pods, pods
 				} else {
-					f.pods, f.nodes = pods, make(chan cluster.ClusterCachedDataObjectWatchFrame)
+					f.pods, f.nodes = pods, make(chan cluster.ClusterCachedDataObjectCollectionWatchFrame)
 				}
 			})
 			f.store.Apply(t, web3())
@@ -1128,41 +1128,41 @@ func TestAFollowOutlastsACacheClear(t *testing.T) {
 	}
 }
 
-// A follow ends when a mirror watch fails, with the watch's reason.
-func TestAFollowEndsWithAFailedWatch(t *testing.T) {
+// A tail ends when a mirror watch fails, with the watch's reason.
+func TestATailEndsWithAFailedWatch(t *testing.T) {
 	t.Parallel()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, newLogServer())
 	f.podsErr = errors.New("watch failed")
-	stream, _ := openFollow(t, svc, f)
+	stream, _ := openTail(t, svc, f)
 	close(f.pods)
 	assert.EqualError(t, failsWith(t, stream), "watch failed")
 }
 
-// A follow ends when a workload kind's watch fails, with the watch's reason.
-func TestAFollowEndsWithAFailedWorkloadWatch(t *testing.T) {
+// A tail ends when a workload kind's watch fails, with the watch's reason.
+func TestATailEndsWithAFailedWorkloadWatch(t *testing.T) {
 	t.Parallel()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, newLogServer())
 	f.workloadsErr = errors.New("watch failed")
-	stream, _ := openFollow(t, svc, f)
+	stream, _ := openTail(t, svc, f)
 	close(f.workload("replicasets"))
 	assert.EqualError(t, failsWith(t, stream), "watch failed")
 }
 
 // A deployment's pod that reaches the mirror before its replica set is followed
 // once the replica set arrives, though no pod frame says so.
-func TestAFollowWatchesTheWorkloadsBetweenASourceAndItsPods(t *testing.T) {
+func TestATailWatchesTheWorkloadsBetweenASourceAndItsPods(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	f := newMirror(t, append([]map[string]any{workload("apps/v1", "Deployment", "web", "dep-web", nil), web1()}, webNodes()...)...)
 	svc, _ := serviceOver(t, f, s)
-	stream, _ := openFollow(t, svc, f)
+	stream, _ := openTail(t, svc, f)
 	replicaSets := f.workload("replicasets")
 	closeSnapshot(t, f, replicaSets)
 
 	f.store.Apply(t, workload("apps/v1", "ReplicaSet", "web-7d9f", "rs-web", controller("apps/v1", "Deployment", "web", "dep-web")))
-	replicaSets <- cluster.ClusterCachedDataObjectWatchFrame{Type: cluster.DeltaFrameAdded, Object: &cluster.ClusterCachedDataObject{
+	replicaSets <- cluster.ClusterCachedDataObjectCollectionWatchFrame{Type: cluster.CollectionWatchFrameAdded, Object: &cluster.ClusterCachedDataObject{
 		APIVersion: "apps/v1", Kind: "ReplicaSet", Namespace: "prod", Name: "web-7d9f",
 	}}
 
@@ -1170,78 +1170,78 @@ func TestAFollowWatchesTheWorkloadsBetweenASourceAndItsPods(t *testing.T) {
 	assert.Equal(t, "from web-1", recvLine(t, stream, "web-1's line").Message)
 }
 
-// A pod change the mirror cannot be read over leaves the follow as it is, while
+// A pod change the mirror cannot be read over leaves the tail as it is, while
 // a mirror that fails ends it, and a cluster whose identity moved is one Kstack no
 // longer connects to.
-func TestAFollowOnAMirrorThatChangesUnderIt(t *testing.T) {
+func TestATailOnAMirrorThatChangesUnderIt(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
 	view := webScope
 	view.Filters = []ScopeFilter{{Field: FilterZone, Values: []string{"eu-1a"}}}
-	stream, _ := openFollowOf(t, svc, f, view)
+	stream, _ := openTailOf(t, svc, f, view)
 
 	// node-b goes first: the snapshot's resolve can land between the deletes, and
 	// with node-a gone and node-b kept, web-1 would leave the view as filtered out.
 	nodes := webNodes()
 	f.store.Delete(t, nodes[1])
 	f.store.Delete(t, nodes[0])
-	f.pods <- podFrame(cluster.DeltaFrameAdded, "web-3")
+	f.pods <- podFrame(cluster.CollectionWatchFrameAdded, "web-3")
 	s.Add("prod/web-1/app", logstest.Stamped(time.Hour, "still here"))
 	assert.Equal(t, "still here", recvLine(t, stream, "web-1's line").Message)
 
 	f = webMirror(t)
 	svc, _ = serviceOver(t, f, newLogServer())
-	stream, _ = openFollow(t, svc, f)
+	stream, _ = openTail(t, svc, f)
 	f.set(func() { f.queryErr = errors.New("db closed") })
-	f.pods <- podFrame(cluster.DeltaFrameAdded, "web-3")
+	f.pods <- podFrame(cluster.CollectionWatchFrameAdded, "web-3")
 	assert.EqualError(t, failsWith(t, stream), "db closed")
 
 	f = webMirror(t)
 	svc, _ = serviceOver(t, f, newLogServer())
-	stream, _ = openFollow(t, svc, f)
+	stream, _ = openTail(t, svc, f)
 	f.set(func() {
 		moved := *f.active.Cache
 		moved.Spec.ServerUID = "uid-2"
 		f.active.Cache = &moved
 	})
-	f.pods <- podFrame(cluster.DeltaFrameAdded, "web-3")
+	f.pods <- podFrame(cluster.CollectionWatchFrameAdded, "web-3")
 	assert.Equal(t, kubelet.ErrRevoked, endedWith(t, stream))
 }
 
-// A frame with no object moves nothing: the follow resolves the view again only
+// A frame with no object moves nothing: the tail resolves the view again only
 // for a pod.
 func TestAFrameWithNoObjectIsIgnored(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
-	stream, _ := openFollow(t, svc, f)
+	stream, _ := openTail(t, svc, f)
 
-	f.pods <- cluster.ClusterCachedDataObjectWatchFrame{Type: cluster.DeltaFrameModified}
+	f.pods <- cluster.ClusterCachedDataObjectCollectionWatchFrame{Type: cluster.CollectionWatchFrameModified}
 	f.store.Apply(t, web3())
-	f.pods <- podFrame(cluster.DeltaFrameAdded, "web-3")
+	f.pods <- podFrame(cluster.CollectionWatchFrameAdded, "web-3")
 
 	s.Add("prod/web-3/app", logstest.Stamped(time.Hour+time.Second, "from web-3"))
 	assert.Equal(t, "from web-3", recvLine(t, stream, "web-3's line").Message)
 }
 
-// A follow cancelled by its context ends clean.
-func TestACancelledFollowEndsClean(t *testing.T) {
+// A tail cancelled by its context ends clean.
+func TestACancelledTailEndsClean(t *testing.T) {
 	t.Parallel()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, newLogServer())
-	stream, cancel := openFollow(t, svc, f)
+	stream, cancel := openTail(t, svc, f)
 
 	cancel()
 
 	assert.NoError(t, failsWith(t, stream))
 }
 
-// A follow whose context ends as it opens ends clean too, though the call it was
+// A tail whose context ends as it opens ends clean too, though the call it was
 // in failed on the cancel.
-func TestAFollowCancelledAsItOpensEndsClean(t *testing.T) {
+func TestATailCancelledAsItOpensEndsClean(t *testing.T) {
 	t.Parallel()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, newLogServer())
@@ -1250,7 +1250,7 @@ func TestAFollowCancelledAsItOpensEndsClean(t *testing.T) {
 	f.acquireErr = fmt.Errorf("acquire: %w", context.Canceled)
 	f.onAcquire = cancel
 
-	stream := startFollow(t, ctx, svc, FollowRequest{Scope: webScope})
+	stream := startTail(t, ctx, svc, TailRequest{Scope: webScope})
 
 	assert.NoError(t, failsWith(t, stream))
 }
@@ -1258,27 +1258,27 @@ func TestAFollowCancelledAsItOpensEndsClean(t *testing.T) {
 // A container that restarts is tailed again as its new instance once the old
 // instance's stream ends, whether the restart reaches the mirror before that end or
 // after it, and the new instance's lines go out under its own id. The old instance's
-// tailer runs on meanwhile, and a line it writes reaches the follow at once.
-func TestAFollowTailsARestartedContainer(t *testing.T) {
+// tailer runs on meanwhile, and a line it writes reaches the tail at once.
+func TestARestartedContainerIsTailedAgain(t *testing.T) {
 	t.Parallel()
 	for name, frameFirst := range map[string]bool{"frame first": true, "end first": false} {
 		t.Run(name, func(t *testing.T) {
 			s := newLogServer()
 			f := webMirror(t)
 			svc, _ := serviceOver(t, f, s)
-			stream, _ := openFollow(t, svc, f)
+			stream, _ := openTail(t, svc, f)
 			s.Add("prod/web-1/app", logstest.Stamped(time.Hour+time.Second, "before"))
 			recvLine(t, stream, "web-1's line")
 
 			restarted := func() {
 				restartWeb1(t, f, s, logstest.Stamped(time.Hour+500*time.Millisecond, "new"))
-				f.pods <- podFrame(cluster.DeltaFrameModified, "web-1")
+				f.pods <- podFrame(cluster.CollectionWatchFrameModified, "web-1")
 			}
 			if frameFirst {
 				read := testutil.NewProbe[cluster.ClusterCacheHealth](8)
 				f.set(func() { f.healthRead = read })
 				restarted()
-				read.Await(t, "the follow to resolve the view again")
+				read.Await(t, "the tail to resolve the view again")
 				// The old read is past one line, so the line added lands in front of it.
 				s.Add("prod/web-1/app", logstest.Stamped(time.Hour+1500*time.Millisecond, "meanwhile"))
 				rec := recvLine(t, stream, "the old instance's line")
@@ -1291,13 +1291,13 @@ func TestAFollowTailsARestartedContainer(t *testing.T) {
 				awaitClosed(t, s, "prod/web-1/app")
 				restarted()
 			}
-			// The server ends every read of web-1 until the follow tails the new
+			// The server ends every read of web-1 until the tail reads the new
 			// instance alone: one of the old instance opened meanwhile would read the
 			// new one's log.
 			old, current := rowID(t, svc, f, "web-1", "app", 0), rowID(t, svc, f, "web-1", "app", 1)
 			require.Eventually(t, func() bool {
 				// The new instance's log holds the lines added since the restart too, which
-				// the follow sends under its id meanwhile and must not wait on.
+				// the tail sends under its id meanwhile and must not wait on.
 				select {
 				case <-stream.Frames:
 				default:
@@ -1332,10 +1332,10 @@ func TestAFinishedContainerIsNotReadAgain(t *testing.T) {
 	}
 	f := newMirror(t, append(webObjects(), finished(web1()))...)
 	svc, _ := serviceOver(t, f, s)
-	stream, _ := openFollow(t, svc, f)
+	stream, _ := openTail(t, svc, f)
 	web1Reads.Await(t, "web-1 read to its end")
 
-	f.pods <- podFrame(cluster.DeltaFrameModified, "web-1")
+	f.pods <- podFrame(cluster.CollectionWatchFrameModified, "web-1")
 	s.Add("prod/web-2/app", logstest.Stamped(time.Hour+time.Second, "from web-2"))
 
 	assert.Equal(t, "from web-2", recvLine(t, stream, "web-2's line").Message)
@@ -1346,21 +1346,21 @@ func TestAFinishedContainerIsNotReadAgain(t *testing.T) {
 
 // A pod whose node's labels move keeps its tailer, and its next line carries the
 // new labels.
-func TestAFollowKeepsItsPlaceWhenANodesLabelsMove(t *testing.T) {
+func TestATailKeepsItsPlaceWhenANodesLabelsMove(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
-	stream, _ := openFollow(t, svc, f)
+	stream, _ := openTail(t, svc, f)
 	closeSnapshot(t, f, f.nodes)
 	s.Add("prod/web-1/app", logstest.Stamped(time.Hour+time.Second, "before"))
 	recvLine(t, stream, "web-1's line")
 
 	moved := node("node-a", "eu", "eu-1c", "linux", "amd64")
 	f.store.Apply(t, moved)
-	f.nodes <- nodeFrame(cluster.DeltaFrameModified, moved)
+	f.nodes <- nodeFrame(cluster.CollectionWatchFrameModified, moved)
 
-	// The node frame and a line's commit ping race into the follow's select, so a
+	// The node frame and a line's commit ping race into the tail's select, so a
 	// line may still carry the old zone; keep writing until one carries the new.
 	deadline := time.Now().Add(testutil.Timeout)
 	for i := 2; ; i++ {
@@ -1375,16 +1375,16 @@ func TestAFollowKeepsItsPlaceWhenANodesLabelsMove(t *testing.T) {
 
 // A node that leaves the zone a view filters on ends its pod's stream, and one
 // that enters it opens one, with no pod frame between.
-func TestAFollowTracksItsNodesLabels(t *testing.T) {
+func TestATailTracksItsNodesLabels(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
 	view := webScope
 	view.Filters = []ScopeFilter{{Field: FilterZone, Values: []string{"eu-1a"}}}
-	stream, _ := openFollowOf(t, svc, f, view)
+	stream, _ := openTailOf(t, svc, f, view)
 	for _, n := range webNodes() {
-		f.nodes <- nodeFrame(cluster.DeltaFrameAdded, n)
+		f.nodes <- nodeFrame(cluster.CollectionWatchFrameAdded, n)
 	}
 	closeSnapshot(t, f, f.nodes)
 	s.Add("prod/web-1/app", logstest.Stamped(time.Hour+time.Second, "from web-1"))
@@ -1393,8 +1393,8 @@ func TestAFollowTracksItsNodesLabels(t *testing.T) {
 	a, b := node("node-a", "eu", "eu-1c", "linux", "amd64"), node("node-b", "eu", "eu-1a", "linux", "arm64")
 	f.store.Apply(t, a)
 	f.store.Apply(t, b)
-	f.nodes <- nodeFrame(cluster.DeltaFrameModified, a)
-	f.nodes <- nodeFrame(cluster.DeltaFrameModified, b)
+	f.nodes <- nodeFrame(cluster.CollectionWatchFrameModified, a)
+	f.nodes <- nodeFrame(cluster.CollectionWatchFrameModified, b)
 
 	awaitClosed(t, s, "prod/web-1/app")
 	s.Add("prod/web-2/app", logstest.Stamped(time.Hour+2*time.Second, "from web-2"))
@@ -1410,28 +1410,28 @@ func TestAFollowTracksItsNodesLabels(t *testing.T) {
 func TestANodeFrameMovesTheViewOnlyForItsLabels(t *testing.T) {
 	t.Parallel()
 	a := node("node-a", "eu", "eu-1a", "linux", "amd64")
-	unloaded := nodeFrame(cluster.DeltaFrameModified, a)
+	unloaded := nodeFrame(cluster.CollectionWatchFrameModified, a)
 	unloaded.Object.RawJSON = ""
-	unlabelled := nodeFrame(cluster.DeltaFrameModified, a)
+	unlabelled := nodeFrame(cluster.CollectionWatchFrameModified, a)
 	unlabelled.Object.UID = "another field"
 	for name, tc := range map[string]struct {
-		frame cluster.ClusterCachedDataObjectWatchFrame
+		frame cluster.ClusterCachedDataObjectCollectionWatchFrame
 		moves bool
 	}{
 		"its snapshot closing": {bookmark, true},
 		"the same labels":      {unlabelled, false},
-		"a label moved":        {nodeFrame(cluster.DeltaFrameModified, node("node-a", "eu", "eu-1a", "linux", "arm64")), true},
-		"a new node":           {nodeFrame(cluster.DeltaFrameAdded, node("node-b", "eu", "eu-1b", "linux", "amd64")), true},
-		"a node gone":          {nodeFrame(cluster.DeltaFrameDeleted, a), true},
+		"a label moved":        {nodeFrame(cluster.CollectionWatchFrameModified, node("node-a", "eu", "eu-1a", "linux", "arm64")), true},
+		"a new node":           {nodeFrame(cluster.CollectionWatchFrameAdded, node("node-b", "eu", "eu-1b", "linux", "amd64")), true},
+		"a node gone":          {nodeFrame(cluster.CollectionWatchFrameDeleted, a), true},
 		"a body not loaded":    {unloaded, true},
-		"no object":            {cluster.ClusterCachedDataObjectWatchFrame{Type: cluster.DeltaFrameModified}, false},
+		"no object":            {cluster.ClusterCachedDataObjectCollectionWatchFrame{Type: cluster.CollectionWatchFrameModified}, false},
 	} {
 		t.Run(name, func(t *testing.T) {
-			f := &follow{nodes: map[string]logline.Place{}, scope: Scope{Filters: []ScopeFilter{{Field: FilterZone, Values: []string{"eu-1a"}}}}}
-			done := make(chan cluster.ClusterCachedDataObjectWatchFrame)
+			f := &cursorTail{nodes: map[string]logline.Place{}, scope: Scope{Filters: []ScopeFilter{{Field: FilterZone, Values: []string{"eu-1a"}}}}}
+			done := make(chan cluster.ClusterCachedDataObjectCollectionWatchFrame)
 			close(done)
-			f.nodesMoved(nodeFrame(cluster.DeltaFrameAdded, a), done)
-			if tc.frame.Type != cluster.DeltaFrameBookmark {
+			f.nodesMoved(nodeFrame(cluster.CollectionWatchFrameAdded, a), done)
+			if tc.frame.Type != cluster.CollectionWatchFrameBookmark {
 				require.True(t, f.nodesMoved(bookmark, done))
 			}
 
@@ -1445,34 +1445,34 @@ func TestANodeFrameMovesTheViewOnlyForItsLabels(t *testing.T) {
 func TestANodeNoStreamRunsOnIsNotRead(t *testing.T) {
 	t.Parallel()
 	a, b := node("node-a", "eu", "eu-1a", "linux", "amd64"), node("node-b", "eu", "eu-1b", "linux", "arm64")
-	f := &follow{nodes: map[string]logline.Place{}, nodesSynced: true, streams: map[logline.StreamKey]*tracked{}}
+	f := &cursorTail{nodes: map[string]logline.Place{}, nodesSynced: true, streams: map[logline.StreamKey]*tracked{}}
 	key := logline.StreamKey{Pod: "web-1", Container: "app"}
 	tr := f.track(key)
 	tr.st, tr.h = stream{key: key, place: logline.Place{Node: "node-a"}}, &handle{}
-	done := make(chan cluster.ClusterCachedDataObjectWatchFrame)
+	done := make(chan cluster.ClusterCachedDataObjectCollectionWatchFrame)
 	close(done)
 
-	assert.False(t, f.nodesMoved(nodeFrame(cluster.DeltaFrameAdded, b), done))
+	assert.False(t, f.nodesMoved(nodeFrame(cluster.CollectionWatchFrameAdded, b), done))
 	assert.NotContains(t, f.nodes, "node-b")
-	assert.True(t, f.nodesMoved(nodeFrame(cluster.DeltaFrameAdded, a), done))
+	assert.True(t, f.nodesMoved(nodeFrame(cluster.CollectionWatchFrameAdded, a), done))
 	b = node("node-b", "eu", "eu-1c", "linux", "arm64")
-	assert.False(t, f.nodesMoved(nodeFrame(cluster.DeltaFrameModified, b), done))
+	assert.False(t, f.nodesMoved(nodeFrame(cluster.CollectionWatchFrameModified, b), done))
 }
 
 // A pod that joins while the mirror is syncing is followed once it is ready
 // again, with no frame after.
-func TestAFollowAsksASyncingMirrorAgain(t *testing.T) {
+func TestATailAsksASyncingMirrorAgain(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
-	stream, _ := openFollow(t, svc, f)
+	stream, _ := openTail(t, svc, f)
 
 	read := testutil.NewProbe[cluster.ClusterCacheHealth](8)
 	f.set(func() { f.health, f.healthRead = cluster.ClusterCacheHealth{Reason: "Connecting"}, read })
 	f.store.Apply(t, web3())
-	f.pods <- podFrame(cluster.DeltaFrameAdded, "web-3")
-	read.Await(t, "the follow to read the syncing cache")
+	f.pods <- podFrame(cluster.CollectionWatchFrameAdded, "web-3")
+	read.Await(t, "the tail to read the syncing cache")
 	f.set(func() { f.health = cluster.ClusterCacheHealth{Reason: "Watching"} })
 
 	s.Add("prod/web-3/app", logstest.Stamped(time.Hour+time.Second, "from web-3"))
@@ -1481,37 +1481,37 @@ func TestAFollowAsksASyncingMirrorAgain(t *testing.T) {
 
 // A pod that leaves the view and comes back is read again, past the last line its
 // stream sent.
-func TestAFollowReopensAPodThatCameBack(t *testing.T) {
+func TestATailReopensAPodThatCameBack(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
-	stream, _ := openFollow(t, svc, f)
+	stream, _ := openTail(t, svc, f)
 	s.Add("prod/web-1/app", logstest.Stamped(time.Hour+time.Second, "before"))
 	recvLine(t, stream, "web-1's first line")
 
 	f.store.Delete(t, web1())
-	f.pods <- podFrame(cluster.DeltaFrameDeleted, "web-1")
+	f.pods <- podFrame(cluster.CollectionWatchFrameDeleted, "web-1")
 	awaitClosed(t, s, "prod/web-1/app")
 	f.store.Apply(t, web1())
-	f.pods <- podFrame(cluster.DeltaFrameAdded, "web-1")
+	f.pods <- podFrame(cluster.CollectionWatchFrameAdded, "web-1")
 
 	awaitReadAgain(t, s, "prod/web-1/app", "2026-10-08T11:00:01Z")
 }
 
-// A pod that joins a follow opened after a cursor is read from the cursor, like
-// the pods it opened with, not from the moment the follow began.
-func TestAFollowAfterACursorReadsANewPodFromIt(t *testing.T) {
+// A pod that joins a tail opened after a cursor is read from the cursor, like
+// the pods it opened with, not from the moment the tail began.
+func TestATailAfterACursorReadsANewPodFromIt(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
-	_, err := svc.Follow(t.Context(), "7", FollowRequest{Scope: webScope, Since: moment(30 * time.Minute)})
+	_, err := svc.TailFromCursor(t.Context(), "7", TailRequest{Scope: webScope, Since: moment(30 * time.Minute)})
 	require.NoError(t, err)
 	closeSnapshot(t, f, f.pods)
 
 	f.store.Apply(t, web3())
-	f.pods <- podFrame(cluster.DeltaFrameAdded, "web-3")
+	f.pods <- podFrame(cluster.CollectionWatchFrameAdded, "web-3")
 
 	require.Eventually(t, func() bool { return len(s.Requests()) == 3 }, testutil.Timeout, time.Millisecond, "web-3's read")
 	for _, q := range s.Requests() {
@@ -1519,15 +1519,15 @@ func TestAFollowAfterACursorReadsANewPodFromIt(t *testing.T) {
 	}
 }
 
-// A stream the server failed is opened again after the retry, and the follow
+// A stream the server failed is opened again after the retry, and the tail
 // goes on; one the server refused for the log's sake is not.
-func TestAFollowReopensADroppedStream(t *testing.T) {
+func TestATailReopensADroppedStream(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	s.Refuse["prod/web-1/app"] = logstest.Denial{Code: http.StatusInternalServerError, Message: "kubelet restarting"}
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
-	stream, _ := openFollow(t, svc, f)
+	stream, _ := openTail(t, svc, f)
 	require.Eventually(t, func() bool { return len(s.RequestsOf("prod/web-1/app")) >= 2 }, testutil.Timeout, time.Millisecond, "web-1 asked again")
 
 	s.SetRefusal("prod/web-1/app", nil)
@@ -1538,7 +1538,7 @@ func TestAFollowReopensADroppedStream(t *testing.T) {
 }
 
 // A stream whose tailer dropped is held for its backoff: a reconcile leaves it
-// untailed, and keeps the follow open while it is the view's only stream, then
+// untailed, and keeps the tail open while it is the view's only stream, then
 // tails it once the hold is over.
 func TestAHeldStreamWaitsOutItsBackoff(t *testing.T) {
 	t.Parallel()
@@ -1551,9 +1551,9 @@ func TestAHeldStreamWaitsOutItsBackoff(t *testing.T) {
 	view := Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourcePod, Name: "web-1", Containers: []string{"app"}}}}
 	tg, err := resolve(ctx, svc.clusters, "7", view, true)
 	require.NoError(t, err)
-	f := &follow{
+	f := &cursorTail{
 		s: svc, id: "7", scope: view, start: startAt(t, view, time.Hour), claim: c, file: fileOf(t, svc, fake), tails: svc.registryFor("7", tg),
-		target: target{serverUID: "uid-1"}, out: make(chan FollowFrame, 16), streams: map[logline.StreamKey]*tracked{},
+		target: target{serverUID: "uid-1"}, out: make(chan TailFrame, 16), streams: map[logline.StreamKey]*tracked{},
 		nodes: map[string]logline.Place{}, deleted: map[string]string{}, podUIDs: map[string]string{}, gone: map[string]bool{}, held: map[int64]func(){},
 		dueHub: mpsc.New[logline.StreamKey](0, mpsc.WithKeepOpen()), endedHub: mpsc.New[*handle](0, mpsc.WithKeepOpen()),
 	}
@@ -1576,7 +1576,7 @@ func TestAHeldStreamWaitsOutItsBackoff(t *testing.T) {
 // a stream that ran for the cap, or a line sent from it, starts the count again.
 func TestADroppingStreamBacksOff(t *testing.T) {
 	t.Parallel()
-	f := &follow{s: &Service{retry: time.Second, retryCap: time.Minute}, streams: map[logline.StreamKey]*tracked{}}
+	f := &cursorTail{s: &Service{retry: time.Second, retryCap: time.Minute}, streams: map[logline.StreamKey]*tracked{}}
 	tr := &tracked{}
 
 	var waits []time.Duration
@@ -1587,26 +1587,26 @@ func TestADroppingStreamBacksOff(t *testing.T) {
 	assert.Equal(t, time.Second, f.backoff(tr, time.Minute))
 
 	key := logline.StreamKey{Namespace: "prod", Pod: "web-1", Container: "app"}
-	f.streams[key], f.wanted, f.out = tr, []logline.StreamKey{key}, make(chan FollowFrame, 2)
+	f.streams[key], f.wanted, f.out = tr, []logline.StreamKey{key}, make(chan TailFrame, 2)
 	f.batch = []logline.Record{{Stream: key}}
 	require.True(t, f.flush(t.Context()))
 	assert.Zero(t, tr.drops)
 }
 
-// A follow whose view grows past what Kstack reads at once ends, saying so.
-func TestAFollowEndsWhenItsViewGrowsTooLarge(t *testing.T) {
+// A tail whose view grows past what Kstack reads at once ends, saying so.
+func TestATailEndsWhenItsViewGrowsTooLarge(t *testing.T) {
 	t.Parallel()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, newLogServer())
-	stream, _ := openFollow(t, svc, f)
+	stream, _ := openTail(t, svc, f)
 
 	addPods(t, f, 99)
-	f.pods <- podFrame(cluster.DeltaFrameAdded, "many-0")
+	f.pods <- podFrame(cluster.CollectionWatchFrameAdded, "many-0")
 
 	assert.Equal(t, ErrTooMany, endedWith(t, stream))
 }
 
-// Every refusal ends a follow with its words, bare or inside the refusals that
+// Every refusal ends a tail with its words, bare or inside the refusals that
 // carry one.
 func TestAsRefusalReadsEveryRefusal(t *testing.T) {
 	t.Parallel()
@@ -1628,7 +1628,7 @@ func TestAsRefusalReadsEveryRefusal(t *testing.T) {
 // arms one wait that the frames after it share, and a resolve clears it.
 func TestAPodFrameSettles(t *testing.T) {
 	t.Parallel()
-	f := &follow{s: &Service{}}
+	f := &cursorTail{s: &Service{}}
 	assert.True(t, f.settle())
 
 	f.s.settle = time.Hour
@@ -1640,48 +1640,48 @@ func TestAPodFrameSettles(t *testing.T) {
 }
 
 // A pod frame under a settle is followed once the settle has passed.
-func TestAFollowResolvesOnceThePodFramesSettle(t *testing.T) {
+func TestATailResolvesOnceThePodFramesSettle(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
 	svc.settle = time.Millisecond
-	stream, _ := openFollow(t, svc, f)
+	stream, _ := openTail(t, svc, f)
 
 	f.store.Apply(t, web3())
-	f.pods <- podFrame(cluster.DeltaFrameAdded, "web-3")
+	f.pods <- podFrame(cluster.CollectionWatchFrameAdded, "web-3")
 	s.Add("prod/web-3/app", logstest.Stamped(time.Hour+time.Second, "from web-3"))
 
 	assert.Equal(t, "from web-3", recvLine(t, stream, "web-3's line").Message)
 }
 
-// followWeb1 opens q, a follow of web-1's default container from its start.
-// Its pods watch's snapshot stays open: the follow walks the file before it reads the
+// tailWeb1 opens q, a tail of web-1's default container from its start.
+// Its pods watch's snapshot stays open: the tail walks the file before it reads the
 // watch, and a walk with lines to send waits on the test.
-func followWeb1(t *testing.T, svc *Service, q FollowRequest) (*cluster.Stream[FollowFrame], context.CancelFunc) {
+func tailWeb1(t *testing.T, svc *Service, q TailRequest) (*cluster.Stream[TailFrame], context.CancelFunc) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 	q.Scope = podView("web-1")
-	stream := startFollow(t, ctx, svc, q)
+	stream := startTail(t, ctx, svc, q)
 	return stream, cancel
 }
 
 // recvLines waits for stream's next n lines and answers their messages.
-func recvLines(t *testing.T, stream *cluster.Stream[FollowFrame], n int) []string {
+func recvLines(t *testing.T, stream *cluster.Stream[TailFrame], n int) []string {
 	t.Helper()
 	return messages(recvRecords(t, stream, n))
 }
 
-// A follow's lines come from the file, on the ping of the commit that wrote them, and
-// a follow of a stream whose tailer has written nothing yet asks the kubelet for
+// A tail's lines come from the file, on the ping of the commit that wrote them, and
+// a tail of a stream whose tailer has written nothing yet asks the kubelet for
 // nothing but the tail.
-func TestAFollowReadsItsTailersCommits(t *testing.T) {
+func TestATailReadsItsTailersCommits(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
-	stream, _ := followWeb1(t, svc, FollowRequest{})
+	stream, _ := tailWeb1(t, svc, TailRequest{})
 
 	s.Add("prod/web-1/app", logstest.Stamped(time.Hour+time.Second, "first"))
 
@@ -1689,7 +1689,7 @@ func TestAFollowReadsItsTailersCommits(t *testing.T) {
 	assert.Zero(t, fills(s, "prod/web-1/app"))
 }
 
-// A follow reopened from its first's start, with the last line it got as Seen,
+// A tail reopened from its first's start, with the last line it got as Seen,
 // sends every line written past it and none before it: inside the grace from the
 // file the tailer kept writing, and after it over a fresh tailer.
 func TestAReopenWithSeenMissesNothing(t *testing.T) {
@@ -1700,7 +1700,7 @@ func TestAReopenWithSeenMissesNothing(t *testing.T) {
 			f := webMirror(t)
 			svc, _ := serviceOver(t, f, s)
 			svc.grace = grace
-			first, cancel := followWeb1(t, svc, FollowRequest{Since: moment(time.Hour)})
+			first, cancel := tailWeb1(t, svc, TailRequest{Since: moment(time.Hour)})
 			s.Add("prod/web-1/app", logstest.Stamped(time.Hour+time.Second, "a"))
 			a := recvLine(t, first, "a")
 			cancel()
@@ -1709,7 +1709,7 @@ func TestAReopenWithSeenMissesNothing(t *testing.T) {
 			}
 
 			s.Add("prod/web-1/app", logstest.Stamped(time.Hour+2*time.Second, "b"), logstest.Stamped(time.Hour+3*time.Second, "c"))
-			second, _ := followWeb1(t, svc, FollowRequest{Since: moment(time.Hour), Seen: []string{a.Cursor()}})
+			second, _ := tailWeb1(t, svc, TailRequest{Since: moment(time.Hour), Seen: []string{a.Cursor()}})
 
 			assert.Equal(t, []string{"b", "c"}, recvLines(t, second, 2))
 			if grace > 0 {
@@ -1719,13 +1719,13 @@ func TestAReopenWithSeenMissesNothing(t *testing.T) {
 	}
 }
 
-// A line a page writes below a follow's watermark is never sent.
+// A line a page writes below a tail's watermark is never sent.
 func TestABackfillBelowTheWatermarkIsNotSent(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
-	stream, _ := followWeb1(t, svc, FollowRequest{})
+	stream, _ := tailWeb1(t, svc, TailRequest{})
 
 	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(time.Second)})
 	s.Add("prod/web-1/app", logstest.Stamped(time.Hour+time.Second, "tailed"))
@@ -1733,23 +1733,23 @@ func TestABackfillBelowTheWatermarkIsNotSent(t *testing.T) {
 	assert.Equal(t, "tailed", recvLine(t, stream, "the tailer's line").Message)
 }
 
-// liveGap is a follow of web-1, and its cancel, from 10:00 over a file holding web-1's line at 10:30,
+// liveGap is a tail of web-1, and its cancel, from 10:00 over a file holding web-1's line at 10:30,
 // which its tailer resumes from, the kubelet holding lines between: a live gap past
 // the watermark. atBeginning marks the line the kubelet's oldest, which loses the gap.
-func liveGap(t *testing.T, s *logstest.Server, atBeginning bool, between ...string) (*Service, *fakeService, *cluster.Stream[FollowFrame], context.CancelFunc) {
+func liveGap(t *testing.T, s *logstest.Server, atBeginning bool, between ...string) (*Service, *fakeService, *cluster.Stream[TailFrame], context.CancelFunc) {
 	t.Helper()
 	s.Add("prod/web-1/app", between...)
 	s.Add("prod/web-1/app", logstest.Stamped(30*time.Minute, "1800"))
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
 	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(30 * time.Minute), AtBeginning: atBeginning})
-	stream, cancel := followWeb1(t, svc, FollowRequest{Since: moment(0)})
+	stream, cancel := tailWeb1(t, svc, TailRequest{Since: moment(0)})
 	return svc, f, stream, cancel
 }
 
-// A follow that meets a live gap fills it and sends its lines before the tailer's
+// A tail that meets a live gap fills it and sends its lines before the tailer's
 // past it.
-func TestAFollowFillsALiveGapBeforeItGoesOn(t *testing.T) {
+func TestATailFillsALiveGapBeforeItGoesOn(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	_, _, stream, _ := liveGap(t, s, false, logstest.Stamped(10*time.Minute, "in the gap"))
@@ -1793,7 +1793,7 @@ func TestASlowFillHoldsUpNoOtherStream(t *testing.T) {
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
 	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(30 * time.Minute)})
-	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: webScope, Since: moment(0)})
+	stream := startTail(t, t.Context(), svc, TailRequest{Scope: webScope, Since: moment(0)})
 	asked.Wait(t, "web-1's gap fill")
 
 	s.Add("prod/web-2/app", logstest.Stamped(40*time.Minute, "from web-2"))
@@ -1805,7 +1805,7 @@ func TestASlowFillHoldsUpNoOtherStream(t *testing.T) {
 
 // A container that finishes while its gap fill waits, the fill then failing on a
 // transient error, is held, not ended: after its backoff the gap is filled again and
-// its lines are sent before the follow ends.
+// its lines are sent before the tail ends.
 func TestAFillThatFailsAfterItsContainerFinishedIsRetried(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
@@ -1814,14 +1814,14 @@ func TestAFillThatFailsAfterItsContainerFinishedIsRetried(t *testing.T) {
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
 	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(30 * time.Minute)})
-	stream, _ := followWeb1(t, svc, FollowRequest{Since: moment(0)})
+	stream, _ := tailWeb1(t, svc, TailRequest{Since: moment(0)})
 	closeSnapshot(t, f, f.pods)
 	asked.Wait(t, "web-1's gap fill")
 
 	f.store.Apply(t, finished(web1()))
 	read := testutil.NewProbe[struct{}](1)
 	f.set(func() { f.mirrorRead = read })
-	f.pods <- podFrame(cluster.DeltaFrameModified, "web-1")
+	f.pods <- podFrame(cluster.CollectionWatchFrameModified, "web-1")
 	read.Await(t, "the finished pod's resolve")
 	s.End("prod/web-1/app")
 	read.Await(t, "the resolve after the tailer's end")
@@ -1841,9 +1841,9 @@ func TestAFillThatFailsAfterItsContainerFinishedIsRetried(t *testing.T) {
 	assert.Equal(t, errStopped, endedWith(t, stream))
 }
 
-// A follow cancelled while a gap fill is in flight ends clean once the fill returns,
+// A tail cancelled while a gap fill is in flight ends clean once the fill returns,
 // and lets go of what the fill wrote.
-func TestAFollowCancelledWhileItFillsEndsClean(t *testing.T) {
+func TestATailCancelledWhileItFillsEndsClean(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	asked, release := holdFill(t, s, "prod/web-1/app")
@@ -1853,12 +1853,12 @@ func TestAFollowCancelledWhileItFillsEndsClean(t *testing.T) {
 	cancel()
 	close(release)
 
-	testutil.RecvClosed(t, stream.Frames, "the follow to end")
+	testutil.RecvClosed(t, stream.Frames, "the tail to end")
 	assert.NoError(t, stream.Err())
 }
 
-// A gap fill the cluster refuses the user's credentials for ends the follow.
-func TestAFillUnauthorizedEndsTheFollow(t *testing.T) {
+// A gap fill the cluster refuses the user's credentials for ends the tail.
+func TestAFillUnauthorizedEndsTheTail(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	s.RefuseReads["prod/web-1/app"] = logstest.Denial{Code: http.StatusUnauthorized, Message: "unauthorized"}
@@ -1881,7 +1881,7 @@ func TestAFillOfAStreamThatLeftTheViewIsNotSent(t *testing.T) {
 	filled := testutil.NewSignal()
 	svc.afterFill = func() { filled.Fire() }
 	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(30 * time.Minute)})
-	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: webScope, Since: moment(0)})
+	stream := startTail(t, t.Context(), svc, TailRequest{Scope: webScope, Since: moment(0)})
 	closeSnapshot(t, f, f.pods)
 	asked.Wait(t, "web-1's gap fill")
 
@@ -1889,7 +1889,7 @@ func TestAFillOfAStreamThatLeftTheViewIsNotSent(t *testing.T) {
 	f.store.Apply(t, pod("web-1", "uid-web-1", "node-a", controller("apps/v1", "ReplicaSet", "other", "uid-other"), container{name: "app"}))
 	read := testutil.NewProbe[struct{}](1)
 	f.set(func() { f.mirrorRead = read })
-	f.pods <- podFrame(cluster.DeltaFrameModified, "web-1")
+	f.pods <- podFrame(cluster.CollectionWatchFrameModified, "web-1")
 	read.Await(t, "the resolve without web-1")
 	f.set(func() { f.mirrorRead = nil })
 	close(release)
@@ -1912,7 +1912,7 @@ func TestAFillOfARestartedInstanceIsThrownAway(t *testing.T) {
 	// The old instance's dropped tailer is held for the hour, never tailed again.
 	svc.retry, svc.retryCap = time.Hour, time.Hour
 	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(30 * time.Minute)})
-	stream, _ := followWeb1(t, svc, FollowRequest{Since: moment(0)})
+	stream, _ := tailWeb1(t, svc, TailRequest{Since: moment(0)})
 	closeSnapshot(t, f, f.pods)
 	asked.Wait(t, "web-1's gap fill")
 
@@ -1920,7 +1920,7 @@ func TestAFillOfARestartedInstanceIsThrownAway(t *testing.T) {
 	awaitClosed(t, s, "prod/web-1/app")
 	s.Resume("prod/web-1/app")
 	restartWeb1(t, f, s)
-	f.pods <- podFrame(cluster.DeltaFrameModified, "web-1")
+	f.pods <- podFrame(cluster.CollectionWatchFrameModified, "web-1")
 	require.Eventually(t, func() bool { return s.FollowsOpened("prod/web-1/app") >= 2 },
 		testutil.Timeout, time.Millisecond, "the new instance's tailer")
 	close(release)
@@ -1931,8 +1931,8 @@ func TestAFillOfARestartedInstanceIsThrownAway(t *testing.T) {
 	assert.Equal(t, containerID("uid-web-1", "app", 1), rec.ContainerID)
 }
 
-// A gap fill whose check of the mirror fails ends the follow with the mirror's error.
-func TestAFillWhoseInstanceCheckFailsEndsTheFollow(t *testing.T) {
+// A gap fill whose check of the mirror fails ends the tail with the mirror's error.
+func TestAFillWhoseInstanceCheckFailsEndsTheTail(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	asked, release := holdFill(t, s, "prod/web-1/app")
@@ -1946,11 +1946,11 @@ func TestAFillWhoseInstanceCheckFailsEndsTheFollow(t *testing.T) {
 	assert.ErrorIs(t, failsWith(t, stream), broken)
 }
 
-// A follow's gap fill is not stamped, since what it fetched is in the viewer's window,
-// but it is held until the follow's walk returns: a sweep over budget between the
-// fill's commit and the walk leaves the follow's lines whole, and the chunk keeps no
+// A tail's gap fill is not stamped, since what it fetched is in the viewer's window,
+// but it is held until the tail's walk returns: a sweep over budget between the
+// fill's commit and the walk leaves the tail's lines whole, and the chunk keeps no
 // stamp after.
-func TestAFollowsGapFillIsHeldUntilItsWalk(t *testing.T) {
+func TestATailsGapFillIsHeldUntilItsWalk(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	s.Add("prod/web-1/app", logstest.Stamped(10*time.Minute, "in the gap"), logstest.Stamped(30*time.Minute, "1800"))
@@ -1960,7 +1960,7 @@ func TestAFollowsGapFillIsHeldUntilItsWalk(t *testing.T) {
 	svc, _ := serviceIn(t, f, s, t.TempDir(), ret)
 	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(30 * time.Minute)})
 	svc.afterFill = func() { sweepFile(t, svc, f) }
-	stream, _ := followWeb1(t, svc, FollowRequest{Since: moment(0)})
+	stream, _ := tailWeb1(t, svc, TailRequest{Since: moment(0)})
 
 	assert.Equal(t, []string{"in the gap", "1800"}, recvLines(t, stream, 2))
 	for _, c := range chunksOf(t, svc, f, "web-1", "app") {
@@ -1970,10 +1970,10 @@ func TestAFollowsGapFillIsHeldUntilItsWalk(t *testing.T) {
 	}
 }
 
-// A follow's gap fill goes to the file a batch at a time, each held until the walk:
+// A tail's gap fill goes to the file a batch at a time, each held until the walk:
 // its first batch is in the file while the fill's GET is still read, and the gap's
 // lines then arrive whole, in order, none stamped.
-func TestAFollowsGapFillIsWrittenAsItArrives(t *testing.T) {
+func TestATailsGapFillIsWrittenAsItArrives(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	var gap []string
@@ -1990,7 +1990,7 @@ func TestAFollowsGapFillIsWrittenAsItArrives(t *testing.T) {
 	p := &logstest.Pauser{N: 3, Gate: gate}
 	svc.backends = []namedBackend{{"kubelet", func(get kubelet.Getter) kubelet.Backend { return kubelet.New(p.On(get)) }}}
 	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(30 * time.Minute)})
-	stream, _ := followWeb1(t, svc, FollowRequest{Since: moment(0)})
+	stream, _ := tailWeb1(t, svc, TailRequest{Since: moment(0)})
 
 	first := logstore.Pos{TS: at(10 * time.Minute).UnixNano()}
 	require.Eventually(t, func() bool {
@@ -2043,14 +2043,14 @@ func TestAFillCutByItsLimitsGoesOn(t *testing.T) {
 	f.chunk(40)
 	svc.caps = capsOf(150)
 	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(30 * time.Minute)})
-	stream, _ := followWeb1(t, svc, FollowRequest{Since: moment(0)})
+	stream, _ := tailWeb1(t, svc, TailRequest{Since: moment(0)})
 
 	assert.Equal(t, append(messages(linesOf(gap)), "1800"), recvLines(t, stream, 7))
 	assert.Greater(t, fills(s, "prod/web-1/app"), 1)
 }
 
 // A fill the cluster refuses ends the stream until its generation moves, and the
-// lines past the gap are not sent: here the view's one stream, so the follow ends.
+// lines past the gap are not sent: here the view's one stream, so the tail ends.
 func TestAFillRefusedEndsItsStream(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
@@ -2062,7 +2062,7 @@ func TestAFillRefusedEndsItsStream(t *testing.T) {
 }
 
 // A lost gap is crossed with no fill.
-func TestAFollowCrossesALostGap(t *testing.T) {
+func TestATailCrossesALostGap(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	_, _, stream, _ := liveGap(t, s, true, logstest.Stamped(10*time.Minute, "rotated away"))
@@ -2073,10 +2073,10 @@ func TestAFollowCrossesALostGap(t *testing.T) {
 	assert.Zero(t, fills(s, "prod/web-1/app"))
 }
 
-// The log file closing under a follow, as a cache's clear closes it, ends the follow
-// with an error and no frame: following again would not end the same way. A follow
+// The log file closing under a tail, as a cache's clear closes it, ends the tail
+// with an error and no frame: tailing again would not end the same way. A tail
 // with no stream yet sees it as its pings ending, with no tailer to end first.
-func TestAFollowWhoseFileClosesFails(t *testing.T) {
+func TestATailWhoseFileClosesFails(t *testing.T) {
 	t.Parallel()
 	idle := Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourceDeployment, Name: "idle"}}}
 	for name, view := range map[string]Scope{"tailing": webScope, "with no stream": idle} {
@@ -2085,7 +2085,7 @@ func TestAFollowWhoseFileClosesFails(t *testing.T) {
 			f := webMirror(t)
 			f.store.Apply(t, workload("apps/v1", "Deployment", "idle", "dep-idle", nil))
 			svc, _ := serviceOver(t, f, newLogServer())
-			stream, _ := openFollowOf(t, svc, f, view)
+			stream, _ := openTailOf(t, svc, f, view)
 
 			require.NoError(t, svc.Clear(int64(f.active.Cache.ID)))
 
@@ -2102,7 +2102,7 @@ func TestAWalkWaitsForTheTailerBeforeAPagesSpan(t *testing.T) {
 	start := web1Since(0)
 	tl := &tailer{}
 	tl.start.Store(&start)
-	f := &follow{names: []string{"kubelet"}}
+	f := &cursorTail{names: []string{"kubelet"}}
 	tr := &tracked{wm: start, h: &handle{t: tl}}
 	pos := func(d time.Duration) logstore.Pos { return logstore.Pos{TS: at(d).UnixNano()} }
 	page := logstore.Chunk{From: pos(10 * time.Second), To: pos(10 * time.Second), Backend: "kubelet"}
@@ -2130,7 +2130,7 @@ func TestABackfillIsSentABatchAtATime(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	var backlog []string
-	for i := range 2*followBatch + 500 {
+	for i := range 2*tailBatch + 500 {
 		backlog = append(backlog, logstest.Stamped(10*time.Minute+time.Duration(i)*time.Millisecond, strconv.Itoa(i)))
 	}
 	_, _, stream, _ := liveGap(t, s, false, backlog...)
@@ -2146,7 +2146,7 @@ func TestBackfillsOfSeveralStreamsShareOneBatch(t *testing.T) {
 	s := newLogServer()
 	total := 0
 	for _, key := range []string{"prod/web-1/app", "prod/web-2/app"} {
-		for i := range followBatch + 200 {
+		for i := range tailBatch + 200 {
 			s.Add(key, logstest.Stamped(time.Duration(i)*time.Millisecond, strconv.Itoa(i)))
 			total++
 		}
@@ -2154,7 +2154,7 @@ func TestBackfillsOfSeveralStreamsShareOneBatch(t *testing.T) {
 	}
 	f := newMirror(t, append(webObjects(), finished(web1()), finished(web2()))...)
 	svc, _ := serviceOver(t, f, s)
-	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: webScope, Since: moment(-time.Second)})
+	stream := startTail(t, t.Context(), svc, TailRequest{Scope: webScope, Since: moment(-time.Second)})
 
 	next := map[string]int{}
 	for range total {
@@ -2166,13 +2166,13 @@ func TestBackfillsOfSeveralStreamsShareOneBatch(t *testing.T) {
 
 // A tailer that has ended owns no gap: the walk after its end fills what the file
 // lacks past its last line and reads on through a page's span past that, so a
-// finished container's cached last lines reach the follow before it is judged ended.
+// finished container's cached last lines reach the tail before it is judged ended.
 func TestAnEndedTailersGapsAreWalkedAsLive(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
-	stream, _ := followWeb1(t, svc, FollowRequest{Since: moment(0)})
+	stream, _ := tailWeb1(t, svc, TailRequest{Since: moment(0)})
 	closeSnapshot(t, f, f.pods)
 	s.Add("prod/web-1/app", logstest.Stamped(time.Second, "tailed"))
 	assert.Equal(t, "tailed", recvLine(t, stream, "the tailer's line").Message)
@@ -2183,7 +2183,7 @@ func TestAnEndedTailersGapsAreWalkedAsLive(t *testing.T) {
 	f.store.Apply(t, finished(web1()))
 	read := testutil.NewProbe[struct{}](1)
 	f.set(func() { f.mirrorRead = read })
-	f.pods <- podFrame(cluster.DeltaFrameModified, "web-1")
+	f.pods <- podFrame(cluster.CollectionWatchFrameModified, "web-1")
 	read.Await(t, "the finished pod's resolve")
 	s.End("prod/web-1/app")
 
@@ -2202,7 +2202,7 @@ func TestARestartIsNotADrop(t *testing.T) {
 			f := webMirror(t)
 			svc, _ := serviceOver(t, f, s)
 			svc.retry, svc.retryCap = time.Hour, time.Hour
-			stream, _ := openFollow(t, svc, f)
+			stream, _ := openTail(t, svc, f)
 			closeSnapshot(t, f, f.pods)
 			s.Add("prod/web-1/app", logstest.Stamped(time.Hour+time.Second, "before"))
 			recvLine(t, stream, "web-1's line")
@@ -2211,7 +2211,7 @@ func TestARestartIsNotADrop(t *testing.T) {
 				restartWeb1(t, f, s)
 				read := testutil.NewProbe[struct{}](1)
 				f.set(func() { f.mirrorRead = read })
-				f.pods <- podFrame(cluster.DeltaFrameModified, "web-1")
+				f.pods <- podFrame(cluster.CollectionWatchFrameModified, "web-1")
 				read.Await(t, "the restart's resolve")
 			}
 			if frameFirst {
@@ -2231,9 +2231,9 @@ func TestARestartIsNotADrop(t *testing.T) {
 	}
 }
 
-// followHoles files twoHoles as web-1's stream, the kubelet serving its newest
+// tailHoles files twoHoles as web-1's stream, the kubelet serving its newest
 // moments, and follows it under grep as q has it.
-func followHoles(t *testing.T, s *logstest.Server, grep string, q FollowRequest) *cluster.Stream[FollowFrame] {
+func tailHoles(t *testing.T, s *logstest.Server, grep string, q TailRequest) *cluster.Stream[TailFrame] {
 	t.Helper()
 	s.Add("prod/web-1/app", logstest.Stamped(9*time.Second, "y9"), logstest.Stamped(10*time.Second, "x10"))
 	f := webMirror(t)
@@ -2242,23 +2242,23 @@ func followHoles(t *testing.T, s *logstest.Server, grep string, q FollowRequest)
 	view := podView("web-1")
 	view.Grep = grep
 	q.Scope = view
-	stream := startFollow(t, t.Context(), svc, q)
+	stream := startTail(t, t.Context(), svc, q)
 	return stream
 }
 
-// A follow's first line on a stream looks back past where the follow started for the
+// A tail's first line on a stream looks back past where the tail started for the
 // holes before it, as a page's first does: opened past the last line a page sent, or
 // from a moment past the hole, it carries them. Its next line carries none.
-func TestAFollowsFirstLineCarriesTheHolesBeforeIt(t *testing.T) {
+func TestATailsFirstLineCarriesTheHolesBeforeIt(t *testing.T) {
 	t.Parallel()
-	for name, after := range map[string]FollowRequest{
+	for name, after := range map[string]TailRequest{
 		"past the page's last match": {Since: moment(0), Seen: []string{*lineCursorFor("web-1", "app", 0, 0)}},
 		"from a moment past it":      {Since: moment(9*time.Second + time.Nanosecond)},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			s := newLogServer()
-			stream := followHoles(t, s, "x", after)
+			stream := tailHoles(t, s, "x", after)
 
 			assert.Equal(t, "x10 (1s-9s)", marks([]logline.Record{recvLine(t, stream, "the first match")})[0])
 			s.Add("prod/web-1/app", logstest.Stamped(11*time.Second, "x11"))
@@ -2267,14 +2267,14 @@ func TestAFollowsFirstLineCarriesTheHolesBeforeIt(t *testing.T) {
 	}
 }
 
-// A hole the follow crosses after its first line waits on the stream for the next
+// A hole the tail crosses after its first line waits on the stream for the next
 // line it sends, across walks the send's allowance cuts.
-func TestAFollowKeepsAHoleItCrossesForItsNextLine(t *testing.T) {
+func TestATailKeepsAHoleItCrossesForItsNextLine(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	var quiet []logstore.Line
 	var served []string
-	for i := range followBatch + 100 {
+	for i := range tailBatch + 100 {
 		d := 5*time.Second + time.Duration(i)*time.Millisecond
 		quiet = append(quiet, logstore.Line{Pos: logstore.Pos{TS: at(d).UnixNano()}, Message: "y"})
 		served = append(served, logstest.Stamped(d, "y"))
@@ -2287,7 +2287,7 @@ func TestAFollowKeepsAHoleItCrossesForItsNextLine(t *testing.T) {
 		logstore.Fill{Lines: quiet, AtBeginning: true})
 	view := podView("web-1")
 	view.Grep = "x"
-	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: view, Since: moment(-time.Second)})
+	stream := startTail(t, t.Context(), svc, TailRequest{Scope: view, Since: moment(-time.Second)})
 
 	assert.Equal(t, "x0", marks([]logline.Record{recvLine(t, stream, "the first match")})[0])
 	assert.Equal(t, "x7 (1s-5s)", marks([]logline.Record{recvLine(t, stream, "the match past the hole")})[0])
@@ -2295,7 +2295,7 @@ func TestAFollowKeepsAHoleItCrossesForItsNextLine(t *testing.T) {
 
 // A tailer that resumes from a cached line the kubelet has rotated away writes an
 // at-beginning chunk past its start, and the lost gap between is the hole: once the tailer has
-// committed past it, the follow's first line carries it, and so does a page while the
+// committed past it, the tail's first line carries it, and so does a page while the
 // tailer runs.
 func TestAHoleBehindAResumedTailerIsMarked(t *testing.T) {
 	t.Parallel()
@@ -2304,7 +2304,7 @@ func TestAHoleBehindAResumedTailerIsMarked(t *testing.T) {
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
 	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: []logstore.Line{said(0, "x0"), said(1, "y1")}})
-	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: podView("web-1"), Since: moment(time.Second), Seen: []string{*lineCursorFor("web-1", "app", time.Second, 0)}})
+	stream := startTail(t, t.Context(), svc, TailRequest{Scope: podView("web-1"), Since: moment(time.Second), Seen: []string{*lineCursorFor("web-1", "app", time.Second, 0)}})
 
 	assert.Equal(t, "x5 (1s-5s)", marks([]logline.Record{recvLine(t, stream, "the first line past the hole")})[0])
 	page, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: podView("web-1"), PageFrom: PageFromLast, PageSize: 10})
@@ -2312,9 +2312,9 @@ func TestAHoleBehindAResumedTailerIsMarked(t *testing.T) {
 	assert.Equal(t, []string{"x0", "y1", "x5 (1s-5s)"}, marks(page.Records))
 }
 
-// A hole a follow crosses before its first match rides on that match even when the
+// A hole a tail crosses before its first match rides on that match even when the
 // match's look back runs out of bytes before reaching it.
-func TestAFollowsFirstLineKeepsAHoleItsLookCannotReach(t *testing.T) {
+func TestATailsFirstLineKeepsAHoleItsLookCannotReach(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	s.Add("prod/web-1/app", logstest.Stamped(5*time.Second, "y5"), logstest.Stamped(6*time.Second, "y6"), logstest.Stamped(7*time.Second, "x7"))
@@ -2326,15 +2326,15 @@ func TestAFollowsFirstLineKeepsAHoleItsLookCannotReach(t *testing.T) {
 		logstore.Fill{Lines: []logstore.Line{said(5, "y5"), said(6, "y6")}, AtBeginning: true})
 	view := podView("web-1")
 	view.Grep = "x"
-	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: view, Since: moment(-time.Second)})
+	stream := startTail(t, t.Context(), svc, TailRequest{Scope: view, Since: moment(-time.Second)})
 
 	assert.Equal(t, "x7 (1s-5s)", marks([]logline.Record{recvLine(t, stream, "the first match")})[0])
 }
 
-// A follow's fill reads every second whole, so a second that alone spends the
+// A tail's fill reads every second whole, so a second that alone spends the
 // fill's share, louder than a page reads, is read and passed: from a watermark
 // before it, and from its last line, where the fill is cut after its first line
-// past it and the follow walks on.
+// past it and the tail walks on.
 func TestAFillReadsABigSecondWhole(t *testing.T) {
 	t.Parallel()
 	var big []string
@@ -2343,12 +2343,12 @@ func TestAFillReadsABigSecondWhole(t *testing.T) {
 	}
 	after := []string{logstest.Stamped(11*time.Minute, "a"), logstest.Stamped(12*time.Minute, "b"), logstest.Stamped(13*time.Minute, "c")}
 	for name, tc := range map[string]struct {
-		from FollowRequest
+		from TailRequest
 		want []string
 	}{
-		"before it": {FollowRequest{Since: moment(0)}, append(append(messages(linesOf(big)), messages(linesOf(after))...), "1800")},
+		"before it": {TailRequest{Since: moment(0)}, append(append(messages(linesOf(big)), messages(linesOf(after))...), "1800")},
 		"its last line": {
-			FollowRequest{Since: moment(0), Seen: []string{*lineCursorFor("web-1", "app", 10*time.Minute+19*time.Millisecond, 0)}},
+			TailRequest{Since: moment(0), Seen: []string{*lineCursorFor("web-1", "app", 10*time.Minute+19*time.Millisecond, 0)}},
 			append(messages(linesOf(after)), "1800"),
 		},
 	} {
@@ -2363,7 +2363,7 @@ func TestAFillReadsABigSecondWhole(t *testing.T) {
 			svc.caps = capsOf(1 << 10)
 			svc.caps.Second = 1 << 10
 			seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(30 * time.Minute)})
-			stream, _ := followWeb1(t, svc, tc.from)
+			stream, _ := tailWeb1(t, svc, tc.from)
 
 			assert.Equal(t, tc.want, recvLines(t, stream, len(tc.want)))
 		})
@@ -2396,11 +2396,11 @@ func whole(lines []logstore.Line) []logstore.Fill {
 	return []logstore.Fill{{Lines: lines, AtBeginning: true}}
 }
 
-// A follow whose start is not now reads the instances of a Pod source only the
+// A tail whose start is not now reads the instances of a Pod source only the
 // file holds first, through the page engine, from where a poll would: a page's
 // Next cut inside the earlier instance delivers its rest, then the later
 // instance's lines from its tailer, each once, as the poll does (rule 7).
-func TestAFollowReadsTheInstancesOnlyTheFileHolds(t *testing.T) {
+func TestATailReadsTheInstancesOnlyTheFileHolds(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
@@ -2411,7 +2411,7 @@ func TestAFollowReadsTheInstancesOnlyTheFileHolds(t *testing.T) {
 	require.Equal(t, []string{"0", "1"}, messages(page.Records))
 	poll := goOn(t, svc, page.Page.Next, 10)
 
-	stream := startFollow(t, t.Context(), svc, FollowRequest{Cursor: page.Page.Next})
+	stream := startTail(t, t.Context(), svc, TailRequest{Cursor: page.Page.Next})
 
 	assert.Equal(t, messages(poll.Records), recvLines(t, stream, 4))
 	assert.Equal(t, []string{"2", "3", "10", "11"}, messages(poll.Records))
@@ -2419,30 +2419,30 @@ func TestAFollowReadsTheInstancesOnlyTheFileHolds(t *testing.T) {
 	assert.Equal(t, "tailed", recvLine(t, stream, "the tailer's next line").Message, "nothing again")
 }
 
-// An earlier instance is read whole from the follow's start: past a window's
+// An earlier instance is read whole from the tail's start: past a window's
 // past Until, over more than a page, with a hole carried on its record and no
 // backend read, two earlier instances in order; from a Since, none older; with a
 // Seen line inside, past it; and from now, not at all.
-func TestAFollowReadsEveryEarlierInstanceFromItsStart(t *testing.T) {
+func TestATailReadsEveryEarlierInstanceFromItsStart(t *testing.T) {
 	t.Parallel()
 	many := make([]time.Duration, MaxPageSize+50)
 	for i := range many {
 		many[i] = time.Duration(i) * time.Millisecond
 	}
 	holed := []logstore.Fill{{Lines: fileLines(0), AtBeginning: true}, {Lines: fileLines(2 * time.Second), AtBeginning: true}}
-	since := func(d time.Duration, seen ...string) func(*Service) FollowRequest {
-		return func(*Service) FollowRequest {
-			return FollowRequest{Scope: podView("web-1"), Since: moment(d), Seen: seen}
+	since := func(d time.Duration, seen ...string) func(*Service) TailRequest {
+		return func(*Service) TailRequest {
+			return TailRequest{Scope: podView("web-1"), Since: moment(d), Seen: seen}
 		}
 	}
-	untilOne := func(svc *Service) FollowRequest {
+	untilOne := func(svc *Service) TailRequest {
 		page := fetch(t, svc, FetchRequest{Scope: podView("web-1"), Window: Window{Since: moment(0), Until: moment(time.Second)}, PageFrom: PageFromFirst, PageSize: 1})
-		return FollowRequest{Cursor: page.Page.Next}
+		return TailRequest{Cursor: page.Page.Next}
 	}
 	threeLines := [][]logstore.Fill{whole(fileLines(0, time.Second, 2*time.Second))}
 	for name, tc := range map[string]struct {
 		earlier [][]logstore.Fill
-		q       func(*Service) FollowRequest
+		q       func(*Service) TailRequest
 		want    []string
 	}{
 		"past a past until": {threeLines, untilOne, []string{"1", "2", "60"}},
@@ -2459,7 +2459,7 @@ func TestAFollowReadsEveryEarlierInstanceFromItsStart(t *testing.T) {
 			svc, _ := serviceOver(t, f, s)
 			ranBefore(t, svc, f, s, tc.earlier, logstest.Stamped(time.Minute, "60"))
 
-			stream := startFollow(t, t.Context(), svc, tc.q(svc))
+			stream := startTail(t, t.Context(), svc, tc.q(svc))
 
 			assert.Equal(t, tc.want, marks(recvRecords(t, stream, len(tc.want))))
 			for _, r := range s.Requests() {
@@ -2470,7 +2470,7 @@ func TestAFollowReadsEveryEarlierInstanceFromItsStart(t *testing.T) {
 }
 
 // recvRecords waits for stream's next n lines and answers them.
-func recvRecords(t *testing.T, stream *cluster.Stream[FollowFrame], n int) []logline.Record {
+func recvRecords(t *testing.T, stream *cluster.Stream[TailFrame], n int) []logline.Record {
 	t.Helper()
 	out := make([]logline.Record, n)
 	for i := range out {
@@ -2479,23 +2479,23 @@ func recvRecords(t *testing.T, stream *cluster.Stream[FollowFrame], n int) []log
 	return out
 }
 
-// A follow from now reads no earlier instance: nothing of it is stamped after now.
-func TestAFollowFromNowReadsNoEarlierInstance(t *testing.T) {
+// A tail from now reads no earlier instance: nothing of it is stamped after now.
+func TestATailFromNowReadsNoEarlierInstance(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
 	ranBefore(t, svc, f, s, [][]logstore.Fill{whole(fileLines(0))})
-	stream, _ := followWeb1(t, svc, FollowRequest{})
+	stream, _ := tailWeb1(t, svc, TailRequest{})
 
 	s.Add("prod/web-1/app", logstest.Stamped(time.Hour+time.Second, "new"))
 
 	assert.Equal(t, "new", recvLine(t, stream, "the later instance's line").Message)
 }
 
-// An earlier instance's read neither ends a follow nor keeps it open: once the
-// later instance has stopped, the follow sends both and ends.
-func TestAnEarlierInstanceDoesNotHoldTheFollowOpen(t *testing.T) {
+// An earlier instance's read neither ends a tail nor keeps it open: once the
+// later instance has stopped, the tail sends both and ends.
+func TestAnEarlierInstanceDoesNotHoldTheTailOpen(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
@@ -2507,16 +2507,16 @@ func TestAnEarlierInstanceDoesNotHoldTheFollowOpen(t *testing.T) {
 	f.store.Apply(t, body)
 	s.End("prod/web-1/app")
 
-	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: podView("web-1"), Since: moment(0)})
+	stream := startTail(t, t.Context(), svc, TailRequest{Scope: podView("web-1"), Since: moment(0)})
 
 	assert.Equal(t, []string{"0", "1"}, recvLines(t, stream, 2))
 	assert.Equal(t, refusal.CodeFinished, endedWith(t, stream).Code)
 }
 
-// A follow defers NoNodes as a page does: a zone filter over a gone pod with no
+// A tail defers NoNodes as a page does: a zone filter over a gone pod with no
 // nodes left delivers the file's rows, then ends no-nodes, since no node can bring
 // the pod back; with no row it is refused no-nodes.
-func TestAFollowOfAGonePodIsFilteredWithNoNodesLeft(t *testing.T) {
+func TestATailOfAGonePodIsFilteredWithNoNodesLeft(t *testing.T) {
 	t.Parallel()
 	f := newMirror(t)
 	f.store.Mirror(t, "v1", "Pod")
@@ -2525,28 +2525,28 @@ func TestAFollowOfAGonePodIsFilteredWithNoNodesLeft(t *testing.T) {
 	view := podSource("old-1", false)
 	view.Filters = []ScopeFilter{{Field: FilterZone, Values: []string{"eu-1a"}}}
 
-	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: view, Since: moment(-time.Second)})
+	stream := startTail(t, t.Context(), svc, TailRequest{Scope: view, Since: moment(-time.Second)})
 	assert.Equal(t, "0", recvLine(t, stream, "the cached row's line").Message)
 	assert.Equal(t, refusal.CodeNoNodes, endedWith(t, stream).Code)
 
 	view.Filters[0].Values = []string{"eu-1b"}
-	_, err := svc.Follow(t.Context(), "7", FollowRequest{Scope: view, Since: moment(-time.Second)})
+	_, err := svc.TailFromCursor(t.Context(), "7", TailRequest{Scope: view, Since: moment(-time.Second)})
 	assert.Equal(t, refusal.CodeNoNodes, codeOf(err))
 }
 
-// A follow from a cursor over a scope whose one container is still starting
+// A tail from a cursor over a scope whose one container is still starting
 // waits for it rather than ending at open.
-func TestAFollowFromACursorWaitsForAStartingContainer(t *testing.T) {
+func TestATailFromACursorWaitsForAStartingContainer(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	f := newMirror(t, waiting(pod("boot", "uid-boot", "node-a", nil, container{name: "app"})))
 	svc, _ := serviceOver(t, f, s)
 	page := fetch(t, svc, FetchRequest{Scope: podView("boot"), Window: Window{Since: moment(0)}, PageFrom: PageFromFirst})
 
-	stream := startFollow(t, t.Context(), svc, FollowRequest{Cursor: page.Page.Follow})
+	stream := startTail(t, t.Context(), svc, TailRequest{Cursor: page.Page.Follow})
 	closeSnapshot(t, f, f.pods)
 	f.store.Apply(t, pod("boot", "uid-boot", "node-a", nil, container{name: "app"}))
-	f.pods <- podFrame(cluster.DeltaFrameModified, "boot")
+	f.pods <- podFrame(cluster.CollectionWatchFrameModified, "boot")
 	s.Add("prod/boot/app", logstest.Stamped(time.Hour+time.Second, "started"))
 
 	assert.Equal(t, "started", recvLine(t, stream, "app's line").Message)
@@ -2598,8 +2598,8 @@ func rowID(t *testing.T, svc *Service, f *fakeService, pod, container string, in
 // web1Since is the watermark at d past 10:00 in web-1's app: every line of that moment.
 func web1Since(d time.Duration) logstore.Pos { return logstore.Pos{TS: at(d).UnixNano(), Ord: -1} }
 
-// Two follows of one stream share its tailer: one read of the backend.
-func TestTwoFollowsShareOneTailer(t *testing.T) {
+// Two tails of one stream share its tailer: one read of the backend.
+func TestTwoTailsShareOneTailer(t *testing.T) {
 	t.Parallel()
 	backend := newFakeBackend()
 	backend.set("web-1/app", fakeRead{wait: never})
@@ -2613,10 +2613,10 @@ func TestTwoFollowsShareOneTailer(t *testing.T) {
 	assert.False(t, again, "a second read")
 }
 
-// A tailer whose last follow lets go runs on through its grace, and a follow that
+// A tailer whose last tail lets go runs on through its grace, and a tail that
 // attaches inside it reads nothing new; one that attaches after it starts a tailer
 // afresh.
-func TestATailerOutlivesItsFollowsByItsGrace(t *testing.T) {
+func TestATailerOutlivesItsTailsByItsGrace(t *testing.T) {
 	t.Parallel()
 	for name, grace := range map[string]time.Duration{"inside": time.Hour, "after": 0} {
 		t.Run(name, func(t *testing.T) {
@@ -2639,7 +2639,7 @@ func TestATailerOutlivesItsFollowsByItsGrace(t *testing.T) {
 	}
 }
 
-// A tailer in its grace that ends is dropped, and the next follow asking for its
+// A tailer in its grace that ends is dropped, and the next tail asking for its
 // stream starts one afresh.
 func TestATailerThatEndsInItsGraceIsDropped(t *testing.T) {
 	t.Parallel()
@@ -2662,7 +2662,7 @@ func TestATailerThatEndsInItsGraceIsDropped(t *testing.T) {
 // pinged waits for a commit of lines to the stream row of the file behind svc.
 func pinged(t *testing.T, svc *Service, f *fakeService, row int64) func() {
 	t.Helper()
-	rx, err := fileOf(t, svc, f).Subscribe(row)
+	rx, err := fileOf(t, svc, f).ListenForStreamChanges(row)
 	require.NoError(t, err)
 	t.Cleanup(rx.Close)
 	return func() {
@@ -2831,7 +2831,7 @@ func TestATailerTheWriterCannotKeepUpWithReadsFromNow(t *testing.T) {
 
 // A tailer in its grace that falls behind the writer ends instead of reading again
 // from now, its grace timer stopped: nobody is reading it, so it stops competing for
-// the writer. The next follow asking for its stream starts a tailer afresh.
+// the writer. The next tail asking for its stream starts a tailer afresh.
 func TestATailerInItsGraceThatFallsBehindEnds(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
@@ -2910,7 +2910,7 @@ func TestATailerWhoseWriteFailsEnds(t *testing.T) {
 	assert.Equal(t, []string{"kept", "lost"}, messages(page.Records))
 }
 
-// A follow's walk reads a tailer's start holding one of the file's reader connections,
+// A tail's walk reads a tailer's start holding one of the file's reader connections,
 // and the registry holds its lock while a start reads the file, so reading the start
 // takes no lock.
 func TestATailersStartIsReadWithoutTheRegistrysLock(t *testing.T) {
@@ -2927,7 +2927,7 @@ func TestATailersStartIsReadWithoutTheRegistrysLock(t *testing.T) {
 	assert.Equal(t, web1Since(0), testutil.Recv(t, read, "the start"))
 }
 
-// fills is every request for key that reads no follow: a page's or a follow's fill.
+// fills is every request for key that reads no tail: a page's or a tail's fill.
 func fills(s *logstest.Server, key string) int {
 	n := 0
 	for _, q := range s.RequestsOf(key) {
@@ -3040,7 +3040,7 @@ func attachAsync(ctx context.Context, r *registry, st stream, row int64, waterma
 	return out
 }
 
-// A follow attaching while another starts the stream's tailer waits for that start
+// A tail attaching while another starts the stream's tailer waits for that start
 // and joins the tailer it made, and one whose context ends meanwhile gives up.
 func TestAnAttachWaitsOnTheStartInProgress(t *testing.T) {
 	t.Parallel()
@@ -3071,7 +3071,7 @@ func TestAnAttachWaitsOnTheStartInProgress(t *testing.T) {
 	assert.False(t, again, "a second read")
 }
 
-// A follow attaching to a tailer that is stopping waits for it to end and starts
+// A tail attaching to a tailer that is stopping waits for it to end and starts
 // one afresh, since a tailer started beside it would race its chunk's close; one
 // whose context ends meanwhile gives up.
 func TestAnAttachWaitsOnAStoppingTailer(t *testing.T) {
@@ -3141,7 +3141,7 @@ func TestAStartThatCannotHoldItsClaimsFails(t *testing.T) {
 	})
 }
 
-// A tailer let go of ends once its grace has passed with no follow holding it.
+// A tailer let go of ends once its grace has passed with no tail holding it.
 func TestATailerStopsAtTheEndOfItsGrace(t *testing.T) {
 	t.Parallel()
 	backend := newFakeBackend()
@@ -3163,13 +3163,13 @@ func tailStart(svc *Service, cacheID cluster.ClusterCacheID, row int64) *logstor
 	return start
 }
 
-// A fatal tailer ends the follow, saying why.
-func TestAFatalTailerEndsTheFollow(t *testing.T) {
+// A fatal tailer ends the tail, saying why.
+func TestAFatalTailerEndsTheTail(t *testing.T) {
 	t.Parallel()
 	backend := webPair(fakeRead{err: &kubelet.StatusError{Code: http.StatusUnauthorized, Message: "Unauthorized"}}, fakeRead{wait: never})
 	svc, _ := serviceOn(t, backend)
 
-	stream := openEndingFollow(t, svc)
+	stream := openEndingTail(t, svc)
 
 	assert.Equal(t, refusal.New(refusal.CodeUnauthorized, "the cluster refused to show this log: Unauthorized"), endedWith(t, stream))
 }
@@ -3179,7 +3179,7 @@ func TestATransientTailerIsReopened(t *testing.T) {
 	t.Parallel()
 	backend := webPair(fakeRead{err: errors.New("connection reset")}, fakeRead{wait: never})
 	svc, f := serviceOn(t, backend)
-	openFollow(t, svc, f)
+	openTail(t, svc, f)
 
 	for of := 0; of < 2; {
 		if backend.opened.Await(t, "a read to open") == "web-1/app" {
@@ -3194,7 +3194,7 @@ func TestAnEndedTailerWaitsForItsGeneration(t *testing.T) {
 	t.Parallel()
 	backend := webPair(fakeRead{err: &kubelet.StatusError{Code: http.StatusBadRequest, Message: "container is waiting to start"}}, fakeRead{wait: never})
 	svc, f := serviceOn(t, backend)
-	stream, _ := openFollow(t, svc, f)
+	stream, _ := openTail(t, svc, f)
 	awaitOpens(t, backend, 2)
 	recvNotice(t, stream, "web-1's end")
 	// A negative assertion, so a bounded window: a hundred retries is far past the
@@ -3203,24 +3203,24 @@ func TestAnEndedTailerWaitsForItsGeneration(t *testing.T) {
 
 	backend.set("web-1/app", fakeRead{lines: []logline.Record{{Timestamp: at(time.Hour + time.Second), Message: "started"}}, wait: never})
 	f.store.Apply(t, webPod("web-1", "node-a", container{name: "app", restarted: true}, container{name: "istio-proxy"}))
-	f.pods <- podFrame(cluster.DeltaFrameModified, "web-1")
+	f.pods <- podFrame(cluster.CollectionWatchFrameModified, "web-1")
 
 	assert.Equal(t, "started", recvLine(t, stream, "web-1's line").Message)
 }
 
-// A denied tailer ends its stream alone, and is why the follow ends once every
+// A denied tailer ends its stream alone, and is why the tail ends once every
 // stream has.
 func TestADeniedTailerEndsItsStreamAlone(t *testing.T) {
 	t.Parallel()
 	done := make(chan struct{})
 	backend := webPair(fakeRead{err: &kubelet.StatusError{Code: http.StatusForbidden, Message: "forbidden"}}, fakeRead{err: &kubelet.StatusError{Code: http.StatusBadRequest}, wait: done})
 	svc, f := serviceOn(t, backend)
-	stream, _ := openFollow(t, svc, f)
+	stream, _ := openTail(t, svc, f)
 	awaitOpens(t, backend, 2)
 	recvNotice(t, stream, "web-1's refusal")
-	// A negative assertion, so a bounded window: the follow would end on the 403
+	// A negative assertion, so a bounded window: the tail would end on the 403
 	// at once, and a hundred retries is far past it.
-	testutil.NoRecv(t, stream.Frames, 100*svc.retry, "the follow to end")
+	testutil.NoRecv(t, stream.Frames, 100*svc.retry, "the tail to end")
 
 	close(done)
 	recvNotice(t, stream, "web-2's end")
@@ -3229,7 +3229,7 @@ func TestADeniedTailerEndsItsStreamAlone(t *testing.T) {
 }
 
 // recvNotice waits for stream's next frame, a notice, and answers it.
-func recvNotice(t *testing.T, stream *cluster.Stream[FollowFrame], what string) Notice {
+func recvNotice(t *testing.T, stream *cluster.Stream[TailFrame], what string) Notice {
 	t.Helper()
 	frame := testutil.Recv(t, stream.Frames, what)
 	require.NotNil(t, frame.Notice, "%s: %+v", what, frame)
@@ -3249,7 +3249,7 @@ func TestAStreamThatEndsOnAnErrorSaysSo(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			svc, f := serviceOn(t, webPair(fakeRead{err: err}, fakeRead{wait: never}))
-			stream, _ := openFollow(t, svc, f)
+			stream, _ := openTail(t, svc, f)
 
 			notice := recvNotice(t, stream, "web-1's notice")
 
@@ -3264,7 +3264,7 @@ func TestAHeldStreamSaysNothing(t *testing.T) {
 	t.Parallel()
 	backend := webPair(fakeRead{err: errors.New("connection reset")}, fakeRead{wait: never})
 	svc, f := serviceOn(t, backend)
-	stream, _ := openFollow(t, svc, f)
+	stream, _ := openTail(t, svc, f)
 
 	for of := 0; of < 2; {
 		if backend.opened.Await(t, "a read to open") == "web-1/app" {
@@ -3284,11 +3284,11 @@ func TestAStreamFailingAgainAtALaterGenerationSaysSoAgain(t *testing.T) {
 	t.Parallel()
 	backend := webPair(fakeRead{err: &kubelet.StatusError{Code: http.StatusBadRequest, Message: "gone"}}, fakeRead{wait: never})
 	svc, f := serviceOn(t, backend)
-	stream, _ := openFollow(t, svc, f)
+	stream, _ := openTail(t, svc, f)
 	recvNotice(t, stream, "the first generation's end")
 
 	f.store.Apply(t, webPod("web-1", "node-a", container{name: "app", restarted: true}, container{name: "istio-proxy"}))
-	f.pods <- podFrame(cluster.DeltaFrameModified, "web-1")
+	f.pods <- podFrame(cluster.CollectionWatchFrameModified, "web-1")
 
 	recvNotice(t, stream, "the later generation's end")
 }
@@ -3309,27 +3309,27 @@ func awaitOpens(t *testing.T, backend *fakeBackend, n int) {
 	}
 }
 
-// A follow is refused when its log file fails as it opens: the file closed, or its
+// A tail is refused when its log file fails as it opens: the file closed, or its
 // workload's gone pods unreadable.
-func TestAFollowWhoseFileFailsAsItOpensIsRefused(t *testing.T) {
+func TestATailWhoseFileFailsAsItOpensIsRefused(t *testing.T) {
 	t.Parallel()
 	svc, _ := serviceOver(t, webMirror(t), newLogServer())
 	require.NoError(t, svc.files.Close())
-	_, err := svc.Follow(t.Context(), "7", FollowRequest{Scope: webScope})
+	_, err := svc.TailFromCursor(t.Context(), "7", TailRequest{Scope: webScope})
 	assert.ErrorIs(t, err, logstore.ErrClosed)
 
 	dir := t.TempDir()
 	svc, f := serviceIn(t, webMirror(t), newLogServer(), dir, testRetention)
 	fileOf(t, svc, f)
 	breakFile(t, dir, f, `DROP TABLE pod_owners`)
-	_, err = svc.Follow(t.Context(), "7", FollowRequest{Scope: webScope, Since: moment(0)})
+	_, err = svc.TailFromCursor(t.Context(), "7", TailRequest{Scope: webScope, Since: moment(0)})
 	assert.ErrorContains(t, err, "no such table: pod_owners")
 }
 
-// A follow fails with its log file wherever the file fails under it: reading the
+// A tail fails with its log file wherever the file fails under it: reading the
 // pods only the file holds, starting a tailer, walking a finished instance, or
 // walking on past what a fill wrote, its chunks or its lines.
-func TestAFollowFailsWithItsFile(t *testing.T) {
+func TestATailFailsWithItsFile(t *testing.T) {
 	t.Parallel()
 	for name, c := range map[string]struct {
 		view      Scope
@@ -3364,20 +3364,20 @@ func TestAFollowFailsWithItsFile(t *testing.T) {
 				breakFile(t, dir, f, `DROP TABLE `+table)
 			}
 
-			stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: c.view, Since: c.since})
+			stream := startTail(t, t.Context(), svc, TailRequest{Scope: c.view, Since: c.since})
 
 			assert.ErrorContains(t, failsWith(t, stream), "no such table: "+table)
 		})
 	}
 }
 
-// A follow whose mirror watches ended clean and cannot open again fails with the
+// A tail whose mirror watches ended clean and cannot open again fails with the
 // reason.
-func TestAFollowWhoseWatchesCannotOpenAgainFails(t *testing.T) {
+func TestATailWhoseWatchesCannotOpenAgainFails(t *testing.T) {
 	t.Parallel()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, newLogServer())
-	stream, _ := openFollow(t, svc, f)
+	stream, _ := openTail(t, svc, f)
 
 	f.set(func() { f.watchObjectsErr = errors.New("no watch") })
 	close(f.pods)
@@ -3385,10 +3385,10 @@ func TestAFollowWhoseWatchesCannotOpenAgainFails(t *testing.T) {
 	assert.EqualError(t, failsWith(t, stream), "no watch")
 }
 
-// A follow whose context ends while it sends ends there: in the lines of a pod only
+// A tail whose context ends while it sends ends there: in the lines of a pod only
 // the file holds, and in a walk's. The stream holds one frame, so with the first
-// read and nothing more, the follow waits on the third when the cancel lands.
-func TestAFollowEndsWhileItSends(t *testing.T) {
+// read and nothing more, the tail waits on the third when the cancel lands.
+func TestATailEndsWhileItSends(t *testing.T) {
 	t.Parallel()
 	for name, c := range map[string]struct {
 		view Scope
@@ -3411,17 +3411,17 @@ func TestAFollowEndsWhileItSends(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			released := f.lease.released.Load()
-			stream := startFollow(t, ctx, svc, FollowRequest{Scope: c.view, Since: moment(0)})
+			stream := startTail(t, ctx, svc, TailRequest{Scope: c.view, Since: moment(0)})
 
 			assert.Equal(t, "1", recvLine(t, stream, "the first line").Message)
-			// The follow may still be between lines: cancelled then, it never sends the second.
+			// The tail may still be between lines: cancelled then, it never sends the second.
 			require.Eventually(t, func() bool { return len(stream.Frames) == 1 }, testutil.Timeout, time.Millisecond, "the second line to fill the buffer")
 			cancel()
-			// The follow lets its claim go once it has ended.
+			// The tail lets its claim go once it has ended.
 			require.Eventually(t, func() bool { return f.lease.released.Load() > released }, testutil.Timeout, time.Millisecond)
 
 			assert.Equal(t, "2", recvLine(t, stream, "the line the stream held").Message)
-			assert.NoError(t, failsWith(t, stream), "a cancel ends a follow with no error")
+			assert.NoError(t, failsWith(t, stream), "a cancel ends a tail with no error")
 		})
 	}
 }
@@ -3434,16 +3434,16 @@ func TestAFillARetirementCutIsReadAgain(t *testing.T) {
 	svc, f := serviceOn(t, backend)
 	f.store.Apply(t, donePod())
 
-	startFollow(t, t.Context(), svc, FollowRequest{Scope: podView("done")})
+	startTail(t, t.Context(), svc, TailRequest{Scope: podView("done")})
 
 	backend.reads.Await(t, "the fill")
 	backend.reads.Await(t, "the fill again")
 }
 
-// A follow from a moment over a workload with a label filter and no nodes to judge
+// A tail from a moment over a workload with a label filter and no nodes to judge
 // it by reads its gone pods from the file first, then waits for nodes rather than
 // ending: a workload may run new pods.
-func TestAFollowOfAWorkloadWithNoNodesReadsItsGonePodsAndWaits(t *testing.T) {
+func TestATailOfAWorkloadWithNoNodesReadsItsGonePodsAndWaits(t *testing.T) {
 	t.Parallel()
 	f := newMirror(t, workload("apps/v1", "Deployment", "web", "dep-web", nil))
 	f.store.Mirror(t, "v1", "Pod")
@@ -3455,7 +3455,7 @@ func TestAFollowOfAWorkloadWithNoNodesReadsItsGonePodsAndWaits(t *testing.T) {
 	read := testutil.NewProbe[struct{}](64)
 	f.set(func() { f.mirrorRead = read })
 
-	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: view, Since: moment(-time.Second)})
+	stream := startTail(t, t.Context(), svc, TailRequest{Scope: view, Since: moment(-time.Second)})
 
 	assert.Equal(t, "0", recvLine(t, stream, "the gone pod's line").Message)
 	read.Await(t, "the open's resolve")
@@ -3467,14 +3467,14 @@ func TestAFollowOfAWorkloadWithNoNodesReadsItsGonePodsAndWaits(t *testing.T) {
 func TestAWalkPastItsAllowanceWalksTheRestOn(t *testing.T) {
 	t.Parallel()
 	svc, f := serviceOver(t, webMirror(t), newLogServer())
-	moments := make([]time.Duration, followBatch+1)
+	moments := make([]time.Duration, tailBatch+1)
 	for i := range moments {
 		moments[i] = time.Duration(i) * time.Millisecond
 	}
 	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(moments...), AtBeginning: true})
 	seed(t, svc, f, rowOf("web-2", "app"), logstore.Fill{Lines: fileLines(0), AtBeginning: true})
 
-	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: webScope, Since: moment(0)})
+	stream := startTail(t, t.Context(), svc, TailRequest{Scope: webScope, Since: moment(0)})
 
-	assert.Len(t, recvLines(t, stream, followBatch+2), followBatch+2)
+	assert.Len(t, recvLines(t, stream, tailBatch+2), tailBatch+2)
 }

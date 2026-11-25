@@ -58,7 +58,7 @@ func fire(t *testing.T, tick chan<- time.Time) {
 // subscribe is a receiver of the pings for ids, closed when the test ends.
 func subscribe(t *testing.T, s *Store, ids ...int64) <-chan pingEvent {
 	t.Helper()
-	rx, err := s.Subscribe(ids...)
+	rx, err := s.ListenForStreamChanges(ids...)
 	require.NoError(t, err)
 	t.Cleanup(rx.Close)
 	return rx.Chan()

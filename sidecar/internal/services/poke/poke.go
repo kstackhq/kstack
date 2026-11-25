@@ -23,8 +23,8 @@ const (
 	SourceHost Source = "host"
 )
 
-// Signal is broadcast to all subscribers on every poke.
-type Signal struct {
+// Notification is broadcast to all subscribers on every poke.
+type Notification struct {
 	Source Source
 	At     time.Time
 }
@@ -76,8 +76,8 @@ func withTicker(f func(time.Duration) (<-chan time.Time, func())) option {
 // Service fans resync pokes to all subscribers; Start (or Run) launches the gap detector.
 // Poke is safe from any goroutine at any time.
 type Service struct {
-	hub *broadcast.Hub[Signal]
-	tx  *broadcast.Sender[Signal]
+	hub *broadcast.Hub[Notification]
+	tx  *broadcast.Sender[Notification]
 	opt options
 }
 
@@ -93,7 +93,7 @@ func newWithOptions(opts ...option) *Service {
 		opt(&o)
 	}
 	o.applyDefaults()
-	hub := broadcast.New[Signal](hubCapacity)
+	hub := broadcast.New[Notification](hubCapacity)
 	return &Service{
 		hub: hub,
 		tx:  hub.Sender(),
@@ -103,13 +103,13 @@ func newWithOptions(opts ...option) *Service {
 
 // Poke broadcasts a Signal to all subscribers; never blocks.
 func (s *Service) Poke(src Source) {
-	_ = s.tx.Send(Signal{Source: src, At: s.opt.now()})
+	_ = s.tx.Send(Notification{Source: src, At: s.opt.now()})
 }
 
-// Subscribe returns a Signal channel and its cancel func; the channel closes on cancel or
+// ListenForNotifications returns a Notification channel and its cancel func; the channel closes on cancel or
 // when Run's context ends. Cancel is REQUIRED — abandoning the channel leaks the feeder
 // goroutine.
-func (s *Service) Subscribe() (<-chan Signal, func()) {
+func (s *Service) ListenForNotifications() (<-chan Notification, func()) {
 	rx := s.hub.Receiver()
 	return rx.Chan(), rx.Close
 }

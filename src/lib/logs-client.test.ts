@@ -15,7 +15,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { compareTimestamps } from '@/lib/log-viewer';
-import type { FollowFrame, Page } from '@/lib/log-viewer';
+import type { TailFrame, Page } from '@/lib/log-viewer';
 import type { LogsViewAction } from '@/lib/logs-view';
 import { mockTauriCore } from '@/test-utils';
 
@@ -119,8 +119,8 @@ const dialed = () =>
     .filter(([cmd]) => cmd === 'graphql_subscribe')
     .map(([, arg]) => (arg as { variables: unknown }).variables);
 
-const push = (msg: object) => channelFor('logsFollow').onmessage!(JSON.stringify(msg));
-const frame = (logsFollow: object) => push({ type: 'next', payload: { data: { logsFollow } } });
+const push = (msg: object) => channelFor('logsTail').onmessage!(JSON.stringify(msg));
+const frame = (logsTail: object) => push({ type: 'next', payload: { data: { logsTail } } });
 
 // The async `graphql_subscribe` ack, without advancing fake timers.
 const flush = async () => {
@@ -280,13 +280,13 @@ describe('fetch At', () => {
 describe('follow', () => {
   it('sends the cursor and `seen` as they came, handing on lines, notices and the end', async () => {
     const logs = client();
-    const frames: FollowFrame[] = [];
-    logs.follow('f1', ['c1'], (f) => frames.push(f), failed);
+    const frames: TailFrame[] = [];
+    logs.tail('f1', ['c1'], (f) => frames.push(f), failed);
     await flush();
     expect(dialed()).toEqual([{ id: 'cluster-1', request: { cursor: 'f1', seen: ['c1'] } }]);
 
     push({ type: 'open' });
-    frame({ __typename: 'LogsFollowFrame', type: 'Line', record: record(3), notice: null, ended: null });
+    frame({ __typename: 'LogsTailFrame', type: 'Line', record: record(3), notice: null, ended: null });
     frame({ type: 'Notice', record: null, notice: { code: 'stream-skipped', message: 'db: gone' }, ended: null });
     frame({ type: 'Ended', record: null, notice: null, ended: { code: 'scope-gone', message: 'the pod was deleted' } });
     expect(frames).toEqual([
@@ -298,7 +298,7 @@ describe('follow', () => {
 
   it('reconnects a watch that died with the `seen` given, then the newest line it handed on of each container', async () => {
     vi.useFakeTimers();
-    const stop = client().follow('f1', ['s-app', 's-db'], () => {}, failed);
+    const stop = client().tail('f1', ['s-app', 's-db'], () => {}, failed);
     await flush();
     push({ type: 'open' });
     frame({ type: 'Line', record: record(4), notice: null, ended: null });
@@ -306,7 +306,7 @@ describe('follow', () => {
     frame({ type: 'Line', record: record(6), notice: null, ended: null });
 
     // A watch that dies once open is the exchange's to reconnect, not a failed follow.
-    push({ type: 'next', payload: { errors: [{ message: 'tailer lost' }], extensions: { watchFailed: true } } });
+    push({ type: 'next', payload: { errors: [{ message: 'tailer lost' }], extensions: { subscriptionFailed: true } } });
     await vi.advanceTimersByTimeAsync(1_000);
     expect(dialed().at(-1)).toEqual({
       id: 'cluster-1',
@@ -318,7 +318,7 @@ describe('follow', () => {
 
   it('never follows again after `Ended`', async () => {
     vi.useFakeTimers();
-    client().follow('f1', [], () => {}, failed);
+    client().tail('f1', [], () => {}, failed);
     await flush();
     push({ type: 'open' });
     frame({ type: 'Ended', record: null, notice: null, ended: { code: 'scope-gone', message: 'gone' } });
@@ -330,8 +330,8 @@ describe('follow', () => {
 
   it('fails a follow the sidecar could not open, in its words, and never follows again', async () => {
     vi.useFakeTimers();
-    const frames: FollowFrame[] = [];
-    client().follow('f1', [], (f) => frames.push(f), failed);
+    const frames: TailFrame[] = [];
+    client().tail('f1', [], (f) => frames.push(f), failed);
     await flush();
     push({ type: 'open' });
     push({ type: 'next', payload: { data: null, errors: [{ message: 'the cluster has no cache' }] } });
@@ -345,8 +345,8 @@ describe('follow', () => {
   });
 
   it('stops the subscription when the follow is stopped', async () => {
-    const frames: FollowFrame[] = [];
-    const stop = client().follow('f1', [], (f) => frames.push(f), failed);
+    const frames: TailFrame[] = [];
+    const stop = client().tail('f1', [], (f) => frames.push(f), failed);
     await flush();
     stop();
     expect(invokeMock).toHaveBeenCalledWith('graphql_unsubscribe', { id: 1 });

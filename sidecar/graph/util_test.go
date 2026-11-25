@@ -30,13 +30,13 @@ func TestTheChatRefusalTableIsPinned(t *testing.T) {
 	}
 }
 
-// mapStream applies mapFn to every source value in order, then closes the
+// mapSubscription applies mapFn to every source value in order, then closes the
 // output and runs unsub when the source channel closes.
-func TestMapStreamMapsValuesAndClosesWithSource(t *testing.T) {
+func TestMapSubscriptionMapsValuesAndClosesWithSource(t *testing.T) {
 	sub := make(chan int)
 	unsubbed := make(chan struct{})
 
-	out := mapStream(context.Background(), sub, func() { close(unsubbed) }, strconv.Itoa)
+	out := mapSubscription(context.Background(), sub, func() { close(unsubbed) }, strconv.Itoa)
 
 	go func() {
 		sub <- 1
@@ -56,12 +56,12 @@ func TestMapStreamMapsValuesAndClosesWithSource(t *testing.T) {
 
 // Cancelling ctx tears the stream down: the output channel closes and unsub
 // runs, even though the source channel stays open.
-func TestMapStreamStopsOnContextCancel(t *testing.T) {
+func TestMapSubscriptionStopsOnContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	sub := make(chan int)
 	unsubbed := make(chan struct{})
 
-	out := mapStream(ctx, sub, func() { close(unsubbed) }, strconv.Itoa)
+	out := mapSubscription(ctx, sub, func() { close(unsubbed) }, strconv.Itoa)
 
 	cancel()
 
@@ -72,12 +72,12 @@ func TestMapStreamStopsOnContextCancel(t *testing.T) {
 // Cancelling ctx while the pump is blocked sending a mapped value (no reader
 // on the output channel) still tears the stream down — the send must not wedge
 // the goroutine past cancellation.
-func TestMapStreamStopsOnContextCancelDuringSend(t *testing.T) {
+func TestMapSubscriptionStopsOnContextCancelDuringSend(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	sub := make(chan int)
 	unsubbed := make(chan struct{})
 
-	out := mapStream(ctx, sub, func() { close(unsubbed) }, strconv.Itoa)
+	out := mapSubscription(ctx, sub, func() { close(unsubbed) }, strconv.Itoa)
 
 	// The source is unbuffered, so this returns only once the pump has taken the
 	// value — which leaves it blocked sending "1" to the unread output.
@@ -254,21 +254,21 @@ func TestPageOfAContinuation(t *testing.T) {
 
 // A follow maps field by field from each start: a moment with its scope, a
 // cursor alone, and a cursor with seen and a message cap.
-func TestFollowRequestOfEachStart(t *testing.T) {
+func TestTailRequestOfEachStart(t *testing.T) {
 	since := time.Date(2026, 10, 8, 10, 0, 0, 0, time.UTC)
 	cursor, msgCap := "opaque", 100
 	for _, c := range []struct {
-		in   model.LogsFollowInput
-		want logs.FollowRequest
+		in   model.LogsTailInput
+		want logs.TailRequest
 	}{
-		{model.LogsFollowInput{Scope: &scope, Since: &since}, logs.FollowRequest{Scope: scope, Since: &since}},
-		{model.LogsFollowInput{Cursor: &cursor}, logs.FollowRequest{Cursor: &cursor}},
+		{model.LogsTailInput{Scope: &scope, Since: &since}, logs.TailRequest{Scope: scope, Since: &since}},
+		{model.LogsTailInput{Cursor: &cursor}, logs.TailRequest{Cursor: &cursor}},
 		{
-			model.LogsFollowInput{Cursor: &cursor, Seen: []string{"line-a"}, MaxMessageBytes: &msgCap},
-			logs.FollowRequest{Cursor: &cursor, Seen: []string{"line-a"}, MaxMessageBytes: 100},
+			model.LogsTailInput{Cursor: &cursor, Seen: []string{"line-a"}, MaxMessageBytes: &msgCap},
+			logs.TailRequest{Cursor: &cursor, Seen: []string{"line-a"}, MaxMessageBytes: 100},
 		},
 	} {
-		assert.Equal(t, c.want, followRequestOf(c.in))
+		assert.Equal(t, c.want, tailRequestOf(c.in))
 	}
 }
 
@@ -279,11 +279,11 @@ func TestFrameOfEachKind(t *testing.T) {
 	notice := logs.Notice{Code: refusal.CodeStreamSkipped, Message: "forbidden"}
 	ended := refusal.New(refusal.CodeFinished, "every container has stopped")
 
-	assert.Equal(t, &model.LogsFollowFrame{Type: model.LogsFollowFrameTypeLine, Record: rec}, frameOf(logs.FollowFrame{Record: rec}))
-	assert.Equal(t, &model.LogsFollowFrame{Type: model.LogsFollowFrameTypeNotice, Notice: &tools.LogsNotice{Code: "stream-skipped", Message: "forbidden"}},
-		frameOf(logs.FollowFrame{Notice: &notice}))
-	assert.Equal(t, &model.LogsFollowFrame{Type: model.LogsFollowFrameTypeEnded, Ended: &tools.LogsNotice{Code: "finished", Message: "every container has stopped"}},
-		frameOf(logs.FollowFrame{Ended: &ended}))
+	assert.Equal(t, &model.LogsTailFrame{Type: model.LogsTailFrameTypeLine, Record: rec}, frameOf(logs.TailFrame{Record: rec}))
+	assert.Equal(t, &model.LogsTailFrame{Type: model.LogsTailFrameTypeNotice, Notice: &tools.LogsNotice{Code: "stream-skipped", Message: "forbidden"}},
+		frameOf(logs.TailFrame{Notice: &notice}))
+	assert.Equal(t, &model.LogsTailFrame{Type: model.LogsTailFrameTypeEnded, Ended: &tools.LogsNotice{Code: "finished", Message: "every container has stopped"}},
+		frameOf(logs.TailFrame{Ended: &ended}))
 }
 
 // A Save or Delete error that is no refusal reaches the wire as it is.

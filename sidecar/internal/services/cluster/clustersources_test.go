@@ -380,8 +380,8 @@ func TestSourceReconcileSkipsADeletingAnchor(t *testing.T) {
 	assert.Empty(t, rowsByContext(t, d))
 }
 
-// fakeKubeconfigService hands the pass a snapshot without a file behind it. Subscribe
-// is unused here — the trigger is what subscribes.
+// fakeKubeconfigService hands the pass a snapshot without a file behind it.
+// WatchConfigState is unused here — the trigger is what watches.
 type fakeKubeconfigService struct {
 	cfg    *api.Config
 	loaded bool
@@ -392,7 +392,7 @@ type fakeKubeconfigService struct {
 
 func (f fakeKubeconfigService) Get() (*api.Config, bool) { return f.cfg, f.loaded }
 
-func (f fakeKubeconfigService) Subscribe() kubeconfig.Subscription {
+func (f fakeKubeconfigService) WatchConfigState() kubeconfig.ConfigStateWatch {
 	panic("the source controller does not subscribe")
 }
 

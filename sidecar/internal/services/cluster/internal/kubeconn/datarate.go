@@ -22,7 +22,7 @@ import (
 )
 
 // DataRateInterval is the sampler's cadence, and DataRateWindow how far back a ring reaches at
-// that cadence. A frame of the series carries both, so the client keeps what the ring keeps.
+// that cadence. A frame of the time series feed carries both, so the client keeps what the ring keeps.
 const (
 	DataRateInterval = 2 * time.Second
 	DataRateWindow   = 2 * time.Minute
@@ -145,7 +145,7 @@ func (s *Service) sampleDataRates() {
 		// Under mu, so the nudge goes to the entry the sample went to. conflate's Send never
 		// blocks and runs no caller code.
 		if b.entry.rates.add(b.reading) {
-			s.rateHub.Sender().Send(b.contextName, struct{}{})
+			s.dataRateChangeHub.Sender().Send(b.contextName, struct{}{})
 		}
 	}
 }
@@ -163,7 +163,7 @@ func (c *claim) DataRates() []DataRateSample {
 	return slices.Clone(c.entry.rates.samples)
 }
 
-// WatchDataRates is keyed by context, like WatchState, so the caller closes it.
-func (c *claim) WatchDataRates() Subscription {
-	return c.svc.rateHub.Receiver(c.svc.rateHub.WithKey(c.contextName))
+// ListenForDataRateChanges is keyed by context, like WatchState, so the caller closes it.
+func (c *claim) ListenForDataRateChanges() DataRateChangeNotifications {
+	return c.svc.dataRateChangeHub.Receiver(c.svc.dataRateChangeHub.WithKey(c.contextName))
 }

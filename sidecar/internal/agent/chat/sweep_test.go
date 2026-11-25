@@ -90,7 +90,7 @@ func TestASweepThatCleansNothingNotifiesNobody(t *testing.T) {
 	t.Parallel()
 
 	s := newTestService(t)
-	sub := s.db.Subscribe(appdb.KeyClusters)
+	sub := s.db.ListenForChanges(appdb.KeyClusters)
 	defer sub.Close()
 
 	markCluster(t, s.db, "9")

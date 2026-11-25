@@ -31,16 +31,16 @@ type ClusterDataRateSample struct {
 	SentBytesPerSecond     float64   `json:"sentBytesPerSecond"`
 }
 
-// ClusterDataRateSeriesFrame is one frame of the series: the whole window first, then the
+// ClusterDataRateTimeSeriesFeedFrame is one frame of the time series feed: the whole window first, then the
 // samples since the frame before. Mirrors the schema type.
-type ClusterDataRateSeriesFrame struct {
+type ClusterDataRateTimeSeriesFeedFrame struct {
 	IntervalSeconds int                     `json:"intervalSeconds"`
 	WindowSeconds   int                     `json:"windowSeconds"`
 	Samples         []ClusterDataRateSample `json:"samples"`
 }
 
-// WatchDataRate streams the rate of the cluster's connection as a series. The first frame is
-// the pool's ring, sent even if empty; each later one holds the samples newer than the last
+// SubscribeDataRateTimeSeriesFeed streams the rate of the cluster's connection. The first frame
+// is the pool's ring, sent even if empty; each later one holds the samples newer than the last
 // sent, and a nudge with none sends nothing.
 //
 // The nudge subscription is taken before the first read, so a tick landing between the two is
@@ -48,14 +48,14 @@ type ClusterDataRateSeriesFrame struct {
 //
 // The claim is this stream's own, released when ctx ends, and refuses what AcquireConnection
 // refuses.
-func (a clustersAPI) WatchDataRate(ctx context.Context, id ClusterID) (<-chan ClusterDataRateSeriesFrame, error) {
+func (a clustersAPI) SubscribeDataRateTimeSeriesFeed(ctx context.Context, id ClusterID) (<-chan ClusterDataRateTimeSeriesFeedFrame, error) {
 	lease, err := a.s.AcquireConnection(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
-	nudges := lease.WatchDataRates()
-	out := make(chan ClusterDataRateSeriesFrame)
+	nudges := lease.ListenForDataRateChanges()
+	out := make(chan ClusterDataRateTimeSeriesFeedFrame)
 	go func() {
 		defer close(out)
 		defer lease.Release()
@@ -82,10 +82,10 @@ func (a clustersAPI) WatchDataRate(ctx context.Context, id ClusterID) (<-chan Cl
 	return out, nil
 }
 
-// frameOf is a frame of the series carrying samples, stamped with the pool's cadence and
+// frameOf is a frame of the feed carrying samples, stamped with the pool's cadence and
 // window so the client keeps what the ring keeps.
-func frameOf(samples []ClusterDataRateSample) ClusterDataRateSeriesFrame {
-	return ClusterDataRateSeriesFrame{
+func frameOf(samples []ClusterDataRateSample) ClusterDataRateTimeSeriesFeedFrame {
+	return ClusterDataRateTimeSeriesFeedFrame{
 		IntervalSeconds: int(kubeconn.DataRateInterval / time.Second),
 		WindowSeconds:   int(kubeconn.DataRateWindow / time.Second),
 		Samples:         samples,

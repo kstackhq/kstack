@@ -197,21 +197,21 @@ func TestCachesListByClusterOfAnUnknownClusterIsEmpty(t *testing.T) {
 // --- Caches() watches ---
 
 // watchCaches opens a cache list watch bounded by the test.
-func watchCaches(t *testing.T, d deps) *Stream[ClusterCacheWatchFrame] {
+func watchCaches(t *testing.T, d deps) *Stream[ClusterCacheCollectionWatchFrame] {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	stream, err := serviceOver(t, d).Caches().WatchList(ctx)
+	stream, err := serviceOver(t, d).Caches().WatchCollection(ctx)
 	require.NoError(t, err)
 	return stream
 }
 
 // awaitCacheBookmark drains the snapshot up to and including the bookmark.
-func awaitCacheBookmark(t *testing.T, stream *Stream[ClusterCacheWatchFrame]) {
+func awaitCacheBookmark(t *testing.T, stream *Stream[ClusterCacheCollectionWatchFrame]) {
 	t.Helper()
 	for {
-		if testutil.Recv(t, stream.Frames, "the bookmark").Type == DeltaFrameBookmark {
+		if testutil.Recv(t, stream.Frames, "the bookmark").Type == CollectionWatchFrameBookmark {
 			return
 		}
 	}
@@ -220,7 +220,7 @@ func awaitCacheBookmark(t *testing.T, stream *Stream[ClusterCacheWatchFrame]) {
 // The snapshot arrives as Added frames closed by exactly one Bookmark — the frame a
 // consumer renders its empty state on, and never before. Each frame carries the owner
 // edge the client joins onto its cluster.
-func TestCachesWatchListEmitsTheSnapshotThenABookmark(t *testing.T) {
+func TestCachesWatchCollectionEmitsTheSnapshotThenABookmark(t *testing.T) {
 	d := newRunningDeps(t)
 	cluster := createCluster(t, d, "prod")
 	createCache(t, d.cacheClient, cluster, "uid-1")
@@ -232,7 +232,7 @@ func TestCachesWatchListEmitsTheSnapshotThenABookmark(t *testing.T) {
 	var uids []string
 	for range 2 {
 		f := testutil.Recv(t, stream.Frames, "a snapshot frame")
-		require.Equal(t, DeltaFrameAdded, f.Type)
+		require.Equal(t, CollectionWatchFrameAdded, f.Type)
 		require.NotNil(t, f.Cache)
 		assert.Equal(t, clusterIDOf(cluster), f.Cache.ClusterID)
 		uids = append(uids, f.Cache.Spec.ServerUID)
@@ -240,21 +240,21 @@ func TestCachesWatchListEmitsTheSnapshotThenABookmark(t *testing.T) {
 	assert.ElementsMatch(t, []string{"uid-1", "uid-2"}, uids)
 
 	bookmark := testutil.Recv(t, stream.Frames, "the bookmark closing the snapshot")
-	assert.Equal(t, DeltaFrameBookmark, bookmark.Type)
+	assert.Equal(t, CollectionWatchFrameBookmark, bookmark.Type)
 	assert.Nil(t, bookmark.Cache, "the bookmark carries no entity")
 }
 
 // An empty collection is definitively empty rather than pending, so the bookmark
 // still lands: without it a populated table and an empty one look alike.
-func TestCachesWatchListBookmarksAnEmptyCollection(t *testing.T) {
+func TestCachesWatchCollectionBookmarksAnEmptyCollection(t *testing.T) {
 	stream := watchCaches(t, newRunningDeps(t))
 
-	assert.Equal(t, DeltaFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
+	assert.Equal(t, CollectionWatchFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
 }
 
 // A cache created after the snapshot — how a client learns of the identity a probe
 // just recorded.
-func TestCachesWatchListReportsACreate(t *testing.T) {
+func TestCachesWatchCollectionReportsACreate(t *testing.T) {
 	d := newRunningDeps(t)
 	cluster := createCluster(t, d, "prod")
 	stream := watchCaches(t, d)
@@ -263,7 +263,7 @@ func TestCachesWatchListReportsACreate(t *testing.T) {
 	createCache(t, d.cacheClient, cluster, "uid-1")
 
 	f := testutil.Recv(t, stream.Frames, "the create")
-	assert.Equal(t, DeltaFrameAdded, f.Type)
+	assert.Equal(t, CollectionWatchFrameAdded, f.Type)
 	require.NotNil(t, f.Cache)
 	assert.Equal(t, "uid-1", f.Cache.Spec.ServerUID)
 	assert.Equal(t, clusterIDOf(cluster), f.Cache.ClusterID)
@@ -272,13 +272,13 @@ func TestCachesWatchListReportsACreate(t *testing.T) {
 // A removal whose final row beehive could not decode carries no object, and nothing
 // later in the log mentions the id. The frame still has to name it: a consumer drops a
 // change with no entity, so the record would sit in its map until the subscription ends.
-func TestCachesWatchListReportsAnUndecodableDeparture(t *testing.T) {
+func TestCachesWatchCollectionReportsAnUndecodableDeparture(t *testing.T) {
 	frames := pumpFrames(t, cacheWatch, nil,
 		beehive.ObjectChange[ClusterCacheSpec, ClusterCacheStatus]{Type: beehive.Deleted, ID: 7, Object: nil},
 	)
 
 	require.Len(t, frames, 2)
-	assert.Equal(t, DeltaFrameDeleted, frames[1].Type)
+	assert.Equal(t, CollectionWatchFrameDeleted, frames[1].Type)
 	require.NotNil(t, frames[1].Cache, "the bookmark is the only frame that carries no entity")
 	assert.Equal(t, ClusterCacheID(7), frames[1].Cache.ID)
 }
@@ -290,7 +290,7 @@ func TestCachesWatchListReportsAnUndecodableDeparture(t *testing.T) {
 //
 // The GC interval is shrunk rather than waited out: a cache is client-only here (no
 // controller is registered), so its removal costs one sweep.
-func TestCachesWatchListReportsADeparture(t *testing.T) {
+func TestCachesWatchCollectionReportsADeparture(t *testing.T) {
 	d := newRunningDeps(t, beehive.WithGCInterval(time.Millisecond))
 	cluster := createCluster(t, d, "prod")
 	obj := createCache(t, d.cacheClient, cluster, "uid-1")
@@ -305,7 +305,7 @@ func TestCachesWatchListReportsADeparture(t *testing.T) {
 		f := testutil.Recv(t, stream.Frames, "the departure")
 		require.NotNil(t, f.Cache)
 		assert.Equal(t, ClusterCacheID(obj.ID), f.Cache.ID)
-		if f.Type == DeltaFrameDeleted {
+		if f.Type == CollectionWatchFrameDeleted {
 			assert.Equal(t, "uid-1", f.Cache.Spec.ServerUID, "the removal carries the row's final state")
 			assert.Equal(t, clusterIDOf(cluster), f.Cache.ClusterID, "the removal carries its join key")
 			return
@@ -313,18 +313,18 @@ func TestCachesWatchListReportsADeparture(t *testing.T) {
 	}
 }
 
-// watchCache opens a single-record watch bounded by the test.
-func watchCache(t *testing.T, d deps, id ClusterCacheID) *Stream[ClusterCacheWatchFrame] {
+// watchCache opens a collection watch of one cache, bounded by the test.
+func watchCache(t *testing.T, d deps, id ClusterCacheID) *Stream[ClusterCacheCollectionWatchFrame] {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	stream, err := serviceOver(t, d).Caches().Watch(ctx, id)
+	stream, err := serviceOver(t, d).Caches().WatchCollectionByID(ctx, id)
 	require.NoError(t, err)
 	return stream
 }
 
-func TestCachesWatchEmitsTheRecordThenABookmark(t *testing.T) {
+func TestCachesWatchCollectionByIDEmitsTheRecordThenABookmark(t *testing.T) {
 	d := newRunningDeps(t)
 	cluster := createCluster(t, d, "prod")
 	obj := createCache(t, d.cacheClient, cluster, "uid-1")
@@ -332,23 +332,23 @@ func TestCachesWatchEmitsTheRecordThenABookmark(t *testing.T) {
 	stream := watchCache(t, d, ClusterCacheID(obj.ID))
 
 	first := testutil.Recv(t, stream.Frames, "the record")
-	assert.Equal(t, DeltaFrameAdded, first.Type)
+	assert.Equal(t, CollectionWatchFrameAdded, first.Type)
 	require.NotNil(t, first.Cache)
 	assert.Equal(t, ClusterCacheID(obj.ID), first.Cache.ID)
 	assert.Equal(t, clusterIDOf(cluster), first.Cache.ClusterID)
 
-	assert.Equal(t, DeltaFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
+	assert.Equal(t, CollectionWatchFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
 }
 
 // An id naming nothing is bookmark-only rather than an error: the record may not
 // exist yet, and the same subscription reports it arriving.
-func TestCachesWatchBookmarksAnUnknownID(t *testing.T) {
+func TestCachesWatchCollectionByIDBookmarksAnUnknownID(t *testing.T) {
 	stream := watchCache(t, newRunningDeps(t), 404)
 
-	assert.Equal(t, DeltaFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
+	assert.Equal(t, CollectionWatchFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
 }
 
-func TestCachesWatchReportsChangesToItsRecord(t *testing.T) {
+func TestCachesWatchCollectionByIDReportsChangesToItsRecord(t *testing.T) {
 	d := newRunningDeps(t)
 	cluster := createCluster(t, d, "prod")
 	obj := createCache(t, d.cacheClient, cluster, "uid-1")
@@ -366,11 +366,11 @@ func TestCachesWatchReportsChangesToItsRecord(t *testing.T) {
 
 // Cancellation is an ordinary teardown, so Frames closes with nothing to report: a
 // consumer reads Err on close, and a reason there is rendered as a dead watch.
-func TestCachesWatchListCancellationIsQuiet(t *testing.T) {
+func TestCachesWatchCollectionCancellationIsQuiet(t *testing.T) {
 	d := newRunningDeps(t)
 	ctx, cancel := context.WithCancel(context.Background())
 
-	stream, err := serviceOver(t, d).Caches().WatchList(ctx)
+	stream, err := serviceOver(t, d).Caches().WatchCollection(ctx)
 	require.NoError(t, err)
 	awaitCacheBookmark(t, stream)
 
@@ -543,14 +543,14 @@ func TestCacheReconcileFailsWhenTheStoreWillNotDelete(t *testing.T) {
 
 // Scoped to one cluster: another cluster's cache must not reach this stream, or a
 // per-cluster view would fold a record it never asked for.
-func TestCachesWatchByClusterIsScopedToItsCluster(t *testing.T) {
+func TestCachesWatchCollectionByClusterIsScopedToItsCluster(t *testing.T) {
 	d := newRunningDeps(t)
 	mine := createCluster(t, d, "prod")
 	theirs := createCluster(t, d, "staging")
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	stream, err := serviceOver(t, d).Caches().WatchByCluster(ctx, clusterIDOf(mine))
+	stream, err := serviceOver(t, d).Caches().WatchCollectionByCluster(ctx, clusterIDOf(mine))
 	require.NoError(t, err)
 	awaitCacheBookmark(t, stream)
 
@@ -565,7 +565,7 @@ func TestCachesWatchByClusterIsScopedToItsCluster(t *testing.T) {
 
 // A UID migration leaves the superseded cache in place, so the scoped watch carries
 // both — which is what makes "the set, never the cache" true on this stream too.
-func TestCachesWatchByClusterCarriesEveryIdentity(t *testing.T) {
+func TestCachesWatchCollectionByClusterCarriesEveryIdentity(t *testing.T) {
 	d := newRunningDeps(t)
 	cluster := createCluster(t, d, "prod")
 	createCache(t, d.cacheClient, cluster, "uid-1")
@@ -573,44 +573,44 @@ func TestCachesWatchByClusterCarriesEveryIdentity(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	stream, err := serviceOver(t, d).Caches().WatchByCluster(ctx, clusterIDOf(cluster))
+	stream, err := serviceOver(t, d).Caches().WatchCollectionByCluster(ctx, clusterIDOf(cluster))
 	require.NoError(t, err)
 
 	var uids []string
 	for range 2 {
 		f := testutil.Recv(t, stream.Frames, "a snapshot frame")
-		require.Equal(t, DeltaFrameAdded, f.Type)
+		require.Equal(t, CollectionWatchFrameAdded, f.Type)
 		require.NotNil(t, f.Cache)
 		uids = append(uids, f.Cache.Spec.ServerUID)
 	}
 	assert.ElementsMatch(t, []string{"uid-1", "uid-2"}, uids)
-	assert.Equal(t, DeltaFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
+	assert.Equal(t, CollectionWatchFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
 }
 
 // A cluster owning none bookmarks an empty collection, and so does an id naming no
 // cluster: either may still gain a cache this stream reports.
-func TestCachesWatchByClusterBookmarksAClusterWithNone(t *testing.T) {
+func TestCachesWatchCollectionByClusterBookmarksAClusterWithNone(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	stream, err := serviceOver(t, newRunningDeps(t)).Caches().WatchByCluster(ctx, ClusterID("404"))
+	stream, err := serviceOver(t, newRunningDeps(t)).Caches().WatchCollectionByCluster(ctx, ClusterID("404"))
 	require.NoError(t, err)
 
-	assert.Equal(t, DeltaFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
+	assert.Equal(t, CollectionWatchFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
 }
 
 // A watch opened on a cluster that does not exist yet reports the caches that arrive
 // under it once it does — and none of another cluster's.
-func TestCachesWatchByClusterFollowsAClusterThatArrivesLater(t *testing.T) {
+func TestCachesWatchCollectionByClusterFollowsAClusterThatArrivesLater(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	d := newRunningDeps(t)
 	other := createCluster(t, d, "staging")
 	row := importCluster(t, d, "prod")
 
-	stream, err := serviceOver(t, d).Caches().WatchByCluster(ctx, row.ID)
+	stream, err := serviceOver(t, d).Caches().WatchCollectionByCluster(ctx, row.ID)
 	require.NoError(t, err)
-	assert.Equal(t, DeltaFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
+	assert.Equal(t, CollectionWatchFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
 
 	createCache(t, d.cacheClient, other, "uid-2")
 	obj, _, err := d.clusterClient.CreateOrUpdate(ctx, string(row.ID), runtimeSpecOf(row))
@@ -618,16 +618,16 @@ func TestCachesWatchByClusterFollowsAClusterThatArrivesLater(t *testing.T) {
 	cache := createCache(t, d.cacheClient, obj, "uid-1")
 
 	f := testutil.Recv(t, stream.Frames, "the cache that arrived")
-	assert.Equal(t, DeltaFrameAdded, f.Type)
+	assert.Equal(t, CollectionWatchFrameAdded, f.Type)
 	require.NotNil(t, f.Cache)
 	assert.Equal(t, ClusterCacheID(cache.ID), f.Cache.ID)
 }
 
-// --- the gauges ---
+// --- the state watches ---
 
-// A gauge is current-on-subscribe and emits nothing before its first measurement, so
+// A state watch is current-on-subscribe and emits nothing before its first measurement, so
 // the first frame is what the cache holds now.
-func TestCachesWatchStatsEmitsTheCurrentMeasurement(t *testing.T) {
+func TestCachesWatchStatsStateEmitsTheCurrentMeasurement(t *testing.T) {
 	d := newTestDeps(t)
 	cluster := createCluster(t, d, "prod")
 	cache := createCache(t, d.cacheClient, cluster, "uid-1")
@@ -637,7 +637,7 @@ func TestCachesWatchStatsEmitsTheCurrentMeasurement(t *testing.T) {
 		Counts: kubestore.Counts{ObjectCount: 12, KindCount: 3},
 	}
 
-	stream, err := serviceOver(t, d).Caches().WatchStats(context.Background(), clusterIDOf(cluster), ClusterCacheID(cache.ID))
+	stream, err := serviceOver(t, d).Caches().WatchStatsState(context.Background(), clusterIDOf(cluster), ClusterCacheID(cache.ID))
 
 	require.NoError(t, err)
 	got := testutil.Recv(t, stream.Frames, "the first measurement")
@@ -649,10 +649,10 @@ func TestCachesWatchStatsEmitsTheCurrentMeasurement(t *testing.T) {
 	}, got)
 }
 
-// The gauge borrows its change feed and never claims the file. One runs per cache row, so
+// The state watch borrows its change notifications and never claims the file. One runs per cache row, so
 // a list of twenty caches would otherwise pin twenty idle files open — and the measurement
 // needs no open file anyway, since Manager.Stats reads a closed one directly.
-func TestCachesWatchStatsDoesNotHoldAnIdleCacheOpen(t *testing.T) {
+func TestCachesWatchStatsStateDoesNotHoldAnIdleCacheOpen(t *testing.T) {
 	ctx := t.Context()
 	d := newTestDeps(t)
 	cluster := createCluster(t, d, "prod")
@@ -664,32 +664,34 @@ func TestCachesWatchStatsDoesNotHoldAnIdleCacheOpen(t *testing.T) {
 	require.NoError(t, err)
 	writer.Release()
 
-	stream, err := serviceOver(t, d).Caches().WatchStats(ctx, clusterIDOf(cluster), ClusterCacheID(cache.ID))
+	stream, err := serviceOver(t, d).Caches().WatchStatsState(ctx, clusterIDOf(cluster), ClusterCacheID(cache.ID))
 	require.NoError(t, err)
 	testutil.Recv(t, stream.Frames, "the first measurement")
 
-	assert.False(t, cacheIsOpen(mgr, int64(cache.ID)), "the gauge opened an idle cache's file")
+	assert.False(t, cacheIsOpen(mgr, int64(cache.ID)), "the state watch opened an idle cache's file")
 }
 
-// A gauge carries no bookmark, so an id pair that names nothing holds silent rather
-// than claiming an answer — a caller holding a bad id got it from a watch frame and
-// drops the subscription itself.
-func TestCachesWatchStatsHoldsSilentForAMismatchedPair(t *testing.T) {
+// A pair naming no live cache still gets its first value at once: a reading that says there is
+// no cache, and nothing after it. A caller holding such a pair got it from a frame that has
+// since moved on, and drops the subscription itself.
+func TestCachesWatchStatsStateSendsOneAbsentReadingForAMismatchedPair(t *testing.T) {
 	d := newTestDeps(t)
 	cluster := createCluster(t, d, "prod")
 	other := createCluster(t, d, "staging")
 	cache := createCache(t, d.cacheClient, other, "uid-2")
 	kubestoreFake(d).stats = kubestore.Stats{Exists: true, DBBytes: 4096}
 
-	stream, err := serviceOver(t, d).Caches().WatchStats(context.Background(), clusterIDOf(cluster), ClusterCacheID(cache.ID))
+	stream, err := serviceOver(t, d).Caches().WatchStatsState(context.Background(), clusterIDOf(cluster), ClusterCacheID(cache.ID))
 
 	require.NoError(t, err)
-	testutil.NoRecv(t, stream.Frames, quietWindow, "a frame for another cluster's cache")
+	got := testutil.Recv(t, stream.Frames, "the absent reading")
+	assert.Equal(t, ClusterCacheStats{}, got, "a reading of another cluster's cache")
+	testutil.NoRecv(t, stream.Frames, quietWindow, "a frame after the absent reading")
 }
 
-// The gauge re-emits only when the measurement moved: it is re-read on a cadence, and
+// The state watch re-emits only when the measurement moved: it is re-read on a cadence, and
 // a cache at rest must not push a frame per tick to every watcher.
-func TestCachesWatchStatsEmitsOnlyOnAChange(t *testing.T) {
+func TestCachesWatchStatsStateEmitsOnlyOnAChange(t *testing.T) {
 	d := newTestDeps(t)
 	cluster := createCluster(t, d, "prod")
 	cache := createCache(t, d.cacheClient, cluster, "uid-1")
@@ -697,8 +699,8 @@ func TestCachesWatchStatsEmitsOnlyOnAChange(t *testing.T) {
 	store.stats = kubestore.Stats{Exists: true, DBBytes: 4096}
 
 	svc := serviceOver(t, d)
-	svc.gaugeCadence = time.Millisecond
-	stream, err := svc.Caches().WatchStats(context.Background(), clusterIDOf(cluster), ClusterCacheID(cache.ID))
+	svc.stateWatchCadence = time.Millisecond
+	stream, err := svc.Caches().WatchStatsState(context.Background(), clusterIDOf(cluster), ClusterCacheID(cache.ID))
 	require.NoError(t, err)
 	testutil.Recv(t, stream.Frames, "the first measurement")
 
@@ -723,12 +725,12 @@ func TestCachesClearOfAnUnknownCacheIsNotAnError(t *testing.T) {
 
 // A subscriber that arrives after a cache was paused has to hear about it: a verdict
 // this subscription never witnessed the transition into is still the verdict.
-func TestCachesWatchHealthReportsACacheThatWasAlreadyPaused(t *testing.T) {
+func TestCachesWatchHealthKeyedStateReportsACacheThatWasAlreadyPaused(t *testing.T) {
 	d := newTestDeps(t)
 	cluster := createCluster(t, d, "prod")
 	cache := createCache(t, d.cacheClient, cluster, "uid-1")
 
-	stream, err := serviceOver(t, d).Caches().WatchHealth(context.Background())
+	stream, err := serviceOver(t, d).Caches().WatchHealthKeyedState(context.Background())
 	require.NoError(t, err)
 
 	got := testutil.Recv(t, stream.Frames, "the paused cache's verdict")
@@ -740,15 +742,15 @@ func TestCachesWatchHealthReportsACacheThatWasAlreadyPaused(t *testing.T) {
 
 // A cache being collected is not a cache that stopped syncing: its record says it is
 // going, and a verdict for it would be noise a consumer has to unpick.
-func TestCachesWatchHealthSkipsACacheOnItsWayOut(t *testing.T) {
+func TestCachesWatchHealthKeyedStateSkipsACacheOnItsWayOut(t *testing.T) {
 	d := newTestDeps(t)
 	cluster := createCluster(t, d, "prod")
 	cache := createCache(t, d.cacheClient, cluster, "uid-1")
 	require.NoError(t, d.cacheClient.Delete(context.Background(), cache.ID))
 
 	svc := serviceOver(t, d)
-	svc.gaugeCadence = time.Millisecond
-	stream, err := svc.Caches().WatchHealth(context.Background())
+	svc.stateWatchCadence = time.Millisecond
+	stream, err := svc.Caches().WatchHealthKeyedState(context.Background())
 	require.NoError(t, err)
 
 	// A negative assertion needs a bounded window, sized against the shrunk cadence.
@@ -758,7 +760,7 @@ func TestCachesWatchHealthSkipsACacheOnItsWayOut(t *testing.T) {
 // A cache with no workers is not necessarily a paused one: an enabled cluster's cache
 // has none until its discovery pass has run, and one that serves no kinds never will.
 // Calling that Paused would show a user their own enabled cluster as switched off.
-func TestCachesWatchHealthTellsAnInitializingCacheFromAPausedOne(t *testing.T) {
+func TestCachesWatchHealthKeyedStateTellsAnInitializingCacheFromAPausedOne(t *testing.T) {
 	tests := map[string]struct {
 		syncEnabled bool
 		want        string
@@ -773,7 +775,7 @@ func TestCachesWatchHealthTellsAnInitializingCacheFromAPausedOne(t *testing.T) {
 			cluster := storedCluster(t, d, status, tt.syncEnabled, "uid-1")
 			createCache(t, d.cacheClient, cluster, "uid-1")
 
-			stream, err := serviceOver(t, d).Caches().WatchHealth(context.Background())
+			stream, err := serviceOver(t, d).Caches().WatchHealthKeyedState(context.Background())
 			require.NoError(t, err)
 
 			got := testutil.Recv(t, stream.Frames, "the workerless cache's verdict")
@@ -1274,16 +1276,16 @@ func syncingCacheWithKinds(t *testing.T) (deps, ClusterCacheID) {
 	return d, ClusterCacheID(cache.ID)
 }
 
-// watchSyncStatus opens the sync-detail gauge and ends it before the test's temp dir goes:
+// watchSyncState opens the sync-detail state watch and ends it before the test's temp dir goes:
 // the pump reopens the cache's file every tick, and Windows removes no open file.
-func watchSyncStatus(t *testing.T, svc *service, clusterID ClusterID, cacheID ClusterCacheID) *Stream[ClusterCacheSyncStatus] {
+func watchSyncState(t *testing.T, svc *service, clusterID ClusterID, cacheID ClusterCacheID) *Stream[ClusterCacheSyncState] {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	stream, err := svc.Caches().WatchSyncStatus(ctx, clusterID, cacheID)
+	stream, err := svc.Caches().WatchSyncState(ctx, clusterID, cacheID)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		cancel()
-		testutil.WaitClosed(t, stream.Frames, "the gauge to stop")
+		testutil.WaitClosed(t, stream.Frames, "the state watch to stop")
 	})
 	return stream
 }
@@ -1296,7 +1298,7 @@ func setKindReason(d deps, cacheID ClusterCacheID, spec ClusterCachedKindSpec, s
 // The verdict a cache stands behind is every kind under it folded together: ninety-nine
 // healthy kinds and one forbidden CRD is not healthy, which is why no single child can serve
 // this and why the fold happens here.
-func TestCachesWatchHealthFoldsEveryKindsVerdict(t *testing.T) {
+func TestCachesWatchHealthKeyedStateFoldsEveryKindsVerdict(t *testing.T) {
 	d, cacheID := syncingCacheWithKinds(t)
 	now := time.Now()
 	setKindReason(d, cacheID, podsSpec, kubesync.KindState{
@@ -1306,7 +1308,7 @@ func TestCachesWatchHealthFoldsEveryKindsVerdict(t *testing.T) {
 		Reason: kubesync.ReasonSyncFailed, Failure: kubeconn.ReasonForbidden, LastLiveAt: now.Add(-time.Hour),
 	})
 
-	stream, err := serviceOver(t, d).Caches().WatchHealth(context.Background())
+	stream, err := serviceOver(t, d).Caches().WatchHealthKeyedState(context.Background())
 	require.NoError(t, err)
 
 	got := testutil.Recv(t, stream.Frames, "the cache's folded verdict")
@@ -1322,14 +1324,14 @@ func TestCachesWatchHealthFoldsEveryKindsVerdict(t *testing.T) {
 
 // Each offender carries its own reason, so a consumer can name only the kinds behind the
 // cache's verdict: a kind still on its cold list is not stale, and not failing either.
-func TestCachesWatchHealthGivesEachOffenderItsOwnReason(t *testing.T) {
+func TestCachesWatchHealthKeyedStateGivesEachOffenderItsOwnReason(t *testing.T) {
 	for _, verdict := range []string{kubesync.ReasonStale, kubesync.ReasonSyncFailed} {
 		t.Run(verdict, func(t *testing.T) {
 			d, cacheID := syncingCacheWithKinds(t)
 			setKindReason(d, cacheID, deploymentsSpec, kubesync.KindState{Reason: verdict})
 			setKindReason(d, cacheID, podsSpec, kubesync.KindState{Reason: kubesync.ReasonSyncing})
 
-			stream, err := serviceOver(t, d).Caches().WatchHealth(t.Context())
+			stream, err := serviceOver(t, d).Caches().WatchHealthKeyedState(t.Context())
 			require.NoError(t, err)
 
 			got := testutil.Recv(t, stream.Frames, "the cache's folded verdict")
@@ -1343,14 +1345,14 @@ func TestCachesWatchHealthGivesEachOffenderItsOwnReason(t *testing.T) {
 }
 
 // The class is part of the verdict: a failure changing class is news on its own.
-func TestCachesWatchHealthSendsAFailureThatChangesClass(t *testing.T) {
+func TestCachesWatchHealthKeyedStateSendsAFailureThatChangesClass(t *testing.T) {
 	d, cacheID := syncingCacheWithKinds(t)
 	setKindReason(d, cacheID, podsSpec, kubesync.KindState{Reason: kubesync.ReasonWatching, LastLiveAt: probedAt})
 	setKindReason(d, cacheID, deploymentsSpec, kubesync.KindState{Reason: kubesync.ReasonSyncFailed, Failure: kubeconn.ReasonTimeout})
 	svc := serviceOver(t, d)
-	svc.gaugeCadence = time.Millisecond
+	svc.stateWatchCadence = time.Millisecond
 
-	stream, err := svc.Caches().WatchHealth(t.Context())
+	stream, err := svc.Caches().WatchHealthKeyedState(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, "Timeout", testutil.Recv(t, stream.Frames, "the verdict").Failure)
 
@@ -1359,7 +1361,7 @@ func TestCachesWatchHealthSendsAFailureThatChangesClass(t *testing.T) {
 }
 
 // Every kind watching is the one verdict a cache can report as healthy.
-func TestCachesWatchHealthReportsAFullySyncedCache(t *testing.T) {
+func TestCachesWatchHealthKeyedStateReportsAFullySyncedCache(t *testing.T) {
 	d, cacheID := syncingCacheWithKinds(t)
 	now := time.Now()
 	for _, spec := range []ClusterCachedKindSpec{podsSpec, deploymentsSpec} {
@@ -1368,7 +1370,7 @@ func TestCachesWatchHealthReportsAFullySyncedCache(t *testing.T) {
 		})
 	}
 
-	stream, err := serviceOver(t, d).Caches().WatchHealth(context.Background())
+	stream, err := serviceOver(t, d).Caches().WatchHealthKeyedState(context.Background())
 	require.NoError(t, err)
 
 	got := testutil.Recv(t, stream.Frames, "the healthy cache's verdict")
@@ -1381,7 +1383,7 @@ func TestCachesWatchHealthReportsAFullySyncedCache(t *testing.T) {
 
 // LastUpdateAt is the most recent write anywhere in the cache; LastLiveAt the OLDEST proof
 // across every kind, because a cache is only as verified as its least proven watch.
-func TestCachesWatchHealthTakesTheNewestUpdateAndTheOldestProof(t *testing.T) {
+func TestCachesWatchHealthKeyedStateTakesTheNewestUpdateAndTheOldestProof(t *testing.T) {
 	d, cacheID := syncingCacheWithKinds(t)
 	now := time.Now().Truncate(time.Second)
 	older, newer := now.Add(-time.Hour), now
@@ -1392,7 +1394,7 @@ func TestCachesWatchHealthTakesTheNewestUpdateAndTheOldestProof(t *testing.T) {
 		Reason: kubesync.ReasonWatching, Live: true, LastUpdateAt: newer, LastLiveAt: newer,
 	})
 
-	stream, err := serviceOver(t, d).Caches().WatchHealth(context.Background())
+	stream, err := serviceOver(t, d).Caches().WatchHealthKeyedState(context.Background())
 	require.NoError(t, err)
 
 	got := testutil.Recv(t, stream.Frames, "the cache's stamps")
@@ -1404,7 +1406,7 @@ func TestCachesWatchHealthTakesTheNewestUpdateAndTheOldestProof(t *testing.T) {
 
 // A kind nothing has proven live is weaker than any stamp its neighbours carry, so the cache
 // reports no proof at all rather than one kind's.
-func TestCachesWatchHealthReportsNoProofWhileAKindHasNone(t *testing.T) {
+func TestCachesWatchHealthKeyedStateReportsNoProofWhileAKindHasNone(t *testing.T) {
 	d, cacheID := syncingCacheWithKinds(t)
 	now := time.Now()
 	setKindReason(d, cacheID, podsSpec, kubesync.KindState{
@@ -1412,7 +1414,7 @@ func TestCachesWatchHealthReportsNoProofWhileAKindHasNone(t *testing.T) {
 	})
 	setKindReason(d, cacheID, deploymentsSpec, kubesync.KindState{Reason: kubesync.ReasonSyncing})
 
-	stream, err := serviceOver(t, d).Caches().WatchHealth(context.Background())
+	stream, err := serviceOver(t, d).Caches().WatchHealthKeyedState(context.Background())
 	require.NoError(t, err)
 
 	got := testutil.Recv(t, stream.Frames, "the cache's stamps")
@@ -1421,7 +1423,7 @@ func TestCachesWatchHealthReportsNoProofWhileAKindHasNone(t *testing.T) {
 
 // The same, whichever kind the list reaches first: a missing proof is a fact about the cache,
 // not a value the next kind's stamp can outrank.
-func TestCachesWatchHealthReportsNoProofWhenTheUnprovenKindIsFirst(t *testing.T) {
+func TestCachesWatchHealthKeyedStateReportsNoProofWhenTheUnprovenKindIsFirst(t *testing.T) {
 	d, cacheID := syncingCacheWithKinds(t)
 	now := time.Now()
 	setKindReason(d, cacheID, podsSpec, kubesync.KindState{Reason: kubesync.ReasonSyncing})
@@ -1429,7 +1431,7 @@ func TestCachesWatchHealthReportsNoProofWhenTheUnprovenKindIsFirst(t *testing.T)
 		Reason: kubesync.ReasonWatching, Live: true, LastUpdateAt: now, LastLiveAt: now,
 	})
 
-	stream, err := serviceOver(t, d).Caches().WatchHealth(context.Background())
+	stream, err := serviceOver(t, d).Caches().WatchHealthKeyedState(context.Background())
 	require.NoError(t, err)
 
 	got := testutil.Recv(t, stream.Frames, "the cache's stamps")
@@ -1438,14 +1440,14 @@ func TestCachesWatchHealthReportsNoProofWhenTheUnprovenKindIsFirst(t *testing.T)
 
 // A kind that has answered nothing has proved nothing either, so it withholds the cache's
 // proof exactly as an answered-but-unproven one does.
-func TestCachesWatchHealthReportsNoProofWhileAKindHasNotAnswered(t *testing.T) {
+func TestCachesWatchHealthKeyedStateReportsNoProofWhileAKindHasNotAnswered(t *testing.T) {
 	d, cacheID := syncingCacheWithKinds(t)
 	now := time.Now()
 	setKindReason(d, cacheID, podsSpec, kubesync.KindState{
 		Reason: kubesync.ReasonWatching, Live: true, LastUpdateAt: now, LastLiveAt: now,
 	})
 
-	stream, err := serviceOver(t, d).Caches().WatchHealth(context.Background())
+	stream, err := serviceOver(t, d).Caches().WatchHealthKeyedState(context.Background())
 	require.NoError(t, err)
 
 	got := testutil.Recv(t, stream.Frames, "the cache's stamps")
@@ -1455,11 +1457,11 @@ func TestCachesWatchHealthReportsNoProofWhileAKindHasNotAnswered(t *testing.T) {
 // **No answer is not an empty answer.** A kind whose worker has committed nothing — a clear
 // in progress, a cache still starting — is not a kind that stopped syncing, so the cache
 // reads as still connecting rather than as unhealthy.
-func TestCachesWatchHealthReadsAKindWithNoAnswerAsConnecting(t *testing.T) {
+func TestCachesWatchHealthKeyedStateReadsAKindWithNoAnswerAsConnecting(t *testing.T) {
 	d, cacheID := syncingCacheWithKinds(t)
 	setKindReason(d, cacheID, podsSpec, kubesync.KindState{Reason: kubesync.ReasonWatching, Live: true})
 
-	stream, err := serviceOver(t, d).Caches().WatchHealth(context.Background())
+	stream, err := serviceOver(t, d).Caches().WatchHealthKeyedState(context.Background())
 	require.NoError(t, err)
 
 	got := testutil.Recv(t, stream.Frames, "the cache's verdict")
@@ -1471,10 +1473,10 @@ func TestCachesWatchHealthReadsAKindWithNoAnswerAsConnecting(t *testing.T) {
 // Every kind that has not answered is named, sorted, and a kind that answers leaves
 // the list. A tick may land between the two answers and send the list half-emptied,
 // so the test reads until it is empty: the verdict moves once both have answered.
-func TestCachesWatchHealthNamesEveryKindThatHasNotAnswered(t *testing.T) {
+func TestCachesWatchHealthKeyedStateNamesEveryKindThatHasNotAnswered(t *testing.T) {
 	d, cacheID := syncingCacheWithKinds(t)
 
-	stream, err := serviceOver(t, d).Caches().WatchHealth(t.Context())
+	stream, err := serviceOver(t, d).Caches().WatchHealthKeyedState(t.Context())
 	require.NoError(t, err)
 
 	got := testutil.Recv(t, stream.Frames, "the cache's verdict")
@@ -1497,14 +1499,14 @@ func TestCachesWatchHealthNamesEveryKindThatHasNotAnswered(t *testing.T) {
 //
 // It still counts in totalKinds: that field has a documented meaning and three consumers, so
 // the paused ones are tallied separately rather than subtracted out of the census.
-func TestCachesWatchHealthSkipsAPausedKindWithoutLosingItFromTheCensus(t *testing.T) {
+func TestCachesWatchHealthKeyedStateSkipsAPausedKindWithoutLosingItFromTheCensus(t *testing.T) {
 	d, cacheID := syncingCacheWithKinds(t)
 	setKindReason(d, cacheID, podsSpec, kubesync.KindState{
 		Reason: kubesync.ReasonWatching, LastLiveAt: probedAt,
 	})
 	pauseKind(t, d, beehive.ObjectID(cacheID), deploymentsSpec.APIVersion, deploymentsSpec.Resource)
 
-	stream, err := serviceOver(t, d).Caches().WatchHealth(context.Background())
+	stream, err := serviceOver(t, d).Caches().WatchHealthKeyedState(context.Background())
 	require.NoError(t, err)
 
 	got := testutil.Recv(t, stream.Frames, "the cache's verdict")
@@ -1515,24 +1517,24 @@ func TestCachesWatchHealthSkipsAPausedKindWithoutLosingItFromTheCensus(t *testin
 	assert.Empty(t, got.UnansweredKindRefs, "a paused kind is not unanswered")
 }
 
-// The gauge dedupes per cache against a hand-written comparison, so a field nothing
+// The state watch dedupes per cache against a hand-written comparison, so a field nothing
 // compares is invisible by default — and pausing one kind on an otherwise-idle healthy
 // cache moves NOTHING ELSE: the census holds, the paused kind is skipped so there are no
 // offenders, and status and reason sit still. The frame would be suppressed and the count
 // would never reach a client.
-func TestCachesWatchHealthPublishesWhenAKindIsPaused(t *testing.T) {
+func TestCachesWatchHealthKeyedStatePublishesWhenAKindIsPaused(t *testing.T) {
 	d, cacheID := syncingCacheWithKinds(t)
 	setKindReason(d, cacheID, podsSpec, kubesync.KindState{Reason: kubesync.ReasonWatching, LastLiveAt: probedAt})
 	setKindReason(d, cacheID, deploymentsSpec, kubesync.KindState{Reason: kubesync.ReasonWatching, LastLiveAt: probedAt})
 
 	svc := serviceOver(t, d)
-	svc.gaugeCadence = time.Millisecond
+	svc.stateWatchCadence = time.Millisecond
 	ctx, cancel := context.WithCancel(context.Background())
-	stream, err := svc.Caches().WatchHealth(ctx)
+	stream, err := svc.Caches().WatchHealthKeyedState(ctx)
 	require.NoError(t, err)
 	defer func() {
 		cancel()
-		testutil.WaitClosed(t, stream.Frames, "the gauge to stop")
+		testutil.WaitClosed(t, stream.Frames, "the state watch to stop")
 	}()
 	require.Equal(t, kubesync.ReasonWatching, testutil.Recv(t, stream.Frames, "the healthy verdict").Reason)
 
@@ -1544,12 +1546,12 @@ func TestCachesWatchHealthPublishesWhenAKindIsPaused(t *testing.T) {
 // The arm ordering, which is the easy thing to get wrong. Paused kinds are skipped, so a
 // fully paused cache has no offenders and nothing unanswered — every later arm would call
 // it healthy, and the badge would read Watching over a cache syncing nothing.
-func TestCachesWatchHealthReadsAFullyPausedCacheAsPaused(t *testing.T) {
+func TestCachesWatchHealthKeyedStateReadsAFullyPausedCacheAsPaused(t *testing.T) {
 	d, cacheID := syncingCacheWithKinds(t)
 	pauseKind(t, d, beehive.ObjectID(cacheID), podsSpec.APIVersion, podsSpec.Resource)
 	pauseKind(t, d, beehive.ObjectID(cacheID), deploymentsSpec.APIVersion, deploymentsSpec.Resource)
 
-	stream, err := serviceOver(t, d).Caches().WatchHealth(context.Background())
+	stream, err := serviceOver(t, d).Caches().WatchHealthKeyedState(context.Background())
 	require.NoError(t, err)
 
 	got := testutil.Recv(t, stream.Frames, "the cache's verdict")
@@ -1561,13 +1563,13 @@ func TestCachesWatchHealthReadsAFullyPausedCacheAsPaused(t *testing.T) {
 // A cache whose file will not open has no session behind it, so every kind reads as
 // unanswered and the per-kind fold sits at Connecting for good — an amber badge with no
 // reason anywhere. The store's verdict is the cache's own, and it decides above the fold.
-func TestCachesWatchHealthReportsACacheWhoseStoreWillNotOpen(t *testing.T) {
+func TestCachesWatchHealthKeyedStateReportsACacheWhoseStoreWillNotOpen(t *testing.T) {
 	d, cacheID := syncingCacheWithKinds(t)
 	syncFake(d).setDiscoveryState(int64(cacheID), kubesync.DiscoveryState{
 		Reason: kubesync.ReasonStoreFailed, Message: "disk full",
 	})
 
-	stream, err := serviceOver(t, d).Caches().WatchHealth(context.Background())
+	stream, err := serviceOver(t, d).Caches().WatchHealthKeyedState(context.Background())
 	require.NoError(t, err)
 
 	got := testutil.Recv(t, stream.Frames, "the cache's verdict")
@@ -1577,11 +1579,11 @@ func TestCachesWatchHealthReportsACacheWhoseStoreWillNotOpen(t *testing.T) {
 
 // A context that reaches another server is the cache's verdict before any kind's: the
 // kinds have not answered yet, and Connecting would answer from the other cluster's rows.
-func TestCachesWatchHealthReportsAnIdentityMismatchBeforeAnyKindAnswers(t *testing.T) {
+func TestCachesWatchHealthKeyedStateReportsAnIdentityMismatchBeforeAnyKindAnswers(t *testing.T) {
 	d, cacheID := syncingCacheWithKinds(t)
 	syncFake(d).setDiscoveryState(int64(cacheID), kubesync.DiscoveryState{Reason: kubesync.ReasonIdentityMismatch})
 
-	stream, err := serviceOver(t, d).Caches().WatchHealth(context.Background())
+	stream, err := serviceOver(t, d).Caches().WatchHealthKeyedState(context.Background())
 	require.NoError(t, err)
 
 	got := testutil.Recv(t, stream.Frames, "the cache's verdict")
@@ -1593,9 +1595,9 @@ func TestCachesWatchHealthReportsAnIdentityMismatchBeforeAnyKindAnswers(t *testi
 
 // --- the per-cache sync detail ---
 
-// The detail gauge is the only thing on the wire that can carry a per-kind verdict, so it
+// The detail state watch is the only thing on the wire that can carry a per-kind verdict, so it
 // serves the discovery reason and a row per mirrored kind together.
-func TestCachesWatchSyncStatusServesTheDiscoveryReasonAndEveryKind(t *testing.T) {
+func TestCachesWatchSyncStateServesTheDiscoveryReasonAndEveryKind(t *testing.T) {
 	d, cacheID := syncingCacheWithKinds(t)
 	syncFake(d).setDiscoveryState(int64(cacheID), kubesync.DiscoveryState{
 		Reason: kubesync.ReasonPartial, Message: "metrics.k8s.io/v1beta1 would not load",
@@ -1605,7 +1607,7 @@ func TestCachesWatchSyncStatusServesTheDiscoveryReasonAndEveryKind(t *testing.T)
 		Reason: kubesync.ReasonSyncFailed, Message: "forbidden", Restarts: 3,
 	})
 
-	stream := watchSyncStatus(t, serviceOver(t, d), ownerClusterOf(t, d, cacheID), cacheID)
+	stream := watchSyncState(t, serviceOver(t, d), ownerClusterOf(t, d, cacheID), cacheID)
 
 	got := testutil.Recv(t, stream.Frames, "the cache's sync detail")
 	assert.Equal(t, kubesync.ReasonPartial, got.Discovery.Reason)
@@ -1623,13 +1625,13 @@ func TestCachesWatchSyncStatusServesTheDiscoveryReasonAndEveryKind(t *testing.T)
 // The panel's own report of the failure. A guard, like the timeline one: the projection is
 // reason-agnostic, and this is what stops a future narrowing from dropping the one verdict
 // that has no kind to speak through.
-func TestCachesWatchSyncStatusCarriesAStoreFailure(t *testing.T) {
+func TestCachesWatchSyncStateCarriesAStoreFailure(t *testing.T) {
 	d, cacheID := syncingCacheWithKinds(t)
 	syncFake(d).setDiscoveryState(int64(cacheID), kubesync.DiscoveryState{
 		Reason: kubesync.ReasonStoreFailed, Message: "disk full",
 	})
 
-	stream := watchSyncStatus(t, serviceOver(t, d), ownerClusterOf(t, d, cacheID), cacheID)
+	stream := watchSyncState(t, serviceOver(t, d), ownerClusterOf(t, d, cacheID), cacheID)
 
 	got := testutil.Recv(t, stream.Frames, "the cache's sync detail")
 	assert.Equal(t, kubesync.ReasonStoreFailed, got.Discovery.Reason)
@@ -1639,28 +1641,29 @@ func TestCachesWatchSyncStatusCarriesAStoreFailure(t *testing.T) {
 // The panel's list is where a user looks for a per-kind reason, and a paused kind has no
 // worker to ask. **ObjectCount still answers**, since it comes off the store's counts and
 // not the sync seam — which is the point of keeping the rows.
-func TestCachesWatchSyncStatusReadsAPausedKindOffItsRecord(t *testing.T) {
+func TestCachesWatchSyncStateReadsAPausedKindOffItsRecord(t *testing.T) {
 	d, cacheID := syncingCacheWithKinds(t)
 	writeCatalog(t, d, cacheID, kindRow("v1", "Pod", "pods"))
 	pauseKind(t, d, beehive.ObjectID(cacheID), "v1", "pods")
 
-	stream := watchSyncStatus(t, serviceOver(t, d), ownerClusterOf(t, d, cacheID), cacheID)
+	stream := watchSyncState(t, serviceOver(t, d), ownerClusterOf(t, d, cacheID), cacheID)
 
 	got := testutil.Recv(t, stream.Frames, "the cache's sync detail")
+	assert.True(t, got.Exists, "a live cache's detail")
 	require.Len(t, got.Kinds, 2)
 	assert.Equal(t, ReasonPaused, got.Kinds[1].Reason, "the reason comes off the record, not the seam")
 	assert.Equal(t, 0, got.Kinds[1].ObjectCount, "and the count still answers")
 }
 
-// The gauge re-emits only when the detail moved: it is re-read on a cadence, and an idle
+// The state watch re-emits only when the detail moved: it is re-read on a cadence, and an idle
 // cache pushing a frame per tick would re-render the panel over an answer nothing changed.
-func TestCachesWatchSyncStatusEmitsOnlyOnAChange(t *testing.T) {
+func TestCachesWatchSyncStateEmitsOnlyOnAChange(t *testing.T) {
 	d, cacheID := syncingCacheWithKinds(t)
 	setKindReason(d, cacheID, podsSpec, kubesync.KindState{Reason: kubesync.ReasonWatching, Live: true})
 
 	svc := serviceOver(t, d)
-	svc.gaugeCadence = time.Millisecond
-	stream := watchSyncStatus(t, svc, ownerClusterOf(t, d, cacheID), cacheID)
+	svc.stateWatchCadence = time.Millisecond
+	stream := watchSyncState(t, svc, ownerClusterOf(t, d, cacheID), cacheID)
 	testutil.Recv(t, stream.Frames, "the first detail")
 
 	// A negative assertion has no event to wait for, so it takes a bounded window — many
@@ -1675,25 +1678,29 @@ func TestCachesWatchSyncStatusEmitsOnlyOnAChange(t *testing.T) {
 	assert.Equal(t, kubesync.ReasonSyncFailed, got.Kinds[0].Reason)
 }
 
-func TestCachesWatchSyncStatusCountsRowsFromTheStore(t *testing.T) {
+func TestCachesWatchSyncStateCountsRowsFromTheStore(t *testing.T) {
 	d, cacheID := syncingCacheWithKinds(t)
 	writeCatalog(t, d, cacheID, kindRow("v1", "Pod", "pods"))
 
-	stream := watchSyncStatus(t, serviceOver(t, d), ownerClusterOf(t, d, cacheID), cacheID)
+	stream := watchSyncState(t, serviceOver(t, d), ownerClusterOf(t, d, cacheID), cacheID)
 
 	got := testutil.Recv(t, stream.Frames, "the cache's sync detail")
+	assert.True(t, got.Exists, "a live cache's detail")
 	require.Len(t, got.Kinds, 2)
 	assert.Equal(t, 0, got.Kinds[1].ObjectCount, "a kind the catalog knows and nothing has cached")
 }
 
-// A pair naming no live cache holds silent rather than claiming an answer, the way every
-// gauge in this family does: the caller held a bad id and drops the subscription itself.
-func TestCachesWatchSyncStatusHoldsSilentForAMismatchedPair(t *testing.T) {
+// A pair naming no live cache gets one reading that says so, the way the stats state watch
+// does, and nothing after it.
+func TestCachesWatchSyncStateSendsOneAbsentReadingForAMismatchedPair(t *testing.T) {
 	d, cacheID := syncingCacheWithKinds(t)
 
-	stream := watchSyncStatus(t, serviceOver(t, d), ClusterID("999"), cacheID)
+	stream := watchSyncState(t, serviceOver(t, d), ClusterID("999"), cacheID)
 
-	testutil.NoRecv(t, stream.Frames, 50*time.Millisecond, "a verdict for a cache that is not this cluster's")
+	got := testutil.Recv(t, stream.Frames, "the absent reading")
+	assert.False(t, got.Exists, "a cache that is not this cluster's")
+	assert.Empty(t, got.Kinds)
+	testutil.NoRecv(t, stream.Frames, 50*time.Millisecond, "a frame after the absent reading")
 }
 
 // **A relayed value needs a depends_on edge; the owner edge is not one.** The switch this pass
@@ -1710,7 +1717,7 @@ func TestCachePassDependsOnTheClusterWhoseSwitchItReads(t *testing.T) {
 }
 
 // Two stamps are the same when both are absent or both name the same instant — a pointer
-// comparison would call two equal times different and re-send the gauge every tick.
+// comparison would call two equal times different and re-send the state watch every tick.
 func TestSameTimeComparesTheInstantNotThePointer(t *testing.T) {
 	at := time.Date(2026, 8, 29, 0, 0, 0, 0, time.UTC)
 	same := at
@@ -1775,7 +1782,7 @@ func TestCacheReconcileFailsOnAnyStepThatDoesNot(t *testing.T) {
 
 // A cache whose owner edge was never loaded is a programming error, not an unowned
 // record: silently reading it as "no cluster" would drop the cache out of the fold, and
-// the gauge would report a fleet short of one with nothing to say why.
+// the state watch would report a fleet short of one with nothing to say why.
 func TestReadingACacheOwnerThatWasNotLoadedIsReported(t *testing.T) {
 	ctx := context.Background()
 	d := newTestDeps(t)
@@ -1805,7 +1812,7 @@ func TestTheHealthFoldSkipsACacheWithNoCluster(t *testing.T) {
 }
 
 // The cluster lookup is memoised across the fold — caches of one cluster share it, and
-// this runs on the gauge's cadence. A cluster already found is not read again, and one
+// this runs on the state watch's cadence. A cluster already found is not read again, and one
 // already found to be gone is not looked for again either.
 func TestTheClusterLookupIsMemoisedAcrossTheFold(t *testing.T) {
 	ctx := context.Background()
@@ -1975,10 +1982,10 @@ func cacheOverABrokenStore(t *testing.T) (deps, *beehive.Object[ClusterCacheSpec
 	return d, cache
 }
 
-// The gauge binds to the store's change feed when one exists, so a write is a re-measure
+// The state watch binds to the store's change notifications when one exists, so a write is a re-measure
 // rather than a wait for the next tick. It binds late, because the file opens when a
-// worker arms — after the gauge is already running.
-func TestCachesWatchStatsRemeasuresOnAWrite(t *testing.T) {
+// worker arms — after the state watch is already running.
+func TestCachesWatchStatsStateRemeasuresOnAWrite(t *testing.T) {
 	ctx := t.Context()
 	d := newTestDeps(t)
 	cluster := createCluster(t, d, "prod")
@@ -1989,7 +1996,7 @@ func TestCachesWatchStatsRemeasuresOnAWrite(t *testing.T) {
 	t.Cleanup(writer.Release)
 	store.setStats(kubestore.Stats{Exists: true, DBBytes: 4096})
 
-	stream, err := serviceOver(t, d).Caches().WatchStats(ctx, clusterIDOf(cluster), ClusterCacheID(cache.ID))
+	stream, err := serviceOver(t, d).Caches().WatchStatsState(ctx, clusterIDOf(cluster), ClusterCacheID(cache.ID))
 	require.NoError(t, err)
 	testutil.Recv(t, stream.Frames, "the first measurement")
 
@@ -1999,27 +2006,27 @@ func TestCachesWatchStatsRemeasuresOnAWrite(t *testing.T) {
 	assert.Equal(t, int64(8192), testutil.Recv(t, stream.Frames, "the re-measurement").Bytes)
 }
 
-// A measurement that fails ends the gauge with its reason: a cache whose file cannot be
+// A measurement that fails ends the state watch with its reason: a cache whose file cannot be
 // measured is not one of zero bytes, and rendering it as such would tell the user their
 // cache is empty.
-func TestCachesWatchStatsEndsOnAMeasurementItCannotTake(t *testing.T) {
+func TestCachesWatchStatsStateEndsOnAMeasurementItCannotTake(t *testing.T) {
 	d := newTestDeps(t)
 	cluster := createCluster(t, d, "prod")
 	cache := createCache(t, d.cacheClient, cluster, "uid-1")
 	kubestoreFake(d).err = assert.AnError
 
-	stream, err := serviceOver(t, d).Caches().WatchStats(context.Background(),
+	stream, err := serviceOver(t, d).Caches().WatchStatsState(context.Background(),
 		clusterIDOf(cluster), ClusterCacheID(cache.ID))
 
 	require.NoError(t, err)
-	testutil.WaitClosed(t, stream.Frames, "the gauge to end")
+	testutil.WaitClosed(t, stream.Frames, "the state watch to end")
 	assert.ErrorContains(t, stream.Err(), "measure cache")
 }
 
-// The store closing under the gauge — a clear, a shutdown — re-binds rather than ending:
+// The store closing under the state watch — a clear, a shutdown — re-binds rather than ending:
 // the cache is still the caller's, and the fresh file's pings come through a subscription
 // the old one never carried.
-func TestCachesWatchStatsRebindsWhenTheStoreClosesUnderIt(t *testing.T) {
+func TestCachesWatchStatsStateRebindsWhenTheStoreClosesUnderIt(t *testing.T) {
 	ctx := t.Context()
 	d := newTestDeps(t)
 	cluster := createCluster(t, d, "prod")
@@ -2029,7 +2036,7 @@ func TestCachesWatchStatsRebindsWhenTheStoreClosesUnderIt(t *testing.T) {
 	require.NoError(t, err)
 	store.setStats(kubestore.Stats{Exists: true, DBBytes: 4096})
 
-	stream, err := serviceOver(t, d).Caches().WatchStats(ctx, clusterIDOf(cluster), ClusterCacheID(cache.ID))
+	stream, err := serviceOver(t, d).Caches().WatchStatsState(ctx, clusterIDOf(cluster), ClusterCacheID(cache.ID))
 	require.NoError(t, err)
 	testutil.Recv(t, stream.Frames, "the first measurement")
 
@@ -2055,7 +2062,7 @@ func TestTheSyncReadsSkipARecordAlreadyGoing(t *testing.T) {
 
 	health, err := a.readCacheHealth(ctx, cache)
 	require.NoError(t, err)
-	status, err := a.readSyncStatus(ctx, ClusterCacheID(cache.ID))
+	status, err := a.readSyncState(ctx, ClusterCacheID(cache.ID))
 	require.NoError(t, err)
 
 	assert.Zero(t, health.TotalKinds)
@@ -2063,14 +2070,14 @@ func TestTheSyncReadsSkipARecordAlreadyGoing(t *testing.T) {
 }
 
 // Neither fold invents a verdict over records it could not read: a cache whose kinds will
-// not list is unknown, not healthy, and the gauge above says so instead of rendering green.
+// not list is unknown, not healthy, and the state watch above says so instead of rendering green.
 func TestTheSyncReadsReportRecordsTheyCannotList(t *testing.T) {
 	ctx := context.Background()
 	d, cache := cacheOverABrokenStore(t)
 	a := cachesAPI{serviceOver(t, d)}
 
 	_, healthErr := a.readCacheHealth(ctx, cache)
-	_, statusErr := a.readSyncStatus(ctx, ClusterCacheID(cache.ID))
+	_, statusErr := a.readSyncState(ctx, ClusterCacheID(cache.ID))
 
 	assert.ErrorContains(t, healthErr, "cached kinds")
 	assert.ErrorContains(t, statusErr, "cached kinds")
@@ -2110,28 +2117,28 @@ func TestCacheClearReportsAStoreThatWillNotClear(t *testing.T) {
 	assert.ErrorContains(t, err, "clear cluster cache")
 }
 
-// The gauge sends only what moved: it re-reads on a cadence, and a cache whose verdict
+// The state watch sends only what moved: it re-reads on a cadence, and a cache whose verdict
 // sits still would otherwise put a frame on the wire every tick, for every cache, forever.
-func TestCachesWatchHealthSaysNothingWhileTheVerdictHoldsStill(t *testing.T) {
+func TestCachesWatchHealthKeyedStateSaysNothingWhileTheVerdictHoldsStill(t *testing.T) {
 	d, cacheID := syncingCacheWithKinds(t)
 	setKindReason(d, cacheID, podsSpec, kubesync.KindState{Reason: kubesync.ReasonWatching, LastLiveAt: probedAt})
 	setKindReason(d, cacheID, deploymentsSpec, kubesync.KindState{Reason: kubesync.ReasonWatching, LastLiveAt: probedAt})
 	svc := serviceOver(t, d)
-	svc.gaugeCadence = time.Millisecond
+	svc.stateWatchCadence = time.Millisecond
 	ctx := t.Context()
 
-	stream, err := svc.Caches().WatchHealth(ctx)
+	stream, err := svc.Caches().WatchHealthKeyedState(ctx)
 	require.NoError(t, err)
 	require.Equal(t, kubesync.ReasonWatching, testutil.Recv(t, stream.Frames, "the verdict").Reason)
 
 	testutil.NoRecv(t, stream.Frames, quietWindow, "a repeat of a verdict that has not moved")
 }
 
-// The three gauges stop where they stand when the consumer goes: every send is checked,
+// The three state watches stop where they stand when the consumer goes: every send is checked,
 // so a dropped subscription ends the loop rather than parking it on a channel forever.
 // Each is driven to a send that parks — Frames buffers one, and nothing reads it — so the
 // cancellation is the only thing that can free it.
-func TestTheCacheGaugesStopForAConsumerThatIsGone(t *testing.T) {
+func TestTheCacheStateWatchesStopForAConsumerThatIsGone(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	d, cacheID := syncingCacheWithKinds(t)
@@ -2143,10 +2150,10 @@ func TestTheCacheGaugesStopForAConsumerThatIsGone(t *testing.T) {
 	store := kubestoreFake(d)
 	sync := syncFake(d)
 	svc := serviceOver(t, d)
-	svc.gaugeCadence = time.Millisecond
+	svc.stateWatchCadence = time.Millisecond
 
-	// The two per-cache gauges re-send only what moved, so their readings move on every
-	// read. A gauge reads a second time only once its first frame fills the buffer, and
+	// The two per-cache state watches re-send only what moved, so their readings move on every
+	// read. A state watch reads a second time only once its first frame fills the buffer, and
 	// that second reading differs, so its next send parks.
 	var statsReads, statusReads atomic.Int64
 	statsParks, statusParks := testutil.NewSignal(), testutil.NewSignal()
@@ -2171,27 +2178,27 @@ func TestTheCacheGaugesStopForAConsumerThatIsGone(t *testing.T) {
 		}
 	}
 
-	health, err := svc.Caches().WatchHealth(ctx)
+	health, err := svc.Caches().WatchHealthKeyedState(ctx)
 	require.NoError(t, err)
-	status, err := svc.Caches().WatchSyncStatus(ctx, clusterID, cacheID)
+	status, err := svc.Caches().WatchSyncState(ctx, clusterID, cacheID)
 	require.NoError(t, err)
-	stats, err := svc.Caches().WatchStats(ctx, clusterID, cacheID)
+	stats, err := svc.Caches().WatchStatsState(ctx, clusterID, cacheID)
 	require.NoError(t, err)
 
-	statsParks.Wait(t, "the stats gauge to read again past its first frame")
-	statusParks.Wait(t, "the sync-status gauge to read again past its first frame")
-	// Two caches, so the health gauge's first pass sends twice: the second parks.
-	require.Eventually(t, func() bool { return len(health.Frames) == 1 }, testutil.Timeout, time.Millisecond, "the health gauge to send its first frame")
+	statsParks.Wait(t, "the stats state watch to read again past its first frame")
+	statusParks.Wait(t, "the sync-status state watch to read again past its first frame")
+	// Two caches, so the health state watch's first pass sends twice: the second parks.
+	require.Eventually(t, func() bool { return len(health.Frames) == 1 }, testutil.Timeout, time.Millisecond, "the health state watch to send its first frame")
 
 	cancel()
 
 	// Nothing reads Frames, so only the cancellation can free a parked send.
-	testutil.Wait(t, health.done, "the health gauge to stop")
-	testutil.Wait(t, status.done, "the sync-status gauge to stop")
-	testutil.Wait(t, stats.done, "the stats gauge to stop")
+	testutil.Wait(t, health.done, "the health state watch to stop")
+	testutil.Wait(t, status.done, "the sync-status state watch to stop")
+	testutil.Wait(t, stats.done, "the stats state watch to stop")
 }
 
-// ownerClusterOf is the cluster a cache hangs off, which the per-cache gauges are scoped by.
+// ownerClusterOf is the cluster a cache hangs off, which the per-cache state watches are scoped by.
 func ownerClusterOf(t *testing.T, d deps, cacheID ClusterCacheID) ClusterID {
 	t.Helper()
 	return clusterIDOf(ownerClusterObjectOf(t, d, cacheID))
@@ -2239,7 +2246,7 @@ func TestTheCacheFoldsReportWhatTheyCannotRead(t *testing.T) {
 		cluster := createCluster(t, d, "prod")
 		cache := createCache(t, d.cacheClient, cluster, "uid-1")
 		kubestoreFake(d).err = assert.AnError
-		_, err := cachesAPI{serviceOver(t, d)}.readSyncStatus(ctx, ClusterCacheID(cache.ID))
+		_, err := cachesAPI{serviceOver(t, d)}.readSyncState(ctx, ClusterCacheID(cache.ID))
 		assert.ErrorContains(t, err, "open cluster cache")
 	})
 }
@@ -2274,21 +2281,21 @@ func TestArmingReportsAClusterItCannotRead(t *testing.T) {
 	assert.ErrorContains(t, armErr, "owner")
 }
 
-// A user navigating away ends the gauges cleanly. Their reads all take ctx, so each one
+// A user navigating away ends the state watches cleanly. Their reads all take ctx, so each one
 // ends with ctx's own error — reported, that reaches the webview as a watch failure and
 // puts an error in front of someone who has already left the view.
-func TestTheCacheGaugesEndCleanlyWhenTheConsumerLeaves(t *testing.T) {
+func TestTheCacheStateWatchesEndCleanlyWhenTheConsumerLeaves(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	d, cacheID := syncingCacheWithKinds(t)
 	clusterID := ownerClusterOf(t, d, cacheID)
 	svc := serviceOver(t, d)
-	svc.gaugeCadence = time.Millisecond
+	svc.stateWatchCadence = time.Millisecond
 
-	status, err := svc.Caches().WatchSyncStatus(ctx, clusterID, cacheID)
+	status, err := svc.Caches().WatchSyncState(ctx, clusterID, cacheID)
 	require.NoError(t, err)
-	health, err := svc.Caches().WatchHealth(ctx)
+	health, err := svc.Caches().WatchHealthKeyedState(ctx)
 	require.NoError(t, err)
-	stats, err := svc.Caches().WatchStats(ctx, clusterID, cacheID)
+	stats, err := svc.Caches().WatchStatsState(ctx, clusterID, cacheID)
 	require.NoError(t, err)
 	testutil.Recv(t, status.Frames, "the first sync-status reading")
 	testutil.Recv(t, health.Frames, "the first verdict")
@@ -2296,15 +2303,15 @@ func TestTheCacheGaugesEndCleanlyWhenTheConsumerLeaves(t *testing.T) {
 
 	cancel()
 
-	testutil.WaitClosed(t, status.Frames, "the sync-status gauge to stop")
-	testutil.WaitClosed(t, health.Frames, "the health gauge to stop")
-	testutil.WaitClosed(t, stats.Frames, "the stats gauge to stop")
+	testutil.WaitClosed(t, status.Frames, "the sync-status state watch to stop")
+	testutil.WaitClosed(t, health.Frames, "the health state watch to stop")
+	testutil.WaitClosed(t, stats.Frames, "the stats state watch to stop")
 	assert.NoError(t, status.Err())
 	assert.NoError(t, health.Err())
 	assert.NoError(t, stats.Err())
 }
 
-// The ceiling reaches the UI on the gauge the size is already on, so a client renders how
+// The ceiling reaches the UI on the state watch the size is already on, so a client renders how
 // close a cache is without a second subscription — and without hardcoding our default.
 func TestMeasureCacheCarriesTheSizeCeiling(t *testing.T) {
 	deps := newTestDeps(t)
@@ -2471,10 +2478,10 @@ func sizeStoppedCache(t *testing.T) (deps, ClusterCacheID) {
 	return d, ClusterCacheID(cache.ID)
 }
 
-// The condition is where the ceiling's verdict lives, and the gauge is the only place the
+// The condition is where the ceiling's verdict lives, and the state watch is the only place the
 // UI looks — so the fold reads it back. Nothing else stops a cache without arming a kind
 // that could say so.
-func TestCachesWatchHealthReportsACacheStoppedByItsCeiling(t *testing.T) {
+func TestCachesWatchHealthKeyedStateReportsACacheStoppedByItsCeiling(t *testing.T) {
 	d, _ := sizeStoppedCache(t)
 
 	healths, err := cachesAPI{serviceOver(t, d)}.readAllCacheHealth(context.Background())
@@ -2488,7 +2495,7 @@ func TestCachesWatchHealthReportsACacheStoppedByItsCeiling(t *testing.T) {
 // The arm ordering, the other way round: a cache that is both at its ceiling and paused
 // kind by kind is stopped by the ceiling, and reporting it as merely paused is the
 // confusion the two reasons exist to keep apart.
-func TestCachesWatchHealthReadsTheCeilingAboveAFullyPausedCache(t *testing.T) {
+func TestCachesWatchHealthKeyedStateReadsTheCeilingAboveAFullyPausedCache(t *testing.T) {
 	d, cacheID := sizeStoppedCache(t)
 	createKind(t, d, beehive.ObjectID(cacheID), podsSpec)
 	pauseKind(t, d, beehive.ObjectID(cacheID), podsSpec.APIVersion, podsSpec.Resource)
@@ -2553,9 +2560,9 @@ func TestCachePassLogsAFailureWithoutTheCredential(t *testing.T) {
 	assert.Contains(t, logs.String(), "context deadline exceeded")
 }
 
-// Health and SyncStatus are one reading each of what the gauges stream: the card a chat
+// Health and SyncState are one reading each of what the state watches stream: the card a chat
 // carries reads them once, at the send, and opens no stream.
-func TestCachesHealthIsOneReadingOfTheGauge(t *testing.T) {
+func TestCachesHealthIsOneReadingOfTheStateWatch(t *testing.T) {
 	d, cacheID := syncingCacheWithKinds(t)
 	setKindReason(d, cacheID, podsSpec, kubesync.KindState{Reason: kubesync.ReasonWatching, Live: true})
 	setKindReason(d, cacheID, deploymentsSpec, kubesync.KindState{Reason: kubesync.ReasonSyncFailed})
@@ -2564,9 +2571,9 @@ func TestCachesHealthIsOneReadingOfTheGauge(t *testing.T) {
 	got, ok, err := svc.Caches().Health(context.Background(), ownerClusterOf(t, d, cacheID), cacheID)
 	require.NoError(t, err)
 	require.True(t, ok)
-	stream, err := svc.Caches().WatchHealth(context.Background())
+	stream, err := svc.Caches().WatchHealthKeyedState(context.Background())
 	require.NoError(t, err)
-	want := testutil.Recv(t, stream.Frames, "the gauge's first frame")
+	want := testutil.Recv(t, stream.Frames, "the state watch's first frame")
 
 	assert.Equal(t, want, got)
 	assert.Equal(t, kubesync.ReasonSyncFailed, got.Reason)
@@ -2581,23 +2588,23 @@ func TestCachesHealthAnswersNothingForACacheOfAnotherCluster(t *testing.T) {
 	assert.False(t, ok)
 }
 
-func TestCachesSyncStatusIsOneReadingOfTheGauge(t *testing.T) {
+func TestCachesSyncStatusIsOneReadingOfTheStateWatch(t *testing.T) {
 	d, cacheID := syncingCacheWithKinds(t)
 	syncFake(d).setDiscoveryState(int64(cacheID), kubesync.DiscoveryState{Reason: kubesync.ReasonPartial})
 	setKindReason(d, cacheID, podsSpec, kubesync.KindState{Reason: kubesync.ReasonWatching, Live: true})
 
 	svc := serviceOver(t, d)
-	got, ok, err := svc.Caches().SyncStatus(context.Background(), ownerClusterOf(t, d, cacheID), cacheID)
+	got, ok, err := svc.Caches().SyncState(context.Background(), ownerClusterOf(t, d, cacheID), cacheID)
 	require.NoError(t, err)
 	require.True(t, ok)
-	stream := watchSyncStatus(t, svc, ownerClusterOf(t, d, cacheID), cacheID)
-	want := testutil.Recv(t, stream.Frames, "the gauge's first frame")
+	stream := watchSyncState(t, svc, ownerClusterOf(t, d, cacheID), cacheID)
+	want := testutil.Recv(t, stream.Frames, "the state watch's first frame")
 
 	assert.Equal(t, want, got)
 	assert.Equal(t, kubesync.ReasonPartial, got.Discovery.Reason)
 
 	other := createCluster(t, d, "other")
-	_, ok, err = svc.Caches().SyncStatus(context.Background(), clusterIDOf(other), cacheID)
+	_, ok, err = svc.Caches().SyncState(context.Background(), clusterIDOf(other), cacheID)
 	require.NoError(t, err)
 	assert.False(t, ok)
 }
@@ -2610,16 +2617,16 @@ func TestCachesHealthAnswersNothingForACacheThatDoesNotExist(t *testing.T) {
 	assert.False(t, ok)
 }
 
-// A gauge whose consumer has left ends at the send it was parked on, never reporting
+// A state watch whose consumer has left ends at the send it was parked on, never reporting
 // the cancellation. The first reading fills the stream's buffer unread, and the second
-// read moves the verdict and ends the context, so the gauge's next send has nowhere to go.
-func TestWatchSyncStatusStopsAtASendTheConsumerLeft(t *testing.T) {
+// read moves the verdict and ends the context, so the state watch's next send has nowhere to go.
+func TestWatchSyncStateStopsAtASendTheConsumerLeft(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	d, cacheID := syncingCacheWithKinds(t)
 	clusterID := ownerClusterOf(t, d, cacheID)
 	svc := serviceOver(t, d)
-	svc.gaugeCadence = time.Millisecond
+	svc.stateWatchCadence = time.Millisecond
 	store := kubestoreFake(d)
 	store.noFile = true
 	reads := 0
@@ -2631,11 +2638,11 @@ func TestWatchSyncStatusStopsAtASendTheConsumerLeft(t *testing.T) {
 		}
 	}
 
-	stream, err := svc.Caches().WatchSyncStatus(ctx, clusterID, cacheID)
+	stream, err := svc.Caches().WatchSyncState(ctx, clusterID, cacheID)
 	require.NoError(t, err)
 
-	testutil.Wait(t, stream.done, "the gauge to stop")
-	assert.Equal(t, 2, reads, "the gauge stopped at the second reading's send")
+	testutil.Wait(t, stream.done, "the state watch to stop")
+	assert.Equal(t, 2, reads, "the state watch stopped at the second reading's send")
 	assert.NoError(t, stream.Err())
 }
 
@@ -2662,7 +2669,7 @@ func (c failingKindLists) ListOwnedObjects(context.Context, beehive.ObjectID, ..
 }
 
 // One reading of a cache's verdict or sync detail reports a record it cannot read, as
-// the gauges do, rather than answering a verdict nothing measured.
+// the state watches do, rather than answering a verdict nothing measured.
 func TestTheOneReadingsReportWhatTheyCannotRead(t *testing.T) {
 	ctx := context.Background()
 	boom := errors.New("store down")
@@ -2692,7 +2699,7 @@ func TestTheOneReadingsReportWhatTheyCannotRead(t *testing.T) {
 		clusterID := ownerClusterOf(t, d, cacheID)
 		kubestoreFake(d).err = boom
 
-		_, ok, err := serviceOver(t, d).Caches().SyncStatus(ctx, clusterID, cacheID)
+		_, ok, err := serviceOver(t, d).Caches().SyncState(ctx, clusterID, cacheID)
 
 		require.ErrorIs(t, err, boom)
 		assert.False(t, ok)
@@ -2813,19 +2820,19 @@ func TestMirroringFailsWhenAKindWillNotWrite(t *testing.T) {
 // already running. It still starts from every cache's verdict, read fresh: a cache made
 // since the loop last read is in its first frames. That read is everyone's: the early
 // window hears of the new cache from it, long before its own cadence would have.
-func TestCachesWatchHealthGivesALateSubscriberEveryVerdict(t *testing.T) {
+func TestCachesWatchHealthKeyedStateGivesALateSubscriberEveryVerdict(t *testing.T) {
 	d, status := newClusterStatusDeps(t)
 	cluster := storedCluster(t, d, status, true, "uid-1")
 	first := createCache(t, d.cacheClient, cluster, "uid-1")
 	svc := serviceOver(t, d)
-	svc.gaugeCadence = time.Hour
+	svc.stateWatchCadence = time.Hour
 
-	early, err := svc.Caches().WatchHealth(t.Context())
+	early, err := svc.Caches().WatchHealthKeyedState(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, ClusterCacheID(first.ID), testutil.Recv(t, early.Frames, "the first verdict").CacheID)
 
 	second := createCache(t, d.cacheClient, cluster, "uid-2")
-	late, err := svc.Caches().WatchHealth(t.Context())
+	late, err := svc.Caches().WatchHealthKeyedState(t.Context())
 	require.NoError(t, err)
 	got := []ClusterCacheID{
 		testutil.Recv(t, late.Frames, "the first verdict, late").CacheID,

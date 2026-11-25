@@ -5,6 +5,7 @@ scope: cross-cutting
 status: Accepted
 amended_by:
   - [A cluster is a row in app.db, mirrored into a runtime object it is deleted through](2026-09-16-clusters-are-rows-mirrored-into-beehive.md)
+  - [Name every subscription for its family and kind](2026-11-25-name-every-subscription-for-its-family-and-kind.md)
 ---
 
 # Stream each kind as its own Kubernetes-style delta watch, joined client-side

@@ -193,12 +193,12 @@ A log view in a window of its own is reviewed in [log windows](../security/2026-
 
 ### LOG-24
 
-- **Where:** `sidecar/internal/tools/logswatch`, `sidecar/internal/services/logs/follow.go`, `sidecar/internal/agent/chat/notices.go`
+- **Where:** `sidecar/internal/tools/logswatch`, `sidecar/internal/services/logs/tail.go`, `sidecar/internal/agent/chat/notices.go`
 - **Records:** [the model watches logs](../security/2026-10-18-the-model-watches-logs.md)
-- `TestAFollowRedactsAMessageBeforeItIsCut` — the service, under `ForModel`.
+- `TestATailRedactsAMessageBeforeItIsCut` — the service, under `ForModel`.
 - `TestTheByteLimitEndsItOnTheLineThatReachesIt`, `TestNoSamplePassesTheInlineLimit` — the limits on a watch's lines.
 - `TestNoticesPrintInTheHeader` — a watch's notices.
-- `TestAFollowErrorEndsItWithNoText` — a follow's error ends the watch with none of its text.
+- `TestATailErrorEndsItWithNoText` — a follow's error ends the watch with none of its text.
 - `TestAWatchsNoticeCarriesItsResult` — the one escaped notice.
 
 ### LOG-25

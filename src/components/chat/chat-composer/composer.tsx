@@ -30,7 +30,7 @@ import { useChatOutbox } from '@/lib/chat-outbox';
 import { inFlight } from '@/lib/chats';
 import type { ChatMessage } from '@/lib/chats';
 import { CHATGPT_ID, useOpenChatGPTUsage } from '@/lib/connectors';
-import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
+import type { SubscriptionPhase } from '@/lib/graphql/use-folded-subscription';
 import type { LogViewportHandle, SelectedLine } from '@/lib/log-viewport';
 import { useLogWindows } from '@/lib/log-windows';
 import { MAX_SELECTED, snapshotOf } from '@/lib/logs-snapshot';
@@ -64,7 +64,7 @@ type ChatComposerProps = {
    * What the composer waits on before it can send: the messages watch for an open
    * chat, the clusters watch for one that has not started.
    */
-  phase: WatchPhase;
+  phase: SubscriptionPhase;
   /** The transcript's last message, which says whether a turn is running. */
   last: Pick<ChatMessage, 'seq' | 'status'> | null;
   /**
@@ -136,13 +136,13 @@ export function ChatComposer({
   onSwitchNetwork = noop,
   inputRef,
 }: ChatComposerProps) {
-  const { models, loaded } = useModels();
+  const { models, snapshotComplete } = useModels();
   const openUsage = useOpenChatGPTUsage();
   // Seeded only once both things it depends on have answered: before the messages
   // watch's Bookmark the last answer is whichever row arrived first, and before the
   // catalog there is nothing to check a pick against.
   const seed =
-    loaded && phase !== 'connecting'
+    snapshotComplete && phase !== 'connecting'
       ? seedPick(
           models,
           lastAnswer?.provider
@@ -246,8 +246,8 @@ export function ChatComposer({
   // All only once the watch they wait on has answered: a window at startup has not
   // failed to pick anything, and a catalog still in flight is not an empty one.
   let placeholder = 'Ask about your cluster…';
-  if (loaded && models.length === 0) placeholder = 'Connect ChatGPT, or set an API key and restart Kstack';
-  else if (loaded && providerGone)
+  if (snapshotComplete && models.length === 0) placeholder = 'Connect ChatGPT, or set an API key and restart Kstack';
+  else if (snapshotComplete && providerGone)
     placeholder =
       pick.model.providerID === CHATGPT_ID
         ? 'ChatGPT isn’t connected. Connect it in Settings, or pick another model'

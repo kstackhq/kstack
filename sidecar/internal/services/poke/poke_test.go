@@ -14,13 +14,13 @@ import (
 var epoch = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
 // mustRecv reads exactly one Signal from ch within 2s or fails the test.
-func mustRecv(t *testing.T, ch <-chan Signal) Signal {
+func mustRecv(t *testing.T, ch <-chan Notification) Notification {
 	t.Helper()
 	return testutil.Recv(t, ch, "a Signal")
 }
 
 // mustNotRecv asserts no Signal arrives within 50ms.
-func mustNotRecv(t *testing.T, ch <-chan Signal) {
+func mustNotRecv(t *testing.T, ch <-chan Notification) {
 	t.Helper()
 	select {
 	case s, ok := <-ch:
@@ -50,7 +50,7 @@ func TestWallClock_SmallGap_NoPoke(t *testing.T) {
 		withTicker(manualTicker(tickCh)),
 	)
 
-	ch, cancel := b.Subscribe()
+	ch, cancel := b.ListenForNotifications()
 	defer cancel()
 
 	ctx := t.Context()
@@ -77,7 +77,7 @@ func TestWallClock_LargeGap_Poke(t *testing.T) {
 		withTicker(manualTicker(tickCh)),
 	)
 
-	ch, cancel := b.Subscribe()
+	ch, cancel := b.ListenForNotifications()
 	defer cancel()
 
 	ctx := t.Context()
@@ -93,9 +93,9 @@ func TestWallClock_LargeGap_Poke(t *testing.T) {
 func TestPoke_FanOut(t *testing.T) {
 	b := newWithOptions(withNow(func() time.Time { return epoch }))
 
-	ch1, cancel1 := b.Subscribe()
+	ch1, cancel1 := b.ListenForNotifications()
 	defer cancel1()
-	ch2, cancel2 := b.Subscribe()
+	ch2, cancel2 := b.ListenForNotifications()
 	defer cancel2()
 
 	b.Poke(SourceHost)
@@ -112,7 +112,7 @@ func TestPoke_FanOut(t *testing.T) {
 func TestRun_CtxCancel_ClosesSubscribers(t *testing.T) {
 	b := newWithOptions(withNow(func() time.Time { return epoch }))
 
-	ch, cancel := b.Subscribe()
+	ch, cancel := b.ListenForNotifications()
 	defer cancel()
 
 	ctx, cancelCtx := context.WithCancel(context.Background())
@@ -129,7 +129,7 @@ func TestRun_CtxCancel_ClosesSubscribers(t *testing.T) {
 func TestStart_StartupCtxCancel_KeepsDetectorRunning(t *testing.T) {
 	b := newWithOptions(withNow(func() time.Time { return epoch }))
 
-	ch, cancelSub := b.Subscribe()
+	ch, cancelSub := b.ListenForNotifications()
 	defer cancelSub()
 
 	ctx, cancelCtx := context.WithCancel(context.Background())

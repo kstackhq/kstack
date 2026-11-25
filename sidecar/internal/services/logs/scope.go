@@ -106,7 +106,7 @@ func (v Scope) empty() bool {
 	return len(v.Sources) == 0 && len(v.Filters) == 0 && v.Grep == ""
 }
 
-// namespaces is each namespace v's sources read, once: what a follow's pods watch
+// namespaces is each namespace v's sources read, once: what a tail's pods watch
 // is narrowed to.
 func (v Scope) namespaces() []string {
 	var out []string

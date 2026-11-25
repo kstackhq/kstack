@@ -328,7 +328,7 @@ func TestEveryOperationOnAClosedClaimIsRefused(t *testing.T) {
 		"evict": func() error { return s.Evict(ctx, 1, anyStamp) },
 		"stamp": func() error { return s.Stamp(ctx, []Chunk{{ID: 1}}) },
 		"subscribe": func() error {
-			_, err := s.Subscribe(1)
+			_, err := s.ListenForStreamChanges(1)
 			return err
 		},
 		"context": func() error {

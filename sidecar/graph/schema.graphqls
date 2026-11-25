@@ -18,7 +18,7 @@
 #
 # --- Shared vocabulary ---
 # The scalars and the kind-agnostic projections (Condition, Event, Schedule,
-# DeltaFrameType) every noun's surface reuses. A type only one noun uses belongs in that
+# CollectionWatchFrameType) every noun's surface reuses. A type only one noun uses belongs in that
 # noun's section, however generic its name reads.
 
 "An ISO-8601 encoded UTC date string."
@@ -80,7 +80,7 @@ Sync-controller conditions: `Synced`, reported at two levels. On
 only whether it decided to sync. The verdict a UI wants is the one on the cache's
 sync children — the per-kind `ClusterCachedKind` records (reasons
 Syncing/Watching/Paused/NoConnection/SyncFailed/Stale), or their whole-cache rollup
-`clusterCacheHealthWatch`, which speaks the same vocabulary.
+`clusterCacheHealthKeyedStateWatch`, which speaks the same vocabulary.
 New types/reasons may appear; consumers should treat unknown spellings as a
 degraded/unknown display state.
 """
@@ -161,10 +161,10 @@ type Event {
 }
 
 """
-An object's reconcile-schedule gauge: when the control plane has queued the
+An object's reconcile-schedule state watch: when the control plane has queued the
 object's next reconcile (a cluster's next backoff retry, for a disconnected one),
 which a UI counts down to. Generic like Event — the watch entrypoints are
-kind-scoped (clusterScheduleWatch) but the value shape is not. A struct (not a
+kind-scoped (clusterScheduleStateWatch) but the value shape is not. A struct (not a
 bare Time) so it can grow. Observed live via a schedule watch — a scheduling
 change fires no object/list watch, so this is the only way to keep the countdown
 moving for an otherwise-idle object.
@@ -183,12 +183,12 @@ type Schedule {
 }
 
 """
-Classifies one frame on a delta watch, mirroring a Kubernetes watch event. On
+Classifies one frame on a collection watch, mirroring a Kubernetes watch event. On
 subscribe a watch replays the current set as `Added` frames (the snapshot), closes it
 with one `Bookmark`, then streams live changes. A `Deleted` carries the object's
 last-known state; the client keys on its `id`.
 """
-enum DeltaFrameType {
+enum CollectionWatchFrameType {
   Added
   Modified
   Deleted
@@ -196,12 +196,12 @@ enum DeltaFrameType {
 }
 
 """
-Classifies one frame on an event-timeline watch. Two values where `DeltaFrameType` has
+Classifies one frame on an event feed. Two values where `CollectionWatchFrameType` has
 four: an event log is a positioned log, not a mirrored set. The server delivers the
 snapshot plus what grows above it and never reports a prune, so a run is only ever
 upserted and there is no `Deleted`.
 """
-enum EventFrameType {
+enum EventFeedFrameType {
   "A run to upsert by `Event.id`."
   Run
   "Closes the on-subscribe snapshot; sent once, carrying no run."
@@ -209,15 +209,15 @@ enum EventFrameType {
 }
 
 """
-One frame on an event-timeline watch (`eventsWatch`, whatever record's id it is given).
+One frame on an event feed (`objectEventFeed`, whatever record's id it is given).
 
 The accumulated set is append-only and can outgrow the server's: retention bounds
 each timeline to a fixed number of runs, and a pruned run is not announced. A
 long-lived consumer should cap what it keeps rather than expect the server to
 evict for it.
 """
-type EventWatchFrame {
-  type: EventFrameType!
+type EventFeedFrame {
+  type: EventFeedFrameType!
   "The run. Null on `Bookmark`."
   event: Event
 }
@@ -261,7 +261,7 @@ type Cluster {
   matches this cluster's `status.server.uid` — a comparison the caller makes, and
   must keep making: the parent's UID is rewritten by a probe, which fires no cache
   event, so an answer computed once goes stale silently. A consumer that needs to
-  follow that over time reads `clustersWatch` and `clusterCachesWatch` and joins
+  follow that over time reads `clusterCollectionWatch` and `clusterCacheCollectionWatch` and joins
   them live rather than reading this field.
   """
   caches: [ClusterCache!]!
@@ -439,10 +439,10 @@ type NonResourceRule {
   nonResourceUrls: [String!]!
 }
 
-"One frame on the `clustersWatch` stream: a change and the cluster it affected, or the `Bookmark` closing the snapshot."
-type ClusterWatchFrame {
+"One frame on the `clusterCollectionWatch` stream: a change and the cluster it affected, or the `Bookmark` closing the snapshot."
+type ClusterCollectionWatchFrame {
   "Whether this cluster was added (incl. the on-subscribe snapshot), modified, or deleted."
-  type: DeltaFrameType!
+  type: CollectionWatchFrameType!
   "The affected cluster. On `Deleted`, its last-known state; the client removes it by `id`. Null on `Bookmark`."
   cluster: Cluster
 }
@@ -460,11 +460,11 @@ type ClusterDataRateSample {
   sentBytesPerSecond: Float!
 }
 
-"One frame of `clusterDataRateWatch`, a series."
-type ClusterDataRateSeriesFrame {
+"One frame of `clusterDataRateTimeSeriesFeed`."
+type ClusterDataRateTimeSeriesFeedFrame {
   "Seconds between samples. The same on every frame."
   intervalSeconds: Int!
-  "How far back the series reaches. The same on every frame. The client keeps the last window ÷ interval points."
+  "How far back the feed reaches. The same on every frame. The client keeps the last window ÷ interval points."
   windowSeconds: Int!
   "Oldest first. The first frame holds the whole window, and each later frame the samples since."
   samples: [ClusterDataRateSample!]!
@@ -478,10 +478,10 @@ type ClusterDataRateSeriesFrame {
 """
 A cache record, mirroring the beehive ClusterCache kind: a mirror of one physical
 cluster identity. Streamed independently of its parent Cluster via
-`clusterCachesWatch` and joined to it client-side by `clusterID`. Carries its
+`clusterCacheCollectionWatch` and joined to it client-side by `clusterID`. Carries its
 identity (`id`, `clusterID`, `spec.serverUid`) and its coarse `Synced` condition — there
 is no status block, for the reason `conditions` gives below. Its live on-disk stats
-ride `clusterCacheStatsWatch`, which stays current where a field here would freeze at
+ride `clusterCacheStatsStateWatch`, which stays current where a field here would freeze at
 subscribe time. A cluster owns one per identity it has mirrored; the *active* cache
 — the one a sync engine runs for and a UI shows for the row — is the one whose
 `spec.serverUid` matches the cluster's last-probed `status.server.uid`, a join the
@@ -502,7 +502,7 @@ type ClusterCache {
   deletionRequestedAt: Time
 
   spec: ClusterCacheSpec!
-  "The cache-level `Synced` condition: coarse (`Syncing`/`Paused`) — it reports only what this cache decided, not how its sync is doing. Per-component health and freshness live on the cache's per-kind records (`clusterCachedKindsWatch`) or their rollup (`clusterCacheHealthWatch`), which is also why this record carries no status block of its own."
+  "The cache-level `Synced` condition: coarse (`Syncing`/`Paused`) — it reports only what this cache decided, not how its sync is doing. Per-component health and freshness live on the cache's per-kind records (`clusterCachedKindCollectionWatch`) or their rollup (`clusterCacheHealthKeyedStateWatch`), which is also why this record carries no status block of its own."
   conditions: [Condition!]!
 
   """
@@ -510,7 +510,7 @@ type ClusterCache {
   of the cache's own file — the read behind the dashboard's dynamic resource nav.
   Content, not control plane: `cachedKinds` below is the record per kind, this is
   what the store holds. Empty for a cache that has not synced yet. Resolved on
-  selection; the live counterpart is `clusterCachedDataKindsWatch`.
+  selection; the live counterpart is `clusterCachedDataKindCollectionWatch`.
   """
   kinds(
     "Counts each namespaced kind in this namespace alone, and Events by the namespace of the object each is about. A cluster-scoped kind keeps its whole count. Empty counts the whole cache."
@@ -523,7 +523,7 @@ type ClusterCache {
   is the mirrored content they describe. Empty until the cache's discovery pass has
   run.
 
-  Resolved on selection; the live counterpart is `clusterCachedKindsWatch(cacheID)`,
+  Resolved on selection; the live counterpart is `clusterCachedKindCollectionWatch(cacheID)`,
   which is what a consumer following per-kind health should read.
   """
   cachedKinds: [ClusterCachedKind!]!
@@ -570,17 +570,17 @@ type ClusterCacheStats {
   sizeLimitBytes: Int!
 }
 
-"One frame on the `clusterCachesWatch` stream: a change and the cache it affected, or the `Bookmark` closing the snapshot."
-type ClusterCacheWatchFrame {
+"One frame on the `clusterCacheCollectionWatch` stream: a change and the cache it affected, or the `Bookmark` closing the snapshot."
+type ClusterCacheCollectionWatchFrame {
   "Whether this cache was added (incl. the on-subscribe snapshot), modified, or deleted."
-  type: DeltaFrameType!
+  type: CollectionWatchFrameType!
   "The affected cache. On `Deleted`, its last-known state; the client removes it by `id`. Null on `Bookmark`."
   cache: ClusterCache
 }
 
 """
 One Kubernetes kind being mirrored into a cache — one record per kind the discovery
-pass found, so a cache has a hundred or more. Streamed by `clusterCachedKindsWatch`,
+pass found, so a cache has a hundred or more. Streamed by `clusterCachedKindCollectionWatch`,
 which is **cache-scoped** for exactly that reason, and joined onto its cache through
 `owner.id`.
 
@@ -603,9 +603,9 @@ type ClusterCachedKind {
 
   spec: ClusterCachedKindSpec!
   """
-  Beehive object conditions. **Empty in practice**: this kind's verdict is a gauge, not a
-  stored condition — read it from `clusterCacheSyncStatusWatch`, which carries a row per
-  kind, or its cache-wide fold `clusterCacheHealthWatch`. A stored one would serve a dead
+  Beehive object conditions. **Empty in practice**: this kind's verdict is a state watch, not a
+  stored condition — read it from `clusterCacheSyncStateWatch`, which carries a row per
+  kind, or its cache-wide fold `clusterCacheHealthKeyedStateWatch`. A stored one would serve a dead
   process's answer until the passes caught up.
   """
   conditions: [Condition!]!
@@ -639,10 +639,10 @@ type ClusterCachedKindSpec {
   syncEnabled: Boolean!
 }
 
-"One frame on the `clusterCachedKindsWatch` stream: a change and the record it affected, or the `Bookmark` closing the snapshot."
-type ClusterCachedKindWatchFrame {
+"One frame on the `clusterCachedKindCollectionWatch` stream: a change and the record it affected, or the `Bookmark` closing the snapshot."
+type ClusterCachedKindCollectionWatchFrame {
   "Whether this record was added (incl. the on-subscribe snapshot), modified, or deleted."
-  type: DeltaFrameType!
+  type: CollectionWatchFrameType!
   "The affected record. On `Deleted`, its last-known state; the client removes it by `id`. Null on `Bookmark`."
   kind: ClusterCachedKind
 }
@@ -726,9 +726,11 @@ One cache's sync detail: how discovery is doing, and a row per kind it mirrors.
 What `ClusterCacheHealth` folds into one verdict for a fleet view, expanded for the one
 cache a user opened. Nothing else on the wire carries a per-kind verdict.
 """
-type ClusterCacheSyncStatus {
+type ClusterCacheSyncState {
   "The cache this detail is for."
   cacheID: ObjectID!
+  "False when the pair subscribed to names no live cache; the rest of the detail is then empty."
+  exists: Boolean!
   "How the kind-discovery sweep is doing. Its own verdict, and not any kind's: a cluster whose `/apis` document will not load has no kinds to report the failure through."
   discovery: ClusterCacheDiscoveryStatus!
   "Every mirrored kind, sorted by `apiVersion` then `resource`, so a rendered list is stable across ticks."
@@ -874,10 +876,10 @@ type ClusterCachedDataObject {
   rawJSON: JSON
 }
 
-"One frame on the `clusterCachedDataKindsWatch` stream: a change and the kind it affected, or the `Bookmark` closing the snapshot. Either way it carries its cache provenance."
-type ClusterCachedDataKindWatchFrame {
+"One frame on the `clusterCachedDataKindCollectionWatch` stream: a change and the kind it affected, or the `Bookmark` closing the snapshot. Either way it carries its cache provenance."
+type ClusterCachedDataKindCollectionWatchFrame {
   "Whether this kind was added (incl. the on-subscribe snapshot), modified (chiefly a `count` change), or deleted."
-  type: DeltaFrameType!
+  type: CollectionWatchFrameType!
   "The affected kind. On `Deleted`, its last-known row; the client keys on `apiVersion` + `resource`. Null on `Bookmark`."
   kind: ClusterCachedDataKind
   """
@@ -890,29 +892,29 @@ type ClusterCachedDataKindWatchFrame {
   namespace: String!
 }
 
-"One frame on the `clusterCachedDataEventsWatch` stream: a change and the event it affected, or the `Bookmark` closing the snapshot. Either way it carries its cache provenance."
-type ClusterCachedDataEventWatchFrame {
+"One frame on the `clusterCachedDataEventCollectionWatch` stream: a change and the event it affected, or the `Bookmark` closing the snapshot. Either way it carries its cache provenance."
+type ClusterCachedDataEventCollectionWatchFrame {
   "Whether this event was added (incl. the on-subscribe snapshot), modified (chiefly a `count`/`lastSeen` change as it re-fires), or deleted."
-  type: DeltaFrameType!
+  type: CollectionWatchFrameType!
   "The affected event. On `Deleted`, its last-known row; the client keys on `uid`. Null on `Bookmark`."
   event: ClusterCachedDataEvent
   """
   The cache this frame came from — the frame's provenance, mirroring
-  `ClusterCachedDataKindWatchFrame.cacheID`. A client watching the active cache rejects a late
+  `ClusterCachedDataKindCollectionWatchFrame.cacheID`. A client watching the active cache rejects a late
   frame from a superseded cache by comparing this against the cache it subscribed for.
   """
   cacheID: ObjectID!
 }
 
-"One frame on the `clusterCachedDataObjectsWatch` stream: a change and the object it affected, or the `Bookmark` closing the snapshot. Either way it carries its (cache, kind) provenance."
-type ClusterCachedDataObjectWatchFrame {
+"One frame on the `clusterCachedDataObjectCollectionWatch` stream: a change and the object it affected, or the `Bookmark` closing the snapshot. Either way it carries its (cache, kind) provenance."
+type ClusterCachedDataObjectCollectionWatchFrame {
   "Whether this object was added (incl. the on-subscribe snapshot), modified, or deleted."
-  type: DeltaFrameType!
+  type: CollectionWatchFrameType!
   "The affected object. On `Deleted`, its last-known identity with a null `rawJSON` — the client keys the removal on `uid` and never reads the body. Null on `Bookmark`."
   object: ClusterCachedDataObject
   """
   The cache this frame came from — the frame's provenance, mirroring
-  `ClusterCachedDataKindWatchFrame.cacheID`. A client watching the active cache rejects a late
+  `ClusterCachedDataKindCollectionWatchFrame.cacheID`. A client watching the active cache rejects a late
   frame from a superseded cache by comparing this against the cache it subscribed for.
   """
   cacheID: ObjectID!
@@ -1012,7 +1014,7 @@ type ProviderCredentialState {
 # --- Chat ---
 # The app's own chats, held in app.db. Sending a message is a save, not a
 # phone call: chatSend returns once the turn is accepted and the answer arrives on
-# chatMessagesWatch. See docs/adr/2026-09-10-the-answer-is-a-record.md.
+# chatMessageCollectionWatch. See docs/adr/2026-09-10-the-answer-is-a-record.md.
 
 """
 The identity of a chat (a UUID string on the wire). Distinct from `ObjectID`: chats
@@ -1621,14 +1623,14 @@ enum ToolCallStatus {
   Interrupted
 }
 
-type ChatWatchFrame {
-  type: DeltaFrameType!
+type ChatCollectionWatchFrame {
+  type: CollectionWatchFrameType!
   "The affected chat. On `Deleted`, its last-known state; remove by `id`. Null on `Bookmark`."
   chat: Chat
 }
 
-type ChatMessageWatchFrame {
-  type: DeltaFrameType!
+type ChatMessageCollectionWatchFrame {
+  type: CollectionWatchFrameType!
   "The affected message. On `Deleted`, its last-known state; remove by `id`. Null on `Bookmark`."
   message: ChatMessage
 }
@@ -1648,7 +1650,7 @@ type LogRecord {
   truncatedBytes: Int!
   stream: LogStream!
   place: LogPlace!
-  "Names this line: a fetch's or a follow's `seen` reads this stream past it. Opaque."
+  "Names this line: a fetch's or a tail's `seen` reads this stream past it. Opaque."
   cursor: String!
   "Set when lines of this stream may be missing just before this line. Null when none are."
   gap: LogGap
@@ -1827,9 +1829,9 @@ input LogsViewSelectedLineInput {
   message: String!
 }
 
-"One follow: what to follow, and where it starts. With neither `since` nor `cursor` it starts from now."
-input LogsFollowInput {
-  "What is followed. Omitted beside `cursor`, which holds it."
+"One tail: what to tail, and where it starts. With neither `since` nor `cursor` it starts from now."
+input LogsTailInput {
+  "What is tailed. Omitted beside `cursor`, which holds it."
   scope: LogsScopeInput
   "A start: that moment's lines included. Refused beside `cursor`."
   since: Time
@@ -1842,21 +1844,21 @@ input LogsFollowInput {
 }
 
 """
-One frame of a follow: a line, a notice, or the last frame, saying why the follow ended.
-Following again after `Ended` would end the same way. Detect each frame by `type`, never by
+One frame of a tail: a line, a notice, or the last frame, saying why the tail ended.
+Tailing again after `Ended` would end the same way. Detect each frame by `type`, never by
 which field is missing.
 """
-type LogsFollowFrame {
-  type: LogsFollowFrameType!
+type LogsTailFrame {
+  type: LogsTailFrameType!
   "The line, cut at `maxMessageBytes`. Set on `Line`."
   record: LogRecord
-  "Something the follow wants the reader to know. Set on `Notice`."
+  "Something the tail wants the reader to know. Set on `Notice`."
   notice: LogNotice
-  "Why the follow ended: its code, and the reason in the user's words. Set on `Ended`."
+  "Why the tail ended: its code, and the reason in the user's words. Set on `Ended`."
   ended: LogNotice
 }
 
-enum LogsFollowFrameType {
+enum LogsTailFrameType {
   Line
   Notice
   Ended
@@ -1891,8 +1893,8 @@ type Memory {
   updatedAt: Time!
 }
 
-type MemoryWatchFrame {
-  type: DeltaFrameType!
+type MemoryCollectionWatchFrame {
+  type: CollectionWatchFrameType!
   "The affected memory. On `Deleted`, its last-known state; remove by `id`. Null on `Bookmark`."
   memory: Memory
 }
@@ -1965,7 +1967,7 @@ enum PermissionModeSource {
   Default
 }
 
-"One rule over cluster writes and Secret reads. `clusterID` is the one cluster it applies to, null for every cluster; join it onto `clustersWatch`. Every other string but `group` is a pattern: `*` matches any run of characters, `?` one, `\\` escapes the next, and an empty one matches anything. A `namespace` pattern matches objects in a namespace alone; `[cluster]` matches cluster-scoped objects alone. Every string is user text: draw it through VisibleText."
+"One rule over cluster writes and Secret reads. `clusterID` is the one cluster it applies to, null for every cluster; join it onto `clusterCollectionWatch`. Every other string but `group` is a pattern: `*` matches any run of characters, `?` one, `\\` escapes the next, and an empty one matches anything. A `namespace` pattern matches objects in a namespace alone; `[cluster]` matches cluster-scoped objects alone. Every string is user text: draw it through VisibleText."
 type KubeRule {
   id: String!
   effect: PermissionEffect!
@@ -2014,7 +2016,7 @@ enum PermissionTarget {
   Azure
 }
 
-"A cluster with a kube-context, and the mode its sandboxed commands run under. Join it onto `clustersWatch` by `clusterID`."
+"A cluster with a kube-context, and the mode its sandboxed commands run under. Join it onto `clusterCollectionWatch` by `clusterID`."
 type PermissionClusterMode {
   clusterID: ClusterID!
   mode: PermissionMode!
@@ -2297,7 +2299,7 @@ type EnvVar {
 type SandboxExecutablesReport {
   "A probe is running; its reports land in `executables` when it ends."
   probing: Boolean!
-  "How many probes have started since the sidecar did. A gauge keeps its latest value alone, so a probe's start and end can arrive as one frame; a watcher that asked for a probe knows it started once this moved."
+  "How many probes have started since the sidecar did. A state watch keeps its latest value alone, so a probe's start and end can arrive as one frame; a watcher that asked for a probe knows it started once this moved."
   probes: Int!
   "Every executable the probe checks, the curated ones then the user's, as the last probe found each. Empty on a machine with no sandbox."
   executables: [SandboxExecutable!]!
@@ -2305,7 +2307,7 @@ type SandboxExecutablesReport {
 
 "The Sandbox console's last command, as it runs and once it ends."
 type SandboxConsoleRun {
-  "Counts the console's commands since the sidecar started. A gauge keeps its latest value alone, so a watcher tells one command from the next by this."
+  "Counts the console's commands since the sidecar started. A state watch keeps its latest value alone, so a watcher tells one command from the next by this."
   number: Int!
   "The command as the user typed it. User text: draw it through VisibleText."
   command: String!
@@ -2338,11 +2340,11 @@ type SandboxConsole {
 
 type Query {
   # --- Model ---
-  "Every model the sidecar can answer with, in catalog order — the first entry is what a picker starts on. The ChatGPT plan's models come and go with its connection; modelsWatch follows them."
+  "Every model the sidecar can answer with, in catalog order — the first entry is what a picker starts on. The ChatGPT plan's models come and go with its connection; modelsStateWatch follows them."
   models: [Model!]!
 
   # --- Provider credentials ---
-  "Every provider, in picker order; live updates via providerCredentialsWatch."
+  "Every provider, in picker order; live updates via providerCredentialsStateWatch."
   providerCredentials: [ProviderCredentialState!]!
 
   # --- Sandbox ---
@@ -2395,7 +2397,7 @@ type Query {
   chatKubeRules(chatID: ChatID!): [KubeRule!]!
 
   # --- Tools ---
-  "Every tool a chat can be offered on this machine, in the order Settings draws them, each with its setting; live updates via toolSettingsWatch."
+  "Every tool a chat can be offered on this machine, in the order Settings draws them, each with its setting; live updates via toolSettingsStateWatch."
   toolSettings: [ToolSetting!]!
 
   # --- Logs ---
@@ -2411,22 +2413,22 @@ type Query {
   authState: AuthState!
 
   # --- ChatGPT connector ---
-  "The ChatGPT connector's state; live updates via chatGPTConnectionWatch."
+  "The ChatGPT connector's state; live updates via chatGPTConnectionStateWatch."
   chatGPTConnection: ChatGPTConnection!
   # --- OpenRouter connector ---
-  "The OpenRouter connector's state; live updates via openRouterConnectionWatch."
+  "The OpenRouter connector's state; live updates via openRouterConnectionStateWatch."
   openRouterConnection: OpenRouterConnection!
 
   # --- AWS connector ---
-  "The AWS connector's state; live updates via awsConnectionWatch."
+  "The AWS connector's state; live updates via awsConnectionStateWatch."
   awsConnection: AWSConnection!
 
   # --- GitHub connector ---
-  "The GitHub connector's state; live updates via gitHubConnectionWatch."
+  "The GitHub connector's state; live updates via gitHubConnectionStateWatch."
   gitHubConnection: GitHubConnection!
 
   # --- Google connector ---
-  "The Google connector's state; live updates via googleConnectionWatch."
+  "The Google connector's state; live updates via googleConnectionStateWatch."
   googleConnection: GoogleConnection!
 }
 
@@ -2450,7 +2452,7 @@ type Mutation {
   "Force an immediate reconnection attempt, resetting any backoff. Resolves once the probe it asked for has finished — not when it was scheduled — so a caller can show the retry as busy for exactly that long. What the probe found arrives on the cluster's conditions. Returns true."
   clusterConnectionRetry(id: ClusterID!): Boolean!
 
-  "Delete an orphaned cluster. Returns true as soon as the deletion is requested: the record then carries `deletionRequestedAt` while its runtime, its caches and its chats are torn down, and leaves `clustersWatch` once they are gone. Refused for a cluster its source still declares — the discovery pass would re-import it under a fresh id, losing the user's toggles; stop tracking it at the source, or disable it. Deleting a record already gone, or already deleting, is not an error."
+  "Delete an orphaned cluster. Returns true as soon as the deletion is requested: the record then carries `deletionRequestedAt` while its runtime, its caches and its chats are torn down, and leaves `clusterCollectionWatch` once they are gone. Refused for a cluster its source still declares — the discovery pass would re-import it under a fresh id, losing the user's toggles; stop tracking it at the source, or disable it. Deleting a record already gone, or already deleting, is not an error."
   clusterDelete(id: ClusterID!): Boolean!
 
   # --- ClusterCache ---
@@ -2462,7 +2464,7 @@ type Mutation {
   clusterCachedKindSyncEnabledSet(id: ObjectID!, syncEnabled: Boolean!): ClusterCachedKind!
 
   # --- Chat ---
-  "Save a user message and start the assistant's turn. Returns the assistant's message as accepted, not as finished — the answer arrives on chatMessagesWatch. A null `chatID` creates the chat; a chat already running a turn is refused. `requestID` makes the send idempotent for as long as its chat lives, and a repeat is answered by that id alone: this call's `chatID`, `model`, `effort` and `content` are ignored. The key goes with the chat, so a repeat after its delete is a new send. A null `chatID` creates the chat in `mode` and under `clusterID`, which must name an existing cluster; otherwise both are ignored, and on a `requestID` replay they are ignored like `chatID` and `content`. `sandboxDisabled` is the chat's switch as the sender saw it, `false` for a chat the send creates; a send whose switch differs from the chat's is refused with `KSTACK_CHAT_SANDBOX_CHANGED`, and a replay ignores it too. `networkEnabled` is the chat's network switch as the sender saw it, `false` for a chat the send creates; a send whose switch differs from the chat's is refused with `KSTACK_CHAT_NETWORK_CHANGED`, and a replay ignores it. `networkThisTurn` gives every command of this turn the internet, its subagents' included; refused with `KSTACK_VALIDATION_ERROR` where network is unavailable. `snapshot` is what the user's open log view shows, which rides the question as its context's View; a snapshot naming no `LogsView`, `LogsRead` or `LogsWatch` call of this chat, or on a send that creates one, is refused with `KSTACK_VALIDATION_ERROR`, and a replay ignores it."
+  "Save a user message and start the assistant's turn. Returns the assistant's message as accepted, not as finished — the answer arrives on chatMessageCollectionWatch. A null `chatID` creates the chat; a chat already running a turn is refused. `requestID` makes the send idempotent for as long as its chat lives, and a repeat is answered by that id alone: this call's `chatID`, `model`, `effort` and `content` are ignored. The key goes with the chat, so a repeat after its delete is a new send. A null `chatID` creates the chat in `mode` and under `clusterID`, which must name an existing cluster; otherwise both are ignored, and on a `requestID` replay they are ignored like `chatID` and `content`. `sandboxDisabled` is the chat's switch as the sender saw it, `false` for a chat the send creates; a send whose switch differs from the chat's is refused with `KSTACK_CHAT_SANDBOX_CHANGED`, and a replay ignores it too. `networkEnabled` is the chat's network switch as the sender saw it, `false` for a chat the send creates; a send whose switch differs from the chat's is refused with `KSTACK_CHAT_NETWORK_CHANGED`, and a replay ignores it. `networkThisTurn` gives every command of this turn the internet, its subagents' included; refused with `KSTACK_VALIDATION_ERROR` where network is unavailable. `snapshot` is what the user's open log view shows, which rides the question as its context's View; a snapshot naming no `LogsView`, `LogsRead` or `LogsWatch` call of this chat, or on a send that creates one, is refused with `KSTACK_VALIDATION_ERROR`, and a replay ignores it."
   chatSend(chatID: ChatID, mode: ChatMode!, clusterID: ClusterID!, sandboxDisabled: Boolean!, networkEnabled: Boolean!, networkThisTurn: Boolean!, providerID: String!, modelID: String!, effort: String!, requestID: String!, content: String!, snapshot: LogsViewSnapshotInput): ChatMessage!
 
   "Stop the in-flight turn, keeping the partial answer. Returns true; a no-op when nothing is running."
@@ -2495,10 +2497,10 @@ type Mutation {
   "Run the login shell again and store its PATH, which $PATH stands for, and answer the setting. Refused KSTACK_VALIDATION_ERROR with the shell's fault, or on a machine with no sandbox; a failed read keeps the last PATH. A refresh that took but cannot be read back is KSTACK_SAVED_UNREAD."
   sandboxPathRefresh: SandboxPath!
 
-  "Start a probe of every listed executable in the sandbox, with no cluster and no network, and answer the report as it stands; a probe already running is waited out, then one runs. Its end reaches `sandboxExecutablesWatch`. Refused KSTACK_VALIDATION_ERROR on a machine with no sandbox. A read of the registered executables that fails is an error, and starts no probe."
+  "Start a probe of every listed executable in the sandbox, with no cluster and no network, and answer the report as it stands; a probe already running is waited out, then one runs. Its end reaches `sandboxExecutablesStateWatch`. Refused KSTACK_VALIDATION_ERROR on a machine with no sandbox. A read of the registered executables that fails is an error, and starts no probe."
   sandboxExecutablesProbe: [SandboxExecutable!]!
 
-  "Run a command the user typed in the Sandbox console, as a chat's sandboxed command runs: in a workspace of its own, with the folders granted always, `clusterID`'s cluster, read alone, and the internet when `network` is set. Nothing approves it, and it reaches no chat and no model. It answers once the command starts, with its `number`; its output and its end reach `sandboxConsoleWatch`. Refused KSTACK_CONFLICT while a command runs, and KSTACK_VALIDATION_ERROR for an empty or overlong command, the internet where the machine has none, or a machine whose sandbox does not confine a command."
+  "Run a command the user typed in the Sandbox console, as a chat's sandboxed command runs: in a workspace of its own, with the folders granted always, `clusterID`'s cluster, read alone, and the internet when `network` is set. Nothing approves it, and it reaches no chat and no model. It answers once the command starts, with its `number`; its output and its end reach `sandboxConsoleStateWatch`. Refused KSTACK_CONFLICT while a command runs, and KSTACK_VALIDATION_ERROR for an empty or overlong command, the internet where the machine has none, or a machine whose sandbox does not confine a command."
   sandboxConsoleRun(command: String!, clusterID: ClusterID, network: Boolean!): Int!
 
   "Stop the Sandbox console's running command, as a chat's Cancel stops a call: command `number`'s, or whichever runs when it is null. Does nothing when none runs, or another, so a stop sent late never ends a newer command."
@@ -2560,16 +2562,16 @@ type Mutation {
   authLogout: Boolean!
 
   # --- ChatGPT connector ---
-  "Open the browser on OpenAI's sign-in. Returns once it opens; the outcome arrives on chatGPTConnectionWatch. `fresh` forgets the saved registration first. Refused (KSTACK_VALIDATION_ERROR) while Restoring, during an attempt and while connected."
+  "Open the browser on OpenAI's sign-in. Returns once it opens; the outcome arrives on chatGPTConnectionStateWatch. `fresh` forgets the saved registration first. Refused (KSTACK_VALIDATION_ERROR) while Restoring, during an attempt and while connected."
   chatGPTConnect(fresh: Boolean!): Boolean!
   "End a sign-in under way. Returns true; a no-op otherwise."
   chatGPTConnectCancel: Boolean!
-  "Sign out on this machine, then ask OpenAI to end the session. Returns once this machine is signed out; an unconfirmed revocation arrives on chatGPTConnectionWatch. Refused (KSTACK_VALIDATION_ERROR) while Restoring."
+  "Sign out on this machine, then ask OpenAI to end the session. Returns once this machine is signed out; an unconfirmed revocation arrives on chatGPTConnectionStateWatch. Refused (KSTACK_VALIDATION_ERROR) while Restoring."
   chatGPTDisconnect: Boolean!
   "Open ChatGPT's usage settings in the browser. The address is the sidecar's constant."
   chatGPTUsageOpen: Boolean!
   # --- OpenRouter connector ---
-  "Open the browser on OpenRouter's sign-in. Returns once the attempt starts or fails; the outcome, a browser that could not open or a keyring that cannot keep the key included, arrives on openRouterConnectionWatch. Refused (KSTACK_VALIDATION_ERROR) while Restoring, during an attempt, while connected, and while a key the keyring would not delete is still there."
+  "Open the browser on OpenRouter's sign-in. Returns once the attempt starts or fails; the outcome, a browser that could not open or a keyring that cannot keep the key included, arrives on openRouterConnectionStateWatch. Refused (KSTACK_VALIDATION_ERROR) while Restoring, during an attempt, while connected, and while a key the keyring would not delete is still there."
   openRouterConnect: Boolean!
   "End a sign-in under way. Returns true; a no-op otherwise."
   openRouterConnectCancel: Boolean!
@@ -2579,7 +2581,7 @@ type Mutation {
   openRouterKeysOpen: Boolean!
 
   # --- AWS connector ---
-  "Open the browser on AWS's sign-in. Returns once the attempt starts or fails; the outcome, a browser that could not open or a keyring that cannot keep the session included, arrives on awsConnectionWatch. Refused (KSTACK_VALIDATION_ERROR) while Restoring, during an attempt, while connected, and while a session the keyring would not delete is still there."
+  "Open the browser on AWS's sign-in. Returns once the attempt starts or fails; the outcome, a browser that could not open or a keyring that cannot keep the session included, arrives on awsConnectionStateWatch. Refused (KSTACK_VALIDATION_ERROR) while Restoring, during an attempt, while connected, and while a session the keyring would not delete is still there."
   awsConnect: Boolean!
   "End a sign-in under way. A no-op otherwise."
   awsConnectCancel: Boolean!
@@ -2587,7 +2589,7 @@ type Mutation {
   awsDisconnect: Boolean!
 
   # --- GitHub connector ---
-  "Ask GitHub for a code, then open the browser on GitHub's page. Returns once the browser opens or the attempt fails; the code and the outcome arrive on gitHubConnectionWatch. Refused (KSTACK_VALIDATION_ERROR) in a build with no GitHub OAuth App, while Restoring, during an attempt, while connected, and while a token the keyring would not delete is still there."
+  "Ask GitHub for a code, then open the browser on GitHub's page. Returns once the browser opens or the attempt fails; the code and the outcome arrive on gitHubConnectionStateWatch. Refused (KSTACK_VALIDATION_ERROR) in a build with no GitHub OAuth App, while Restoring, during an attempt, while connected, and while a token the keyring would not delete is still there."
   gitHubConnect: Boolean!
   "End the sign-in under way, if any. A token GitHub grants after it is dropped."
   gitHubConnectCancel: Boolean!
@@ -2597,142 +2599,139 @@ type Mutation {
   gitHubSettingsOpen: Boolean!
 
   # --- Google connector ---
-  "Open the browser on Google's sign-in. Returns once it opens; the outcome arrives on googleConnectionWatch. `fresh` forgets the saved account first. Refused (KSTACK_VALIDATION_ERROR) in a build with no Google client, while Restoring, during an attempt and while connected."
+  "Open the browser on Google's sign-in. Returns once it opens; the outcome arrives on googleConnectionStateWatch. `fresh` forgets the saved account first. Refused (KSTACK_VALIDATION_ERROR) in a build with no Google client, while Restoring, during an attempt and while connected."
   googleConnect(fresh: Boolean!): Boolean!
   "End the sign-in under way, if any. Tokens Google grants after it are revoked."
   googleConnectCancel: Boolean!
-  "Sign out on this machine, then ask Google to revoke the grant. Returns once this machine is signed out; an unconfirmed revocation arrives on googleConnectionWatch. Refused (KSTACK_VALIDATION_ERROR) while Restoring."
+  "Sign out on this machine, then ask Google to revoke the grant. Returns once this machine is signed out; an unconfirmed revocation arrives on googleConnectionStateWatch. Refused (KSTACK_VALIDATION_ERROR) while Restoring."
   googleDisconnect: Boolean!
 }
 
 type Subscription {
-  # Three live shapes, named in every description below. A DELTA WATCH replays the current
-  # set, closes that snapshot with one Bookmark, then streams changes (DeltaFrameType) —
-  # so a consumer renders an empty state only after the Bookmark. A GAUGE is
-  # current-on-subscribe: its first value IS the snapshot, and no Bookmark rides it. A
-  # SERIES sends its whole retained window first, even if empty, then only the points
-  # newer than the last frame. Every subscription here is endless.
+  # Every field is named for its kind, and its description opens with it. The kinds and
+  # what each delivers are docs/subscriptions.md. None of them ends on its own but the
+  # cursor tail, whose last frame is `Ended`.
 
   # --- Any object ---
-  "A cache's or a per-kind record's event timeline — `ClusterCache`, `ClusterCachedKind` — as an event log: runs upserted by `Event.id`, the snapshot closed by one `Bookmark` (`EventFrameType`). Optionally one `category`. The point read is that record's own `events` field; a cluster's timeline is `clusterEventsWatch`."
-  eventsWatch(id: ObjectID!, category: String): EventWatchFrame!
+  "An event feed of a cache's or a per-kind record's timeline — `ClusterCache`, `ClusterCachedKind`: runs upserted by `Event.id`, the snapshot closed by one `Bookmark` (`EventFeedFrameType`). Optionally one `category`. The point read is that record's own `events` field; a cluster's timeline is `clusterEventFeed`."
+  objectEventFeed(id: ObjectID!, category: String): EventFeedFrame!
 
   # --- Cluster ---
-  "The cluster list as a delta watch, keyed by `cluster.id`. Cache sync status is not here — it streams on `clusterCachesWatch`."
-  clustersWatch: ClusterWatchFrame!
+  "A collection watch of the cluster list, keyed by `cluster.id`. Cache sync status is not here — it streams on `clusterCacheCollectionWatch`."
+  clusterCollectionWatch: ClusterCollectionWatchFrame!
 
-  "A cluster's event timeline as an event log, the same shape as `eventsWatch`. Bookmark-only for an id naming nothing."
-  clusterEventsWatch(id: ClusterID!, category: String): EventWatchFrame!
+  "An event feed of a cluster's timeline, the same shape as `objectEventFeed`. Bookmark-only for an id naming nothing."
+  clusterEventFeed(id: ClusterID!, category: String): EventFeedFrame!
 
-  "A cluster's next reconcile as a gauge — what keeps a disconnected cluster's countdown live, since scheduling fires no object watch."
-  clusterScheduleWatch(id: ClusterID!): Schedule!
+  "A state watch of a cluster's next reconcile — what keeps a disconnected cluster's countdown live, since scheduling fires no object watch."
+  clusterScheduleStateWatch(id: ClusterID!): Schedule!
 
-  "A cluster's connection data rate as a series. The first frame arrives at once and holds the whole window, possibly none. Each later frame holds the samples since the one before. Every tick is sent, zeros included. A replaced or missing connection reads as zero. Refused for a disabled cluster or one being deleted."
-  clusterDataRateWatch(id: ClusterID!): ClusterDataRateSeriesFrame!
+  "A time series feed of a cluster's connection data rate. The first frame arrives at once and holds the whole window, possibly none. Each later frame holds the samples since the one before. Every tick is sent, zeros included. A replaced or missing connection reads as zero. Refused for a disabled cluster or one being deleted."
+  clusterDataRateTimeSeriesFeed(id: ClusterID!): ClusterDataRateTimeSeriesFeedFrame!
 
   # --- ClusterCache ---
-  "Cache records as a delta watch, keyed by `cache.id` and joined onto clusters by `clusterID`. Carries no ordering guarantee against `clustersWatch`."
-  clusterCachesWatch: ClusterCacheWatchFrame!
+  "A collection watch of cache records, keyed by `cache.id` and joined onto clusters by `clusterID`. Carries no ordering guarantee against `clusterCollectionWatch`."
+  clusterCacheCollectionWatch: ClusterCacheCollectionWatchFrame!
 
-  "Every cache's folded sync verdict as a gauge, keyed by `cacheID`. No deletes — a verdict's lifetime is its cache's, so the client drops one when its cache leaves `clusterCachesWatch`."
-  clusterCacheHealthWatch: ClusterCacheHealth!
+  "A keyed state watch of every cache's folded sync verdict, keyed by `cacheID`. No removal frame — a verdict's lifetime is its cache's, so the client drops one when its cache leaves `clusterCacheCollectionWatch`."
+  clusterCacheHealthKeyedStateWatch: ClusterCacheHealth!
 
-  "One cache's per-kind sync records as a delta watch, keyed by `kind.id`. Cache-scoped, since there is one record per synced kind."
-  clusterCachedKindsWatch(cacheID: ObjectID!): ClusterCachedKindWatchFrame!
+  "A collection watch of one cache's per-kind sync records, keyed by `kind.id`. Cache-scoped, since there is one record per synced kind."
+  clusterCachedKindCollectionWatch(cacheID: ObjectID!): ClusterCachedKindCollectionWatchFrame!
 
-  "One cache's on-disk contents as a gauge. A subscription, not a `ClusterCache` field, which would freeze at subscribe time."
-  clusterCacheStatsWatch(id: ClusterID!, cacheID: ObjectID!): ClusterCacheStats!
+  "A state watch of one cache's on-disk contents. A subscription, not a `ClusterCache` field, which would freeze at subscribe time. A pair naming no live cache gets one value with `exists` false."
+  clusterCacheStatsStateWatch(id: ClusterID!, cacheID: ObjectID!): ClusterCacheStats!
 
-  "One cache's sync detail as a gauge — the discovery verdict and a row per mirrored kind. Re-read on a cadence rather than on a signal: its counts and freshness stamps move while every record under it sits still. Holds silent for a pair naming no live cache."
-  clusterCacheSyncStatusWatch(id: ClusterID!, cacheID: ObjectID!): ClusterCacheSyncStatus!
+  "A state watch of one cache's sync detail — the discovery verdict and a row per mirrored kind. Re-read on a cadence rather than on a change notification: its counts and freshness stamps move while every record under it sits still. A pair naming no live cache gets one value with `exists` false."
+  clusterCacheSyncStateWatch(id: ClusterID!, cacheID: ObjectID!): ClusterCacheSyncState!
 
   # --- Cluster data ---
-  "One cache's discovered kind catalog as a delta watch, keyed by `apiVersion` + `resource`. Counts are live, so an object write re-emits its kind. The live counterpart of `ClusterCache.kinds`."
-  clusterCachedDataKindsWatch(
+  "A collection watch of one cache's discovered kind catalog, keyed by `apiVersion` + `resource`. Counts are live, so an object write re-emits its kind. The live counterpart of `ClusterCache.kinds`."
+  clusterCachedDataKindCollectionWatch(
     id: ClusterID!
     cacheID: ObjectID!
     "Counts each namespaced kind in this namespace alone, and Events by the namespace of the object each is about. A cluster-scoped kind keeps its whole count. Empty counts the whole cache."
     namespace: String! = ""
-  ): ClusterCachedDataKindWatchFrame!
+  ): ClusterCachedDataKindCollectionWatchFrame!
 
-  "One cache's cached Kubernetes Events as a delta watch, newest first, keyed by `uid`; an event the server dropped surfaces as `Deleted`. Distinct from `eventsWatch`, which streams kstack's own timeline."
-  clusterCachedDataEventsWatch(
+  "A collection watch of one cache's cached Kubernetes Events, newest first, keyed by `uid`; an event the server dropped surfaces as `Deleted`. Distinct from `objectEventFeed`, which streams kstack's own timeline."
+  clusterCachedDataEventCollectionWatch(
     id: ClusterID!
     cacheID: ObjectID!
-  ): ClusterCachedDataEventWatchFrame!
+  ): ClusterCachedDataEventCollectionWatchFrame!
 
-  "One kind's cached objects from a cache as a delta watch, keyed by `uid`. Scoped by `apiVersion` + `resource`, e.g. `\"apps/v1\"` + `\"deployments\"`."
-  clusterCachedDataObjectsWatch(
+  "A collection watch of one kind's cached objects from a cache, keyed by `uid`. Scoped by `apiVersion` + `resource`, e.g. `\"apps/v1\"` + `\"deployments\"`."
+  clusterCachedDataObjectCollectionWatch(
     id: ClusterID!
     cacheID: ObjectID!
     apiVersion: String!
     resource: String!
-  ): ClusterCachedDataObjectWatchFrame!
+  ): ClusterCachedDataObjectCollectionWatchFrame!
 
   # --- Chat ---
-  "DELTA WATCH. The chat list, keyed by `chat.id` — what the sidebar renders."
-  chatsWatch: ChatWatchFrame!
+  "A collection watch of the chat list, keyed by `chat.id` — what the sidebar renders."
+  chatCollectionWatch: ChatCollectionWatchFrame!
 
   """
-  DELTA WATCH. One chat's messages, keyed by `message.id`. A streaming answer arrives
-  as repeated `Modified` frames carrying the whole text so far, so any one frame is
-  disposable. Nothing orders this against chatsWatch: on a delete, the chat's `Deleted`
-  and its messages' come from two pumps and land in either order.
+  A collection watch of one chat's messages, keyed by `message.id`. A streaming answer
+  arrives as repeated `Modified` frames carrying the whole text so far, so any one frame is
+  disposable. Nothing orders this against chatCollectionWatch: on a delete, the chat's
+  `Deleted` and its messages' come from two pumps and land in either order.
   """
-  chatMessagesWatch(chatID: ChatID!): ChatMessageWatchFrame!
+  chatMessageCollectionWatch(chatID: ChatID!): ChatMessageCollectionWatchFrame!
 
   # --- Memory ---
-  "DELTA WATCH. What one cluster's chats see, keyed by `memory.id`: its own memories and every cluster's. A move between scopes arrives as `Added` or `Deleted` on each cluster it enters or leaves."
-  memoriesWatch(clusterID: ClusterID!): MemoryWatchFrame!
+  "A collection watch of what one cluster's chats see, keyed by `memory.id`: its own memories and every cluster's. A move between scopes arrives as `Added` or `Deleted` on each cluster it enters or leaves."
+  memoryCollectionWatch(clusterID: ClusterID!): MemoryCollectionWatchFrame!
 
   # --- Logs ---
   """
-  A view's lines as they are written, from a start the request names. Lines are ordered
-  per container, and across containers by arrival. A follow that ends for a reason the
-  user can read sends one `Ended` frame and completes: stop subscribing. One that fails
-  reports `watchFailed`; follow again from the same start, with `seen` naming the last
-  line held of each stream.
+  A cursor tail of a view's lines as they are written, from a start the request names.
+  Lines are ordered per container, and across containers by arrival. A tail that ends for
+  a reason the user can read sends one `Ended` frame and completes: stop subscribing. One
+  that fails reports `subscriptionFailed`; tail again from the same start, with `seen`
+  naming the last line held of each stream.
   """
-  logsFollow(id: ClusterID!, request: LogsFollowInput!): LogsFollowFrame!
+  logsTail(id: ClusterID!, request: LogsTailInput!): LogsTailFrame!
 
   # --- Sandbox ---
-  "GAUGE. The executable probe: whether one runs, and the report as the last one left it, a fresh value on each start, each end and each change to the registered executables. A read of the registered executables that fails ends the watch with its reason."
-  sandboxExecutablesWatch: SandboxExecutablesReport!
-  "GAUGE. The folders granted, as `sandboxFolders` answers them, a fresh value on each write of the settings or the always grants and, with a chat, on each write or revoke of the chat's grants. A folder changing on disk sends nothing."
-  sandboxFoldersWatch(chatID: ChatID): SandboxFolders!
-  "GAUGE. The Sandbox console's last command: a fresh value as it starts, about every quarter second while it writes, and as it ends."
-  sandboxConsoleWatch: SandboxConsole!
+  "A state watch of the executable probe: whether one runs, and the report as the last one left it, a fresh value on each start, each end and each change to the registered executables. A read of the registered executables that fails ends the watch with its reason."
+  sandboxExecutablesStateWatch: SandboxExecutablesReport!
+  "A state watch of the folders granted, as `sandboxFolders` answers them, a fresh value on each write of the settings or the always grants and, with a chat, on each write or revoke of the chat's grants. A folder changing on disk sends nothing."
+  sandboxFoldersStateWatch(chatID: ChatID): SandboxFolders!
+  "A state watch of the Sandbox console's last command: a fresh value as it starts, about every quarter second while it writes, and as it ends."
+  sandboxConsoleStateWatch: SandboxConsole!
 
   # --- Cloud account ---
-  "Authentication state as a gauge: a fresh snapshot on every change of account (sign-in, sign-out, a session that ended)."
+  "A state watch of authentication: a fresh value on every change of account (sign-in, sign-out, a session that ended)."
   authStateWatch: AuthState!
 
   # --- ChatGPT connector ---
-  "GAUGE. The ChatGPT connector's state, a fresh value on every change."
-  chatGPTConnectionWatch: ChatGPTConnection!
+  "A state watch of the ChatGPT connector, a fresh value on every change."
+  chatGPTConnectionStateWatch: ChatGPTConnection!
   # --- OpenRouter connector ---
-  "GAUGE. The OpenRouter connector's state, a fresh value on every change."
-  openRouterConnectionWatch: OpenRouterConnection!
+  "A state watch of the OpenRouter connector, a fresh value on every change."
+  openRouterConnectionStateWatch: OpenRouterConnection!
   # --- GitHub connector ---
-  "GAUGE. The GitHub connector's state, a fresh value on every change."
-  gitHubConnectionWatch: GitHubConnection!
+  "A state watch of the GitHub connector, a fresh value on every change."
+  gitHubConnectionStateWatch: GitHubConnection!
   # --- Google connector ---
-  "GAUGE. The Google connector's state, a fresh value on every change."
-  googleConnectionWatch: GoogleConnection!
+  "A state watch of the Google connector, a fresh value on every change."
+  googleConnectionStateWatch: GoogleConnection!
 
   # --- AWS connector ---
-  "GAUGE. The AWS connector's state, a fresh value on every change."
-  awsConnectionWatch: AWSConnection!
+  "A state watch of the AWS connector, a fresh value on every change."
+  awsConnectionStateWatch: AWSConnection!
 
   # --- Model ---
-  "GAUGE. Every model the sidecar can answer with, as the models query lists them, a fresh list each time a provider's catalog changes."
-  modelsWatch: [Model!]!
+  "A state watch of every model the sidecar can answer with, as the models query lists them, a fresh list each time a provider's catalog changes."
+  modelsStateWatch: [Model!]!
 
   # --- Provider credentials ---
-  "GAUGE. Every provider: the latest list after each change, so changes close together arrive as one."
-  providerCredentialsWatch: [ProviderCredentialState!]!
+  "A state watch of every provider: the latest list after each change, so changes close together arrive as one."
+  providerCredentialsStateWatch: [ProviderCredentialState!]!
 
   # --- Tools ---
-  "GAUGE. Every tool with its setting, as toolSettings lists them: the latest list after each change."
-  toolSettingsWatch: [ToolSetting!]!
+  "A state watch of every tool with its setting, as toolSettings lists them: the latest list after each change."
+  toolSettingsStateWatch: [ToolSetting!]!
 }

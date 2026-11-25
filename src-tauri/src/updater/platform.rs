@@ -43,7 +43,7 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R, Config> {
 
 /// Checks for an update until one is found or the app quits, and offers it in
 /// the tray. A debug build checks nothing: it is not an installed app.
-pub fn spawn_watch(app: &AppHandle, rebuild: fn(&AppHandle)) {
+pub fn spawn_update_checker(app: &AppHandle, rebuild: fn(&AppHandle)) {
     app.manage(Pending::default());
     if cfg!(debug_assertions) {
         return;

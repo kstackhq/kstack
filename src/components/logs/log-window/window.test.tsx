@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Chat, ChatMessage, ChatToolCall } from '@/lib/chats';
 import type { Cluster } from '@/lib/clusters';
-import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
+import type { SubscriptionPhase } from '@/lib/graphql/use-folded-subscription';
 import type { LogViewportHandle } from '@/lib/log-viewport';
 import type { ViewportPush } from '@/lib/log-window-push';
 import type { LogsViewAction } from '@/lib/logs-view';
@@ -38,8 +38,8 @@ vi.mock('@tauri-apps/api/core', () => coreFactory());
 // The watches, as the route reads them. A change through `publish` re-renders their
 // readers, as a frame does.
 type Watched = {
-  chats: { chats: Chat[]; phase: WatchPhase };
-  messages: { messages: ChatMessage[]; phase: WatchPhase };
+  chats: { chats: Chat[]; phase: SubscriptionPhase };
+  messages: { messages: ChatMessage[]; phase: SubscriptionPhase };
   clusters: { clusters: Cluster[] | null; connected: boolean };
 };
 const { state, listeners } = vi.hoisted(() => {

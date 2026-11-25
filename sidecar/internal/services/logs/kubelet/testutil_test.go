@@ -131,7 +131,7 @@ type fakeService struct {
 	cluster.Service
 	mu         sync.Mutex
 	lease      *fakeLease
-	frames     chan cluster.ClusterWatchFrame
+	frames     chan cluster.ClusterCollectionWatchFrame
 	watchErr   error
 	acquireErr error
 }
@@ -158,14 +158,14 @@ type fakeClusters struct {
 	f *fakeService
 }
 
-func (fc fakeClusters) Watch(ctx context.Context, _ cluster.ClusterID) (*cluster.Stream[cluster.ClusterWatchFrame], error) {
+func (fc fakeClusters) WatchCollectionByID(ctx context.Context, _ cluster.ClusterID) (*cluster.Stream[cluster.ClusterCollectionWatchFrame], error) {
 	fc.f.mu.Lock()
 	frames, err := fc.f.frames, fc.f.watchErr
 	fc.f.mu.Unlock()
 	if err != nil {
 		return nil, err
 	}
-	return cluster.NewStream(ctx, func(ctx context.Context, out chan<- cluster.ClusterWatchFrame) error {
+	return cluster.NewStream(ctx, func(ctx context.Context, out chan<- cluster.ClusterCollectionWatchFrame) error {
 		if frames == nil {
 			<-ctx.Done()
 			return nil

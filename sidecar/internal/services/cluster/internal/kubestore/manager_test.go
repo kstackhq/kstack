@@ -485,7 +485,7 @@ func TestOpenExistingCreatesNothingForACacheWithNoFile(t *testing.T) {
 	assert.Empty(t, entries, "the clear left files behind")
 }
 
-// The gauge borrows the feed of whatever is open, and borrowing must never create a file:
+// The state watch borrows the feed of whatever is open, and borrowing must never create a file:
 // that is what would resurrect a cache whose teardown deleted it.
 func TestManagerSubscribeAnswersNothingForAnUnopenedCache(t *testing.T) {
 	t.Parallel()
@@ -494,7 +494,7 @@ func TestManagerSubscribeAnswersNothingForAnUnopenedCache(t *testing.T) {
 	m := NewManager(dir, Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
 
-	_, ok := m.Subscribe(1)
+	_, ok := m.ListenForChanges(1)
 	assert.False(t, ok)
 	assert.NoFileExists(t, filepath.Join(dir, "1.db"))
 }
@@ -509,7 +509,7 @@ func TestManagerSubscribeTakesNoClaim(t *testing.T) {
 	store, err := m.OpenOrCreate(1)
 	require.NoError(t, err)
 
-	sub, ok := m.Subscribe(1)
+	sub, ok := m.ListenForChanges(1)
 	require.True(t, ok)
 	defer sub.Close()
 
@@ -518,8 +518,8 @@ func TestManagerSubscribeTakesNoClaim(t *testing.T) {
 	assert.False(t, cacheIsOpen(m, 1), "the borrowed feed held the file open")
 }
 
-// cacheIsOpen asks whether anything holds cacheID's file open, which is what Subscribe's
-// ok reports. The receiver is closed straight away: this is a question, not a watch.
+// cacheIsOpen asks whether anything holds cacheID's file open, which is what
+// ListenForChanges' ok reports. The receiver is closed straight away: this is a question, not a watch.
 // unstattableDir returns a manager directory the OS refuses to stat under, for a reason
 // that is not "missing". An embedded NUL fails in the syscall's own string conversion on
 // every platform; a path under a regular file would not, being ENOTDIR on Unix and
@@ -540,7 +540,7 @@ func closesAndFails(err error) func(*file) error {
 }
 
 func cacheIsOpen(m *Manager, cacheID int64) bool {
-	sub, ok := m.Subscribe(cacheID)
+	sub, ok := m.ListenForChanges(cacheID)
 	if ok {
 		sub.Close()
 	}
@@ -548,7 +548,7 @@ func cacheIsOpen(m *Manager, cacheID int64) bool {
 }
 
 // The counts answer for a cache nobody is syncing too: the workers are stopped while a
-// cluster is paused, and a gauge reporting no objects beside a megabyte-sized file
+// cluster is paused, and a state watch reporting no objects beside a megabyte-sized file
 // would read as data loss. Reading it opens the file read-only, so a cache that does
 // not exist stays not existing.
 func TestCountsReadsAClosedCacheWithoutOpeningItForWrites(t *testing.T) {
@@ -590,7 +590,7 @@ func TestCountsOfANeverExistingCacheIsEmpty(t *testing.T) {
 }
 
 // A count on a cache whose file is stale reads the disk at once: a read-only open
-// creates nothing, so the gauge over it keeps answering while the file waits.
+// creates nothing, so the state watch over it keeps answering while the file waits.
 func TestACountOnAStaleCacheReadsTheDisk(t *testing.T) {
 	t.Parallel()
 
@@ -630,7 +630,7 @@ func TestClearRetiresTheEntryWhenTheFileWillNotClose(t *testing.T) {
 
 	assert.ErrorIs(t, store.SetCookie(ctx, "v1", "pods", "1"), ErrClosed,
 		"a claim reached the file the clear could not close")
-	_, err = store.Subscribe()
+	_, err = store.ListenForChanges()
 	assert.ErrorIs(t, err, ErrClosed, "a subscription was handed back on a dead bus")
 	assert.False(t, cacheIsOpen(m, 1), "the retired entry is still bound")
 	assert.NoFileExists(t, m.path(1), "the failed close skipped the delete")
@@ -638,7 +638,7 @@ func TestClearRetiresTheEntryWhenTheFileWillNotClose(t *testing.T) {
 
 // A clear closes, unlinks and re-creates the file, and the fresh one has no schema until
 // its migrations run — all of it under the manager's lock. A measurement must wait that
-// out rather than read what is there mid-way: the gauge above it is subscribed by the
+// out rather than read what is there mid-way: the state watch above it is subscribed by the
 // very view holding the Clear button, and a failed read ends that subscription.
 func TestStatsWaitsOutAClear(t *testing.T) {
 	t.Parallel()
@@ -759,13 +759,13 @@ func TestOpenExistingReadsACacheNobodyHoldsOpen(t *testing.T) {
 
 // A watch can open before anything has created the cache's file, and must go live the moment
 // one does rather than waiting out a poll.
-func TestWatchOpenFiresWhenTheStoreOpens(t *testing.T) {
+func TestListenForCacheOpenChangesFiresWhenTheStoreOpens(t *testing.T) {
 	t.Parallel()
 
 	m := NewManager(t.TempDir(), Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
 
-	opened := m.WatchOpen(1)
+	opened := m.ListenForCacheOpenChanges(1)
 	defer opened.Close()
 
 	store, err := m.OpenOrCreate(1)
@@ -777,7 +777,7 @@ func TestWatchOpenFiresWhenTheStoreOpens(t *testing.T) {
 
 // The signal is for a store that was not there yet; one already open needs no wait, and
 // OpenExisting is what the caller tries first.
-func TestWatchOpenDoesNotFireForAnAlreadyOpenStore(t *testing.T) {
+func TestListenForCacheOpenChangesDoesNotFireForAnAlreadyOpenStore(t *testing.T) {
 	t.Parallel()
 
 	m := NewManager(t.TempDir(), Retention{})
@@ -787,7 +787,7 @@ func TestWatchOpenDoesNotFireForAnAlreadyOpenStore(t *testing.T) {
 	require.NoError(t, err)
 	defer store.Release()
 
-	opened := m.WatchOpen(1)
+	opened := m.ListenForCacheOpenChanges(1)
 	defer opened.Close()
 
 	// A negative assertion needs a bounded window; the signal would already be pending.
@@ -885,7 +885,7 @@ func TestOpenExistingReportsAPathItCannotStat(t *testing.T) {
 }
 
 // Stats answers a missing cache as absent, but anything else is a measurement that
-// failed — and the gauge above it must say so rather than render a zero.
+// failed — and the state watch above it must say so rather than render a zero.
 func TestStatsReportsAPathItCannotStat(t *testing.T) {
 	t.Parallel()
 
@@ -1093,7 +1093,7 @@ func TestOpenReportsAReadStatementItCannotPrepare(t *testing.T) {
 	assert.ErrorContains(t, err, "kind_counts")
 }
 
-// statDiskUsage is the one measurement both callers share: the gauge through Stats, and
+// statDiskUsage is the one measurement both callers share: the state watch through Stats, and
 // the janitor's size check. Its error return is what keeps "not cached" and "cannot read
 // this file" apart — collapsing them would report a full cache as absent.
 func TestStatDiskUsageMeasuresTheThreeFiles(t *testing.T) {
@@ -1129,7 +1129,7 @@ func TestStatDiskUsageReportsAMissingFile(t *testing.T) {
 	assert.True(t, os.IsNotExist(err), "got %v", err)
 }
 
-// The gauge reports the janitor's verdict rather than recomputing one. A sweep checkpoints
+// The state watch reports the janitor's verdict rather than recomputing one. A sweep checkpoints
 // a WAL-heavy file before deciding and a bare measurement does not, so two verdicts would
 // disagree mid-checkpoint — and the pause hangs off this one.
 func TestStatsReportsTheJanitorsVerdict(t *testing.T) {

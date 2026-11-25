@@ -15,15 +15,17 @@
 // One cluster's live diagnostics, each a stream the Clusters dialog and the status popover
 // read: the cache's contents, the next connection check, and the connection's data rate.
 import { graphql } from '@/gql';
-import { perFrame, seriesReducer, useWatchSubscription } from '@/lib/graphql/use-watch-subscription';
-import type { SeriesFrame } from '@/lib/graphql/use-watch-subscription';
+import { stateWatchReducer } from '@/lib/graphql/state-watch';
+import { timeSeriesFeedReducer } from '@/lib/graphql/time-series-feed';
+import type { TimeSeriesFeedFrame } from '@/lib/graphql/time-series-feed';
+import { perFrame, useFoldedSubscription } from '@/lib/graphql/use-folded-subscription';
 
-// The cache's contents as a live gauge. NOT read off the ClusterCache record: that
+// The cache's contents as a state watch. NOT read off the ClusterCache record: that
 // object stops changing once its sync settles, so a field there would freeze at
 // subscribe time.
-const ClusterCacheStatsSubscription = graphql(`
-  subscription ClusterCacheStats($id: ClusterID!, $cacheID: ObjectID!) {
-    clusterCacheStatsWatch(id: $id, cacheID: $cacheID) {
+const ClusterCacheStatsStateWatchDocument = graphql(`
+  subscription ClusterCacheStatsStateWatch($id: ClusterID!, $cacheID: ObjectID!) {
+    clusterCacheStatsStateWatch(id: $id, cacheID: $cacheID) {
       exists
       bytes
       dbBytes
@@ -45,11 +47,15 @@ export type CacheContents = {
   kindCount: number;
 };
 
-// A gauge: each frame replaces the last outright. null until the first frame.
-export function useCacheContents(clusterId: string, cacheId: string, pause: boolean): CacheContents | null {
-  const { data } = useWatchSubscription<{ clusterCacheStatsWatch: CacheContents }, CacheContents>(
-    { query: ClusterCacheStatsSubscription, variables: { id: clusterId, cacheID: cacheId }, pause },
-    perFrame((_prev, resp) => resp.clusterCacheStatsWatch),
+// A state watch: each frame replaces the last outright. null until the first frame.
+export function useClusterCacheStatsStateWatch(
+  clusterId: string,
+  cacheId: string,
+  pause: boolean,
+): CacheContents | null {
+  const { data } = useFoldedSubscription<{ clusterCacheStatsStateWatch: CacheContents }, CacheContents>(
+    { query: ClusterCacheStatsStateWatchDocument, variables: { id: clusterId, cacheID: cacheId }, pause },
+    stateWatchReducer((resp) => resp.clusterCacheStatsStateWatch),
   );
   return data ?? null;
 }
@@ -57,9 +63,9 @@ export function useCacheContents(clusterId: string, cacheId: string, pause: bool
 // Next-reconcile time, streamed per-cluster (a scheduling change fires no list
 // watch — the only way the countdown stays live for an idle disconnected cluster).
 // Subscribed only while a row's diagnostics are open.
-const ClusterScheduleSubscription = graphql(`
-  subscription ClusterSchedule($id: ClusterID!) {
-    clusterScheduleWatch(id: $id) {
+const ClusterScheduleStateWatchDocument = graphql(`
+  subscription ClusterScheduleStateWatch($id: ClusterID!) {
+    clusterScheduleStateWatch(id: $id) {
       nextRequeueAt
       probing
       failures
@@ -70,17 +76,17 @@ const ClusterScheduleSubscription = graphql(`
 // `failures` counts the connection attempts in a row that have failed.
 export type NextCheckState = { atMs: number | null; probing: boolean; failures: number };
 
-export function useNextCheck(clusterId: string): NextCheckState {
+export function useClusterScheduleStateWatch(clusterId: string): NextCheckState {
   // Null `nextRequeueAt` = reconcile in flight (`probing`) or nothing scheduled.
   // Hold the last time only across the in-flight window; with `probing` false a
   // null must clear the countdown, not freeze a stale one.
-  const { data } = useWatchSubscription<
-    { clusterScheduleWatch: { nextRequeueAt: string | null; probing: boolean; failures: number } },
+  const { data } = useFoldedSubscription<
+    { clusterScheduleStateWatch: { nextRequeueAt: string | null; probing: boolean; failures: number } },
     { nextRequeueAt: string | null; probing: boolean; failures: number }
   >(
-    { query: ClusterScheduleSubscription, variables: { id: clusterId } },
+    { query: ClusterScheduleStateWatchDocument, variables: { id: clusterId } },
     perFrame((prev, resp) => {
-      const { nextRequeueAt, probing, failures } = resp.clusterScheduleWatch;
+      const { nextRequeueAt, probing, failures } = resp.clusterScheduleStateWatch;
       return {
         nextRequeueAt: nextRequeueAt ?? (probing ? (prev?.nextRequeueAt ?? null) : null),
         probing,
@@ -95,12 +101,12 @@ export function useNextCheck(clusterId: string): NextCheckState {
   };
 }
 
-// The connection's data rate as a series: the sidecar's window first, then each new sample.
+// The connection's data rate as a time series feed: the sidecar's window first, then each new sample.
 // Unshared: a view mounting into a running shared stream would never see the window. Paused
 // for a disabled cluster, which the sidecar refuses rather than reads as idle.
-const ClusterDataRateSubscription = graphql(`
-  subscription ClusterDataRate($id: ClusterID!) {
-    clusterDataRateWatch(id: $id) {
+const ClusterDataRateTimeSeriesFeedDocument = graphql(`
+  subscription ClusterDataRateTimeSeriesFeed($id: ClusterID!) {
+    clusterDataRateTimeSeriesFeed(id: $id) {
       intervalSeconds
       windowSeconds
       samples {
@@ -113,13 +119,13 @@ const ClusterDataRateSubscription = graphql(`
 `);
 
 type DataRateSample = { at: string; receivedBytesPerSecond: number; sentBytesPerSecond: number };
-type DataRateSeries = SeriesFrame<DataRateSample>;
+type DataRateSeries = TimeSeriesFeedFrame<DataRateSample>;
 
 // Null until the window arrives.
-export function useDataRate(clusterId: string, pause: boolean): DataRateSeries | null {
-  const { data } = useWatchSubscription<{ clusterDataRateWatch: DataRateSeries }, DataRateSeries>(
-    { query: ClusterDataRateSubscription, variables: { id: clusterId }, pause },
-    seriesReducer((resp) => resp.clusterDataRateWatch),
+export function useClusterDataRateTimeSeriesFeed(clusterId: string, pause: boolean): DataRateSeries | null {
+  const { data } = useFoldedSubscription<{ clusterDataRateTimeSeriesFeed: DataRateSeries }, DataRateSeries>(
+    { query: ClusterDataRateTimeSeriesFeedDocument, variables: { id: clusterId }, pause },
+    timeSeriesFeedReducer((resp) => resp.clusterDataRateTimeSeriesFeed),
     { unshared: true },
   );
   return data ?? null;

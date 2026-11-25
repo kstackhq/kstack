@@ -127,7 +127,7 @@ func (f *fakeKubeconfig) RESTConfig(contextName string) (*rest.Config, string, e
 	return &rest.Config{Host: f.host, TLSClientConfig: f.tls}, key, nil
 }
 
-func (f *fakeKubeconfig) Subscribe() kubeconfig.Subscription {
+func (f *fakeKubeconfig) WatchConfigState() kubeconfig.ConfigStateWatch {
 	if f.hub == nil {
 		f.hub = watch.New[*api.Config](nil)
 	}
@@ -170,14 +170,14 @@ func settled(t *testing.T, s *Service, contextName string) {
 
 // awaitState receives one claim's states until cond holds. The hub keeps only the latest value,
 // so frames in between may be skipped — cond must be a level, never an edge.
-func awaitState(t *testing.T, sub StateSubscription, cond func(State) bool) State {
+func awaitState(t *testing.T, sub *StateWatch, cond func(State) bool) State {
 	t.Helper()
 	ctx := within(t)
 	for {
-		ev, err := sub.RecvContext(ctx)
+		st, err := sub.RecvContext(ctx)
 		require.NoError(t, err, "state frame")
-		if cond(ev.Value) {
-			return ev.Value
+		if cond(st) {
+			return st
 		}
 	}
 }
@@ -486,12 +486,12 @@ func TestDepartureReachesTheHolder(t *testing.T) {
 	defer lease.Release()
 	require.Equal(t, "prod", cfg.reads.Await(t, "the claim's own read"))
 	settled(t, s, "prod")
-	news := s.Subscribe()
+	news := s.ListenForConnectionChanges()
 	defer news.Close()
 	// `settled` returns once the first verdict is recorded, a step before its signal is sent.
 	// That signal, read below, would pass for the departure — and read that early, the state
 	// it asserts on is one the departure has not reached yet.
-	settleNews(t, news)
+	settleNotifications(t, news)
 
 	cfg.rotate("prod", "")
 	cfg.changed()
@@ -537,12 +537,12 @@ func TestDepartureIsAnnouncedOnce(t *testing.T) {
 	defer lease.Release()
 	cfg.reads.Await(t, "the claim's own read")
 	settled(t, s, "prod")
-	news := s.Subscribe()
+	news := s.ListenForConnectionChanges()
 	defer news.Close()
 	// The baseline: `settled` returns once the first verdict is recorded, a step before its
 	// signal is sent. That signal, read below, would pass for the departure, and the
 	// departure's own signal for a second announcement.
-	settleNews(t, news)
+	settleNotifications(t, news)
 
 	cfg.rotate("prod", "")
 	cfg.changed()
@@ -711,12 +711,14 @@ func TestWatchStateIsKeyedByContext(t *testing.T) {
 	defer lease.Release()
 	sub := lease.WatchState()
 	defer sub.Close()
+	_, err := sub.RecvContext(within(t))
+	require.NoError(t, err, "the state on attach")
 
 	s.stateHub.Sender().Send("prod", State{ServerUID: Observation[string]{Value: "uid-1", LastSeenAt: runAt}})
 
-	ev, err := sub.RecvContext(within(t))
+	st, err := sub.RecvContext(within(t))
 	require.NoError(t, err)
-	assert.Equal(t, "uid-1", ev.Value.ServerUID.Value)
+	assert.Equal(t, "uid-1", st.ServerUID.Value)
 }
 
 // A state receiver is the caller's, not the claim's: releasing does not close it, which is why
@@ -729,13 +731,15 @@ func TestReleaseDoesNotCloseAStateWatcher(t *testing.T) {
 	lease := s.Acquire("prod")
 	watched := lease.WatchState()
 	defer watched.Close()
+	_, err := watched.RecvContext(within(t))
+	require.NoError(t, err, "the state on attach")
 
 	lease.Release()
 	s.stateHub.Sender().Send("prod", State{ServerUID: Observation[string]{Value: "uid-1", LastSeenAt: runAt}})
 
-	ev, err := watched.RecvContext(within(t))
-	require.NoError(t, err, "the receiver is still live, and still the caller's to close")
-	assert.Equal(t, "uid-1", ev.Value.ServerUID.Value)
+	st, err := watched.RecvContext(within(t))
+	require.NoError(t, err, "the watch is still live, and still the caller's to close")
+	assert.Equal(t, "uid-1", st.ServerUID.Value)
 }
 
 // The subscriptions are taken before Start returns, so a config sent straight after it is read
@@ -794,7 +798,7 @@ func TestTheKubeconfigWatchEndsWhenItsFeedCloses(t *testing.T) {
 
 	cfg := resolving("prod", "key-1")
 	s := New(cfg)
-	cfgs := cfg.Subscribe()
+	cfgs := cfg.WatchConfigState()
 	cfgs.Close()
 
 	testutil.WaitReturn(t, func() { s.watchKubeconfig(context.Background(), cfgs) }, "the watch to end")
@@ -1075,7 +1079,7 @@ func TestRetryAndWaitReturnsOnARunItAskedFor(t *testing.T) {
 
 // awaitIdentified drains the claim's states until the UID probe has answered, which is what
 // stamps the connection.
-func awaitIdentified(t *testing.T, watched StateSubscription) {
+func awaitIdentified(t *testing.T, watched *StateWatch) {
 	t.Helper()
 	awaitState(t, watched, func(st State) bool { return st.ServerUID.Known() })
 }
@@ -1200,14 +1204,14 @@ func TestConnForRefusesAConnectionWhoseServerWasReplaced(t *testing.T) {
 // quiesce drains the fleet feed until it stops producing, so a test asserting one signal is
 // not handed a leftover from the fleet coming up. A bounded window because "nothing more" has
 // no event to wait for; the feed coalesces, so what is pending is at most one per landed pass.
-// settleNews drains the signals a startup still has in flight, **without touching the
+// settleNotifications drains the signals a startup still has in flight, **without touching the
 // receiver's channel**: Chan starts a feeder goroutine that owns every later event, so a
 // receiver drained that way stops answering RecvContext. quiesce below is the same wait
 // for a test that reads through Chan throughout.
 //
 // A bounded quiet window, not a wait for an event: what it waits for is the absence of
 // further signals, which has nothing to fire.
-func settleNews(t *testing.T, news Subscription) {
+func settleNotifications(t *testing.T, news ConnectionChangeNotifications) {
 	t.Helper()
 	for {
 		// Drain what is pending, then give the window one whole wait rather than polling
@@ -1226,7 +1230,7 @@ func settleNews(t *testing.T, news Subscription) {
 	}
 }
 
-func quiesce(t *testing.T, moved Subscription) {
+func quiesce(t *testing.T, moved ConnectionChangeNotifications) {
 	t.Helper()
 	for {
 		select {
@@ -1250,7 +1254,7 @@ func TestRotationSignalsTheFleet(t *testing.T) {
 	cfg := serving(cs.Server, "prod", "key-1")
 	s := New(cfg)
 	startService(t, s)
-	moved := s.Subscribe()
+	moved := s.ListenForConnectionChanges()
 	defer moved.Close()
 	lease := s.Acquire("prod")
 	defer lease.Release()

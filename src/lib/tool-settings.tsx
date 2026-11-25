@@ -13,19 +13,20 @@
 // limitations under the License.
 
 // The tools a chat can be offered on this machine and the user's setting of
-// each: the one reader of the watch and the mutation. The watch is a gauge, so
+// each: the one reader of the state watch and the mutation, so
 // a change made in another window arrives here too.
 import { useCallback, useState } from 'react';
 import { useMutation } from 'urql';
 
 import { graphql } from '@/gql';
-import type { ToolSettingsWatchSubscription } from '@/gql/graphql';
+import type { ToolSettingsStateWatchSubscription } from '@/gql/graphql';
 import { refusalOf } from '@/lib/graphql/refusal';
-import { perFrame, useWatchSubscription } from '@/lib/graphql/use-watch-subscription';
+import { stateWatchReducer } from '@/lib/graphql/state-watch';
+import { useFoldedSubscription } from '@/lib/graphql/use-folded-subscription';
 
-const ToolSettingsWatchDocument = graphql(`
-  subscription ToolSettingsWatch {
-    toolSettingsWatch {
+const ToolSettingsStateWatchDocument = graphql(`
+  subscription ToolSettingsStateWatch {
+    toolSettingsStateWatch {
       name
       label
       group
@@ -45,7 +46,7 @@ const ToolSettingSetMutation = graphql(`
   }
 `);
 
-export type ToolSetting = ToolSettingsWatchSubscription['toolSettingsWatch'][number];
+export type ToolSetting = ToolSettingsStateWatchSubscription['toolSettingsStateWatch'][number];
 
 export type ToolSettings = {
   /** Undefined until the watch's first frame lands. */
@@ -59,9 +60,9 @@ export type ToolSettings = {
 
 export function useToolSettings(): ToolSettings {
   // Unshared: the dialog mounts late into any other window's stream.
-  const { data } = useWatchSubscription<ToolSettingsWatchSubscription, ToolSetting[]>(
-    { query: ToolSettingsWatchDocument },
-    perFrame((_prev, next) => next.toolSettingsWatch),
+  const { data } = useFoldedSubscription<ToolSettingsStateWatchSubscription, ToolSetting[]>(
+    { query: ToolSettingsStateWatchDocument },
+    stateWatchReducer((next) => next.toolSettingsStateWatch),
     { unshared: true },
   );
   const [, setMutation] = useMutation(ToolSettingSetMutation);

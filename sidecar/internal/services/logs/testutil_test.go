@@ -53,7 +53,7 @@ import (
 // AcquireConnection hands out. Every method it
 // does not set panics on the nil embedded service. Each call answers its error
 // when one is set, and Health and Query answer no cache when told so. A test that
-// changes a field while a follow runs does so through set.
+// changes a field while a tail runs does so through set.
 type fakeService struct {
 	cluster.Service
 	mu     sync.Mutex
@@ -63,20 +63,20 @@ type fakeService struct {
 	lease  *fakeLease
 	// frames is what the record's watch sends, the watch failing once it is closed;
 	// nil sends nothing.
-	frames chan cluster.ClusterWatchFrame
+	frames chan cluster.ClusterCollectionWatchFrame
 	// pods is what the pods watch sends; closing it ends the watch with podsErr.
-	pods    chan cluster.ClusterCachedDataObjectWatchFrame
+	pods    chan cluster.ClusterCachedDataObjectCollectionWatchFrame
 	podsErr error
 	// podNamespaces is what the pods watch was narrowed to.
 	podNamespaces []string
 	// podsDone closes once the pods watch's context has ended.
 	podsDone chan struct{}
 	// nodes is what the nodes watch sends; closing it ends the watch with nodesErr.
-	nodes    chan cluster.ClusterCachedDataObjectWatchFrame
+	nodes    chan cluster.ClusterCachedDataObjectCollectionWatchFrame
 	nodesErr error
 	// workloads is what each other kind's watch sends, by its resource, made on
 	// first use; closing one ends that watch with workloadsErr.
-	workloads    map[string]chan cluster.ClusterCachedDataObjectWatchFrame
+	workloads    map[string]chan cluster.ClusterCachedDataObjectCollectionWatchFrame
 	workloadsErr error
 
 	acquireErr, watchErr, watchObjectsErr, readActiveErr, healthErr, queryErr error
@@ -106,18 +106,18 @@ type fakeService struct {
 }
 
 // workload is the channel the watch of resource sends from.
-func (f *fakeService) workload(resource string) chan cluster.ClusterCachedDataObjectWatchFrame {
+func (f *fakeService) workload(resource string) chan cluster.ClusterCachedDataObjectCollectionWatchFrame {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.workloadLocked(resource)
 }
 
-func (f *fakeService) workloadLocked(resource string) chan cluster.ClusterCachedDataObjectWatchFrame {
+func (f *fakeService) workloadLocked(resource string) chan cluster.ClusterCachedDataObjectCollectionWatchFrame {
 	if f.workloads == nil {
-		f.workloads = map[string]chan cluster.ClusterCachedDataObjectWatchFrame{}
+		f.workloads = map[string]chan cluster.ClusterCachedDataObjectCollectionWatchFrame{}
 	}
 	if f.workloads[resource] == nil {
-		f.workloads[resource] = make(chan cluster.ClusterCachedDataObjectWatchFrame)
+		f.workloads[resource] = make(chan cluster.ClusterCachedDataObjectCollectionWatchFrame)
 	}
 	return f.workloads[resource]
 }
@@ -239,16 +239,16 @@ func (fc fakeCachedData) ReadActive(ctx context.Context, id cluster.ClusterID, m
 	return cluster.ReadActiveCache(ctx, fc.f, id, maxRows, maxBytes, read)
 }
 
-func (fc fakeCachedData) WatchObjectsIn(ctx context.Context, id cluster.ClusterID, cacheID cluster.ClusterCacheID, apiVersion, resource string, namespaces []string) (*cluster.Stream[cluster.ClusterCachedDataObjectWatchFrame], error) {
+func (fc fakeCachedData) WatchObjectCollectionByNamespaces(ctx context.Context, id cluster.ClusterID, cacheID cluster.ClusterCacheID, apiVersion, resource string, namespaces []string) (*cluster.Stream[cluster.ClusterCachedDataObjectCollectionWatchFrame], error) {
 	if resource == "pods" {
 		fc.f.mu.Lock()
 		fc.f.podNamespaces = namespaces
 		fc.f.mu.Unlock()
 	}
-	return fc.WatchObjects(ctx, id, cacheID, apiVersion, resource)
+	return fc.WatchObjectCollection(ctx, id, cacheID, apiVersion, resource)
 }
 
-func (fc fakeCachedData) WatchObjects(ctx context.Context, _ cluster.ClusterID, _ cluster.ClusterCacheID, _, resource string) (*cluster.Stream[cluster.ClusterCachedDataObjectWatchFrame], error) {
+func (fc fakeCachedData) WatchObjectCollection(ctx context.Context, _ cluster.ClusterID, _ cluster.ClusterCacheID, _, resource string) (*cluster.Stream[cluster.ClusterCachedDataObjectCollectionWatchFrame], error) {
 	fc.f.mu.Lock()
 	watchErr, frames, framesErr, podsDone := fc.f.watchObjectsErr, fc.f.pods, fc.f.podsErr, fc.f.podsDone
 	switch resource {
@@ -265,7 +265,7 @@ func (fc fakeCachedData) WatchObjects(ctx context.Context, _ cluster.ClusterID, 
 	if podsDone != nil {
 		context.AfterFunc(ctx, func() { close(podsDone) })
 	}
-	return cluster.NewStream(ctx, func(ctx context.Context, out chan<- cluster.ClusterCachedDataObjectWatchFrame) error {
+	return cluster.NewStream(ctx, func(ctx context.Context, out chan<- cluster.ClusterCachedDataObjectCollectionWatchFrame) error {
 		for {
 			select {
 			case frame, ok := <-frames:
@@ -295,14 +295,14 @@ func (fc fakeClusters) ReadActive(ctx context.Context, _ cluster.ClusterID, read
 	return read(ctx, active)
 }
 
-func (fc fakeClusters) Watch(ctx context.Context, _ cluster.ClusterID) (*cluster.Stream[cluster.ClusterWatchFrame], error) {
+func (fc fakeClusters) WatchCollectionByID(ctx context.Context, _ cluster.ClusterID) (*cluster.Stream[cluster.ClusterCollectionWatchFrame], error) {
 	fc.f.mu.Lock()
 	frames, err := fc.f.frames, fc.f.watchErr
 	fc.f.mu.Unlock()
 	if err != nil {
 		return nil, err
 	}
-	return cluster.NewStream(ctx, func(ctx context.Context, out chan<- cluster.ClusterWatchFrame) error {
+	return cluster.NewStream(ctx, func(ctx context.Context, out chan<- cluster.ClusterCollectionWatchFrame) error {
 		if frames == nil {
 			<-ctx.Done()
 			return nil
@@ -364,8 +364,8 @@ func newMirror(t testing.TB, objects ...map[string]any) *fakeService {
 		active: cluster.ActiveCluster{Cluster: &cluster.Cluster{}, Cache: &cluster.ClusterCache{RecordMeta: cluster.RecordMeta{ID: 11}, Spec: cluster.ClusterCacheSpec{ServerUID: "uid-1"}}},
 		health: cluster.ClusterCacheHealth{Reason: "Watching"},
 		store:  clustertest.NewStore(t),
-		pods:   make(chan cluster.ClusterCachedDataObjectWatchFrame),
-		nodes:  make(chan cluster.ClusterCachedDataObjectWatchFrame),
+		pods:   make(chan cluster.ClusterCachedDataObjectCollectionWatchFrame),
+		nodes:  make(chan cluster.ClusterCachedDataObjectCollectionWatchFrame),
 	}
 	for _, o := range objects {
 		f.store.Apply(t, o)
@@ -587,22 +587,22 @@ func waiting(body map[string]any) map[string]any {
 
 // podFrame is a pods watch frame of the pod name in prod, and uidFrame one of
 // the pod of that UID.
-func podFrame(typ cluster.DeltaFrameType, name string) cluster.ClusterCachedDataObjectWatchFrame {
+func podFrame(typ cluster.CollectionWatchFrameType, name string) cluster.ClusterCachedDataObjectCollectionWatchFrame {
 	return uidFrame(typ, name, "")
 }
 
-func uidFrame(typ cluster.DeltaFrameType, name, uid string) cluster.ClusterCachedDataObjectWatchFrame {
-	return cluster.ClusterCachedDataObjectWatchFrame{Type: typ, Object: &cluster.ClusterCachedDataObject{UID: uid, APIVersion: "v1", Kind: "Pod", Namespace: "prod", Name: name}}
+func uidFrame(typ cluster.CollectionWatchFrameType, name, uid string) cluster.ClusterCachedDataObjectCollectionWatchFrame {
+	return cluster.ClusterCachedDataObjectCollectionWatchFrame{Type: typ, Object: &cluster.ClusterCachedDataObject{UID: uid, APIVersion: "v1", Kind: "Pod", Namespace: "prod", Name: name}}
 }
 
 // nodeFrame is a nodes watch frame carrying body, a node.
-func nodeFrame(typ cluster.DeltaFrameType, body map[string]any) cluster.ClusterCachedDataObjectWatchFrame {
+func nodeFrame(typ cluster.CollectionWatchFrameType, body map[string]any) cluster.ClusterCachedDataObjectCollectionWatchFrame {
 	raw, err := json.Marshal(body)
 	if err != nil {
 		panic(err)
 	}
 	name := body["metadata"].(map[string]any)["name"].(string)
-	return cluster.ClusterCachedDataObjectWatchFrame{Type: typ, Object: &cluster.ClusterCachedDataObject{
+	return cluster.ClusterCachedDataObjectCollectionWatchFrame{Type: typ, Object: &cluster.ClusterCachedDataObject{
 		APIVersion: "v1", Kind: "Node", Name: name, RawJSON: rawjson.RawJSON(raw),
 	}}
 }
@@ -698,7 +698,7 @@ func nth(pod, container string, d time.Duration, ordinal int, msg string) loglin
 
 // testRetention is the production setting with no janitor, which a test about
 // anything else opens its log files with: no grace, so a tailer ends as its last
-// follow lets go, and a writer that writes within milliseconds.
+// tail lets go, and a writer that writes within milliseconds.
 var testRetention = func() logstore.Retention {
 	r := logstore.DefaultRetention
 	r.Interval, r.TailGrace, r.WriteTick, r.WriteWait = 0, 0, 5*time.Millisecond, 5*time.Millisecond
@@ -706,7 +706,7 @@ var testRetention = func() logstore.Retention {
 }()
 
 // serviceOver is the service over f's mirror and the API server h, on a clock
-// reading 11:00, its follows resolving at once and retrying within milliseconds
+// reading 11:00, its tails resolving at once and retrying within milliseconds
 // however often a stream drops.
 func serviceOver(t testing.TB, f *fakeService, h http.Handler) (*Service, *fakeService) {
 	t.Helper()
@@ -922,7 +922,7 @@ func seed(t *testing.T, svc *Service, f *fakeService, row logstore.Stream, fills
 	return seedStamped(t, svc, f, row, true, fills...)
 }
 
-// seedUnread is seed with its chunks left unstamped, as a follow's fill leaves them.
+// seedUnread is seed with its chunks left unstamped, as a tail's fill leaves them.
 func seedUnread(t *testing.T, svc *Service, f *fakeService, row logstore.Stream, fills ...logstore.Fill) int64 {
 	t.Helper()
 	return seedStamped(t, svc, f, row, false, fills...)
@@ -1006,10 +1006,10 @@ func newLogServer() *logstest.Server {
 	return s
 }
 
-// startAt is the start cursor of a follow of scope from the moment d past 10:00.
+// startAt is the start cursor of a tail of scope from the moment d past 10:00.
 func startAt(t *testing.T, scope Scope, d time.Duration) pageCursor {
 	t.Helper()
-	c, err := followStart(FollowRequest{Scope: scope, Since: moment(d)}, at(time.Hour))
+	c, err := tailStartCursor(TailRequest{Scope: scope, Since: moment(d)}, at(time.Hour))
 	require.NoError(t, err)
 	return c
 }

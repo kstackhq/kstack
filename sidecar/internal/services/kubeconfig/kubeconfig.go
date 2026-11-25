@@ -36,9 +36,9 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/poke"
 )
 
-// Subscription is current-on-subscribe and delivers each reload after that.
+// ConfigStateWatch is current-on-subscribe and delivers each reload after that.
 // Cancel it through its own Close.
-type Subscription = *watch.Receiver[*api.Config]
+type ConfigStateWatch = *watch.Receiver[*api.Config]
 
 // defaultPollInterval is the backstop, not the latency budget: notifications carry
 // the ordinary case, so this only has to cover what they cannot see — a directory
@@ -134,8 +134,8 @@ func (s *Service) Get() (*api.Config, bool) {
 	return s.current, s.read
 }
 
-// Subscribe returns a handle carrying the current config, then each reload.
-func (s *Service) Subscribe() Subscription {
+// WatchConfigState returns a handle carrying the current config, then each reload.
+func (s *Service) WatchConfigState() ConfigStateWatch {
 	return s.hub.Receiver()
 }
 
@@ -156,10 +156,10 @@ func (s *Service) Start(context.Context) (func(context.Context) error, error) {
 
 	// Subscribed before the first read for the same reason the watch is: a poke in the
 	// gap would otherwise wake nothing.
-	var pokes <-chan poke.Signal
+	var pokes <-chan poke.Notification
 	cancelPokes := func() {}
 	if s.pokeSvc != nil {
-		pokes, cancelPokes = s.pokeSvc.Subscribe()
+		pokes, cancelPokes = s.pokeSvc.ListenForNotifications()
 	}
 
 	s.poll()
@@ -236,7 +236,7 @@ func (s *Service) Start(context.Context) (func(context.Context) error, error) {
 	}, nil
 }
 
-// Close ends every outstanding Subscription. Separate from the stop func, and after
+// Close ends every outstanding ConfigStateWatch. Separate from the stop func, and after
 // it: subscribers must keep reading until the poll loop is joined, or a reload in
 // flight is lost rather than delivered.
 func (s *Service) Close() error {

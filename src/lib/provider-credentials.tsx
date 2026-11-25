@@ -19,12 +19,14 @@ import { useCallback, useMemo } from 'react';
 import { type CombinedError, useClient } from 'urql';
 
 import { graphql } from '@/gql';
-import type { ProviderCredentialSource, ProviderCredentialsWatchSubscription } from '@/gql/graphql';
-import { perFrame, useWatchSubscription } from '@/lib/graphql/use-watch-subscription';
+import type { ProviderCredentialSource, ProviderCredentialsStateWatchSubscription } from '@/gql/graphql';
+import { stateWatchReducer } from '@/lib/graphql/state-watch';
+import { useFoldedSubscription } from '@/lib/graphql/use-folded-subscription';
 
 export type { ProviderCredentialSource };
 
-export type ProviderCredentialState = ProviderCredentialsWatchSubscription['providerCredentialsWatch'][number];
+export type ProviderCredentialState =
+  ProviderCredentialsStateWatchSubscription['providerCredentialsStateWatch'][number];
 
 /** A save's outcome: the sidecar's refusal by its code, or any other failure. */
 export type SaveKeyResult = 'saved' | 'bad-key' | 'not-saved' | 'failed';
@@ -32,15 +34,15 @@ export type SaveKeyResult = 'saved' | 'bad-key' | 'not-saved' | 'failed';
 export type ProviderCredentials = {
   credentials: ProviderCredentialState[];
   // The watch's first frame has landed; nothing draws before it.
-  loaded: boolean;
+  snapshotComplete: boolean;
   saveKey: (providerID: string, key: string) => Promise<SaveKeyResult>;
   // True once the saved key is gone.
   deleteKey: (providerID: string) => Promise<boolean>;
 };
 
-const ProviderCredentialsWatchDocument = graphql(`
-  subscription ProviderCredentialsWatch {
-    providerCredentialsWatch {
+const ProviderCredentialsStateWatchDocument = graphql(`
+  subscription ProviderCredentialsStateWatch {
+    providerCredentialsStateWatch {
       id
       label
       keyVariable
@@ -67,9 +69,9 @@ const ProviderKeyDeleteDocument = graphql(`
 const NO_CREDENTIALS: ProviderCredentialState[] = [];
 
 export function useProviderCredentials(): ProviderCredentials {
-  const { data } = useWatchSubscription<ProviderCredentialsWatchSubscription, ProviderCredentialState[]>(
-    { query: ProviderCredentialsWatchDocument },
-    perFrame((_prev, next) => next.providerCredentialsWatch),
+  const { data } = useFoldedSubscription<ProviderCredentialsStateWatchSubscription, ProviderCredentialState[]>(
+    { query: ProviderCredentialsStateWatchDocument },
+    stateWatchReducer((next) => next.providerCredentialsStateWatch),
     { unshared: true },
   );
   const client = useClient();
@@ -97,7 +99,7 @@ export function useProviderCredentials(): ProviderCredentials {
     [client],
   );
   return useMemo(
-    () => ({ credentials: data ?? NO_CREDENTIALS, loaded: data !== undefined, saveKey, deleteKey }),
+    () => ({ credentials: data ?? NO_CREDENTIALS, snapshotComplete: data !== undefined, saveKey, deleteKey }),
     [data, saveKey, deleteKey],
   );
 }

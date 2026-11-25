@@ -117,10 +117,10 @@ func TestAnAlwaysOnToolStaysOn(t *testing.T) {
 	assert.Equal(t, []Setting{{bash, true}, {stop, true}}, list(t, s))
 }
 
-func TestSubscribeIsAGauge(t *testing.T) {
+func TestWatchSettingsStateSendsTheWholeValue(t *testing.T) {
 	t.Parallel()
 	s := newService(t, appdbtest.Open(t))
-	frames, cancel := s.Subscribe()
+	frames, cancel := s.WatchSettingsState()
 	defer cancel()
 	assert.Equal(t, []Setting{{bash, true}, {fetch, true}}, testutil.Recv(t, frames, "the current list"))
 	require.NoError(t, s.Set(t.Context(), "WebFetch", false))
@@ -132,7 +132,7 @@ func TestSubscribeIsAGauge(t *testing.T) {
 func TestSetPublishesWithoutRereading(t *testing.T) {
 	t.Parallel()
 	s := newService(t, appdbtest.Open(t))
-	frames, cancel := s.Subscribe()
+	frames, cancel := s.WatchSettingsState()
 	defer cancel()
 	before := testutil.Recv(t, frames, "the current list")
 

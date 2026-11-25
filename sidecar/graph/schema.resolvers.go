@@ -962,187 +962,187 @@ func (r *queryResolver) GoogleConnection(ctx context.Context) (*connectors.State
 	return &st, nil
 }
 
-// EventsWatch is the resolver for the eventsWatch field — the live event tail for any
+// ObjectEventFeed is the resolver for the objectEventFeed field — the live event feed of any
 // record with a timeline, decoupled from that record's own watch.
-func (r *subscriptionResolver) EventsWatch(ctx context.Context, id apimeta.ObjectID, category *string) (<-chan *cluster.EventWatchFrame, error) {
-	st, err := r.ClusterSvc.WatchEvents(ctx, id, category)
+func (r *subscriptionResolver) ObjectEventFeed(ctx context.Context, id apimeta.ObjectID, category *string) (<-chan *cluster.EventFeedFrame, error) {
+	st, err := r.ClusterSvc.SubscribeObjectEventFeed(ctx, id, category)
 	if err != nil {
 		return nil, err
 	}
-	return watchStream(ctx, st.Frames, st.Err), nil
+	return subscriptionStream(ctx, st.Frames, st.Err), nil
 }
 
-// ClustersWatch is the resolver for the clustersWatch field — the cluster list as
-// a delta watch (Added snapshot, then per-cluster Added/Modified/Deleted). Cache
-// sync status rides clusterCachesWatch, joined client-side.
-func (r *subscriptionResolver) ClustersWatch(ctx context.Context) (<-chan *cluster.ClusterWatchFrame, error) {
-	st, err := r.ClusterSvc.Clusters().WatchList(ctx)
+// ClusterCollectionWatch is the resolver for the clusterCollectionWatch field — the cluster list as
+// a collection watch (Added snapshot, then per-cluster Added/Modified/Deleted). Cache
+// sync status rides clusterCacheCollectionWatch, joined client-side.
+func (r *subscriptionResolver) ClusterCollectionWatch(ctx context.Context) (<-chan *cluster.ClusterCollectionWatchFrame, error) {
+	st, err := r.ClusterSvc.Clusters().WatchCollection(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return watchStream(ctx, st.Frames, st.Err), nil
+	return subscriptionStream(ctx, st.Frames, st.Err), nil
 }
 
-// ClusterEventsWatch is the resolver for the clusterEventsWatch field — the cluster's
-// own event tail, the same shape as EventsWatch under the cluster's id.
-func (r *subscriptionResolver) ClusterEventsWatch(ctx context.Context, id apimeta.ClusterID, category *string) (<-chan *cluster.EventWatchFrame, error) {
-	st, err := r.ClusterSvc.Clusters().WatchEvents(ctx, id, category)
+// ClusterEventFeed is the resolver for the clusterEventFeed field — the cluster's
+// own event feed, the same shape as ObjectEventFeed under the cluster's id.
+func (r *subscriptionResolver) ClusterEventFeed(ctx context.Context, id apimeta.ClusterID, category *string) (<-chan *cluster.EventFeedFrame, error) {
+	st, err := r.ClusterSvc.Clusters().SubscribeEventFeed(ctx, id, category)
 	if err != nil {
 		return nil, err
 	}
-	return watchStream(ctx, st.Frames, st.Err), nil
+	return subscriptionStream(ctx, st.Frames, st.Err), nil
 }
 
-// ClusterScheduleWatch is the resolver for the clusterScheduleWatch field — the
-// live reconcile-schedule gauge for one cluster (next-attempt countdown),
-// decoupled from clustersWatch.
-func (r *subscriptionResolver) ClusterScheduleWatch(ctx context.Context, id apimeta.ClusterID) (<-chan *cluster.Schedule, error) {
-	ch, err := r.ClusterSvc.Clusters().WatchSchedule(ctx, id)
+// ClusterScheduleStateWatch is the resolver for the clusterScheduleStateWatch field — the
+// reconcile-schedule state watch for one cluster (next-attempt countdown),
+// decoupled from clusterCollectionWatch.
+func (r *subscriptionResolver) ClusterScheduleStateWatch(ctx context.Context, id apimeta.ClusterID) (<-chan *cluster.Schedule, error) {
+	ch, err := r.ClusterSvc.Clusters().WatchScheduleState(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	return ptrStream(ctx, ch), nil
+	return ptrSubscription(ctx, ch), nil
 }
 
-// ClusterDataRateWatch is the resolver for the clusterDataRateWatch field.
-func (r *subscriptionResolver) ClusterDataRateWatch(ctx context.Context, id apimeta.ClusterID) (<-chan *cluster.ClusterDataRateSeriesFrame, error) {
-	ch, err := r.ClusterSvc.Clusters().WatchDataRate(ctx, id)
+// ClusterDataRateTimeSeriesFeed is the resolver for the clusterDataRateTimeSeriesFeed field.
+func (r *subscriptionResolver) ClusterDataRateTimeSeriesFeed(ctx context.Context, id apimeta.ClusterID) (<-chan *cluster.ClusterDataRateTimeSeriesFeedFrame, error) {
+	ch, err := r.ClusterSvc.Clusters().SubscribeDataRateTimeSeriesFeed(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	return ptrStream(ctx, ch), nil
+	return ptrSubscription(ctx, ch), nil
 }
 
-// ClusterCachesWatch is the resolver for the clusterCachesWatch field — cache
-// records as a delta watch parallel to clustersWatch, joined to clusters
+// ClusterCacheCollectionWatch is the resolver for the clusterCacheCollectionWatch field — cache
+// records as a collection watch parallel to clusterCollectionWatch, joined to clusters
 // client-side by clusterID.
-func (r *subscriptionResolver) ClusterCachesWatch(ctx context.Context) (<-chan *cluster.ClusterCacheWatchFrame, error) {
-	st, err := r.ClusterSvc.Caches().WatchList(ctx)
+func (r *subscriptionResolver) ClusterCacheCollectionWatch(ctx context.Context) (<-chan *cluster.ClusterCacheCollectionWatchFrame, error) {
+	st, err := r.ClusterSvc.Caches().WatchCollection(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return watchStream(ctx, st.Frames, st.Err), nil
+	return subscriptionStream(ctx, st.Frames, st.Err), nil
 }
 
-// ClusterCacheHealthWatch is the resolver for the clusterCacheHealthWatch field.
-func (r *subscriptionResolver) ClusterCacheHealthWatch(ctx context.Context) (<-chan *cluster.ClusterCacheHealth, error) {
-	st, err := r.ClusterSvc.Caches().WatchHealth(ctx)
+// ClusterCacheHealthKeyedStateWatch is the resolver for the clusterCacheHealthKeyedStateWatch field.
+func (r *subscriptionResolver) ClusterCacheHealthKeyedStateWatch(ctx context.Context) (<-chan *cluster.ClusterCacheHealth, error) {
+	st, err := r.ClusterSvc.Caches().WatchHealthKeyedState(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return watchStream(ctx, st.Frames, st.Err), nil
+	return subscriptionStream(ctx, st.Frames, st.Err), nil
 }
 
-// ClusterCachedKindsWatch is the resolver for the clusterCachedKindsWatch field —
-// one cache's per-kind sync records as a delta watch. Cache-scoped, unlike the sibling
+// ClusterCachedKindCollectionWatch is the resolver for the clusterCachedKindCollectionWatch field —
+// one cache's per-kind sync records as a collection watch. Cache-scoped, unlike the sibling
 // object watches: there is one record per synced kind.
-func (r *subscriptionResolver) ClusterCachedKindsWatch(ctx context.Context, cacheID apimeta.ObjectID) (<-chan *cluster.ClusterCachedKindWatchFrame, error) {
-	st, err := r.ClusterSvc.CachedKinds().WatchByCache(ctx, cacheID)
+func (r *subscriptionResolver) ClusterCachedKindCollectionWatch(ctx context.Context, cacheID apimeta.ObjectID) (<-chan *cluster.ClusterCachedKindCollectionWatchFrame, error) {
+	st, err := r.ClusterSvc.CachedKinds().WatchCollectionByCache(ctx, cacheID)
 	if err != nil {
 		return nil, err
 	}
-	return watchStream(ctx, st.Frames, st.Err), nil
+	return subscriptionStream(ctx, st.Frames, st.Err), nil
 }
 
-// ClusterCacheStatsWatch is the resolver for the clusterCacheStatsWatch field — one
-// cache's contents as a live gauge, streamed because the ClusterCache.stats field freezes
+// ClusterCacheStatsStateWatch is the resolver for the clusterCacheStatsStateWatch field — one
+// cache's contents as a state watch, streamed because the ClusterCache.stats field freezes
 // once its record stops changing.
-func (r *subscriptionResolver) ClusterCacheStatsWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID) (<-chan *cluster.ClusterCacheStats, error) {
-	stream, err := r.ClusterSvc.Caches().WatchStats(ctx, id, cacheID)
+func (r *subscriptionResolver) ClusterCacheStatsStateWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID) (<-chan *cluster.ClusterCacheStats, error) {
+	stream, err := r.ClusterSvc.Caches().WatchStatsState(ctx, id, cacheID)
 	if err != nil {
 		return nil, err
 	}
-	return watchStream(ctx, stream.Frames, stream.Err), nil
+	return subscriptionStream(ctx, stream.Frames, stream.Err), nil
 }
 
-// ClusterCacheSyncStatusWatch is the resolver for the clusterCacheSyncStatusWatch field —
-// one cache's sync detail as a gauge. The only thing on the wire carrying a per-kind verdict.
-func (r *subscriptionResolver) ClusterCacheSyncStatusWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID) (<-chan *cluster.ClusterCacheSyncStatus, error) {
-	stream, err := r.ClusterSvc.Caches().WatchSyncStatus(ctx, id, cacheID)
+// ClusterCacheSyncStateWatch is the resolver for the clusterCacheSyncStateWatch field —
+// one cache's sync detail as a state watch. The only thing on the wire carrying a per-kind verdict.
+func (r *subscriptionResolver) ClusterCacheSyncStateWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID) (<-chan *cluster.ClusterCacheSyncState, error) {
+	stream, err := r.ClusterSvc.Caches().WatchSyncState(ctx, id, cacheID)
 	if err != nil {
 		return nil, err
 	}
-	return watchStream(ctx, stream.Frames, stream.Err), nil
+	return subscriptionStream(ctx, stream.Frames, stream.Err), nil
 }
 
-// ClusterCachedDataKindsWatch is the resolver for the clusterCachedDataKindsWatch field — one
-// ClusterCache's kind catalog as a delta watch (the live counterpart of
+// ClusterCachedDataKindCollectionWatch is the resolver for the clusterCachedDataKindCollectionWatch field — one
+// ClusterCache's kind catalog as a collection watch (the live counterpart of
 // ClusterCache.kinds), so the dashboard nav's kinds + counts track the cluster in
 // real time.
-func (r *subscriptionResolver) ClusterCachedDataKindsWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID, namespace string) (<-chan *cluster.ClusterCachedDataKindWatchFrame, error) {
-	stream, err := r.ClusterSvc.CachedData().WatchKinds(ctx, id, cacheID, namespace)
+func (r *subscriptionResolver) ClusterCachedDataKindCollectionWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID, namespace string) (<-chan *cluster.ClusterCachedDataKindCollectionWatchFrame, error) {
+	stream, err := r.ClusterSvc.CachedData().WatchKindCollection(ctx, id, cacheID, namespace)
 	if err != nil {
 		return nil, err
 	}
-	return watchStream(ctx, stream.Frames, stream.Err), nil
+	return subscriptionStream(ctx, stream.Frames, stream.Err), nil
 }
 
-// ClusterCachedDataEventsWatch is the resolver for the clusterCachedDataEventsWatch field — one
-// ClusterCache's cached Kubernetes Events as a delta watch, backing the dashboard's
+// ClusterCachedDataEventCollectionWatch is the resolver for the clusterCachedDataEventCollectionWatch field — one
+// ClusterCache's cached Kubernetes Events as a collection watch, backing the dashboard's
 // events table.
-func (r *subscriptionResolver) ClusterCachedDataEventsWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID) (<-chan *cluster.ClusterCachedDataEventWatchFrame, error) {
-	stream, err := r.ClusterSvc.CachedData().WatchEvents(ctx, id, cacheID)
+func (r *subscriptionResolver) ClusterCachedDataEventCollectionWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID) (<-chan *cluster.ClusterCachedDataEventCollectionWatchFrame, error) {
+	stream, err := r.ClusterSvc.CachedData().WatchEventCollection(ctx, id, cacheID)
 	if err != nil {
 		return nil, err
 	}
-	return watchStream(ctx, stream.Frames, stream.Err), nil
+	return subscriptionStream(ctx, stream.Frames, stream.Err), nil
 }
 
-// ClusterCachedDataObjectsWatch is the resolver for the clusterCachedDataObjectsWatch field — one
-// kind's cached objects as a delta watch, backing the dashboard's per-kind tables.
-func (r *subscriptionResolver) ClusterCachedDataObjectsWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID, apiVersion string, resource string) (<-chan *cluster.ClusterCachedDataObjectWatchFrame, error) {
-	stream, err := r.ClusterSvc.CachedData().WatchObjects(ctx, id, cacheID, apiVersion, resource)
+// ClusterCachedDataObjectCollectionWatch is the resolver for the clusterCachedDataObjectCollectionWatch field — one
+// kind's cached objects as a collection watch, backing the dashboard's per-kind tables.
+func (r *subscriptionResolver) ClusterCachedDataObjectCollectionWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID, apiVersion string, resource string) (<-chan *cluster.ClusterCachedDataObjectCollectionWatchFrame, error) {
+	stream, err := r.ClusterSvc.CachedData().WatchObjectCollection(ctx, id, cacheID, apiVersion, resource)
 	if err != nil {
 		return nil, err
 	}
-	return watchStream(ctx, stream.Frames, stream.Err), nil
+	return subscriptionStream(ctx, stream.Frames, stream.Err), nil
 }
 
-// ChatsWatch is the resolver for the chatsWatch field.
-func (r *subscriptionResolver) ChatsWatch(ctx context.Context) (<-chan *chat.ChatWatchFrame, error) {
-	st, err := r.ChatSvc.WatchList(ctx)
+// ChatCollectionWatch is the resolver for the chatCollectionWatch field.
+func (r *subscriptionResolver) ChatCollectionWatch(ctx context.Context) (<-chan *chat.ChatCollectionWatchFrame, error) {
+	st, err := r.ChatSvc.WatchCollection(ctx)
 	if err != nil {
 		return nil, chatErr(err)
 	}
-	return watchStream(ctx, st.Frames, st.Err), nil
+	return subscriptionStream(ctx, st.Frames, st.Err), nil
 }
 
-// ChatMessagesWatch is the resolver for the chatMessagesWatch field.
-func (r *subscriptionResolver) ChatMessagesWatch(ctx context.Context, chatID apimeta.ChatID) (<-chan *chat.ChatMessageWatchFrame, error) {
-	st, err := r.ChatSvc.WatchMessages(ctx, chatID)
+// ChatMessageCollectionWatch is the resolver for the chatMessageCollectionWatch field.
+func (r *subscriptionResolver) ChatMessageCollectionWatch(ctx context.Context, chatID apimeta.ChatID) (<-chan *chat.ChatMessageCollectionWatchFrame, error) {
+	st, err := r.ChatSvc.WatchMessageCollection(ctx, chatID)
 	if err != nil {
 		return nil, chatErr(err)
 	}
-	return watchStream(ctx, st.Frames, st.Err), nil
+	return subscriptionStream(ctx, st.Frames, st.Err), nil
 }
 
-// MemoriesWatch is the resolver for the memoriesWatch field.
-func (r *subscriptionResolver) MemoriesWatch(ctx context.Context, clusterID apimeta.ClusterID) (<-chan *memory.MemoryWatchFrame, error) {
-	st, err := r.MemorySvc.Watch(ctx, clusterID)
+// MemoryCollectionWatch is the resolver for the memoryCollectionWatch field.
+func (r *subscriptionResolver) MemoryCollectionWatch(ctx context.Context, clusterID apimeta.ClusterID) (<-chan *memory.MemoryCollectionWatchFrame, error) {
+	st, err := r.MemorySvc.WatchCollectionByCluster(ctx, clusterID)
 	if err != nil {
 		return nil, memoryErr(err)
 	}
-	return watchStream(ctx, st.Frames, st.Err), nil
+	return subscriptionStream(ctx, st.Frames, st.Err), nil
 }
 
-// LogsFollow is the resolver for the logsFollow field. Its stream's Err is filed
-// on teardown as watchStream files it, so a failed follow reaches the client as
-// watchFailed, never as a graceful end.
-func (r *subscriptionResolver) LogsFollow(ctx context.Context, id apimeta.ClusterID, request model.LogsFollowInput) (<-chan *model.LogsFollowFrame, error) {
-	resp, err := r.Logs.Follow(ctx, id, followRequestOf(request))
+// LogsTail is the resolver for the logsTail field. Its stream's Err is filed
+// on teardown as subscriptionStream files it, so a failed tail reaches the client as
+// subscriptionFailed, never as a graceful end.
+func (r *subscriptionResolver) LogsTail(ctx context.Context, id apimeta.ClusterID, request model.LogsTailInput) (<-chan *model.LogsTailFrame, error) {
+	resp, err := r.Logs.TailFromCursor(ctx, id, tailRequestOf(request))
 	if err != nil {
 		return nil, logsErr(err)
 	}
 	st := resp.Frames
-	return mapStream(ctx, st.Frames, func() { recordWatchFailure(ctx, st.Err()) }, frameOf), nil
+	return mapSubscription(ctx, st.Frames, func() { recordSubscriptionFailure(ctx, st.Err()) }, frameOf), nil
 }
 
-// SandboxExecutablesWatch is the resolver for the sandboxExecutablesWatch field: the
+// SandboxExecutablesStateWatch is the resolver for the sandboxExecutablesStateWatch field: the
 // probe's state, a current-on-subscribe receiver, and the registered
 // executables, read once and again on each ping, folded into one report on
 // either's change. A read that fails ends the watch with its reason. A machine
 // with no sandbox answers one empty report.
-func (r *subscriptionResolver) SandboxExecutablesWatch(ctx context.Context) (<-chan *model.SandboxExecutablesReport, error) {
+func (r *subscriptionResolver) SandboxExecutablesStateWatch(ctx context.Context) (<-chan *model.SandboxExecutablesReport, error) {
 	out := make(chan *model.SandboxExecutablesReport)
 	send := func(report *model.SandboxExecutablesReport) bool {
 		select {
@@ -1160,8 +1160,9 @@ func (r *subscriptionResolver) SandboxExecutablesWatch(ctx context.Context) (<-c
 		}()
 		return out, nil
 	}
-	// Subscribed before the first read, since a ping is not current-on-subscribe.
-	probe, pings := r.Executables.WatchProbe(), r.Settings.WatchExecutables()
+	// Listened for before the first read, since a change notification sends nothing on
+	// subscribe.
+	probe, pings := r.Executables.WatchProbeState(), r.Settings.ListenForExecutableChanges()
 	go func() {
 		defer close(out)
 		defer probe.Close()
@@ -1169,7 +1170,7 @@ func (r *subscriptionResolver) SandboxExecutablesWatch(ctx context.Context) (<-c
 		read := func() ([]settings.Executable, error) {
 			registered, err := r.Settings.Executables(ctx)
 			if err != nil {
-				recordWatchFailure(ctx, fmt.Errorf("read the executables: %w", err))
+				recordSubscriptionFailure(ctx, fmt.Errorf("read the executables: %w", err))
 			}
 			return registered, err
 		}
@@ -1205,17 +1206,17 @@ func (r *subscriptionResolver) SandboxExecutablesWatch(ctx context.Context) (<-c
 	return out, nil
 }
 
-// SandboxFoldersWatch is the resolver for the sandboxFoldersWatch field: the
+// SandboxFoldersStateWatch is the resolver for the sandboxFoldersStateWatch field: the
 // folders, read once, then again on each save of the PATH or read of the
-// shell, each write of the always grants and each ping of the chat's grants.
-// No ping is current-on-subscribe, so the first frame is read before any.
-// With no chat, nothing pings the grants. A read that fails ends the watch
+// shell, each write of the always grants and each change to the chat's grants.
+// No change notification sends anything on subscribe, so the first frame is read
+// before any. With no chat, nothing notifies of the grants. A read that fails ends the watch
 // with its reason, so the client reconnects and reads again.
-func (r *subscriptionResolver) SandboxFoldersWatch(ctx context.Context, chatID *apimeta.ChatID) (<-chan *model.SandboxFolders, error) {
+func (r *subscriptionResolver) SandboxFoldersStateWatch(ctx context.Context, chatID *apimeta.ChatID) (<-chan *model.SandboxFolders, error) {
 	chat := valueOf(chatID)
 	// Subscribed before the first read, so a write between the two is not
 	// missed.
-	path, always, grants := r.Settings.WatchSandboxPath(), r.Settings.WatchPermissions(), r.ChatSvc.WatchGrants(chat)
+	path, always, grants := r.Settings.ListenForSandboxPathChanges(), r.Settings.ListenForPermissionChanges(), r.ChatSvc.ListenForGrantChanges(chat)
 	out := make(chan *model.SandboxFolders)
 	go func() {
 		defer close(out)
@@ -1226,7 +1227,7 @@ func (r *subscriptionResolver) SandboxFoldersWatch(ctx context.Context, chatID *
 		for {
 			folders, err := r.sandboxFolders(ctx, chat)
 			if err != nil {
-				recordWatchFailure(ctx, fmt.Errorf("read the sandbox folders: %w", err))
+				recordSubscriptionFailure(ctx, fmt.Errorf("read the sandbox folders: %w", err))
 				return
 			}
 			select {
@@ -1255,75 +1256,75 @@ func (r *subscriptionResolver) SandboxFoldersWatch(ctx context.Context, chatID *
 	return out, nil
 }
 
-// SandboxConsoleWatch is the resolver for the sandboxConsoleWatch field: the
+// SandboxConsoleStateWatch is the resolver for the sandboxConsoleStateWatch field: the
 // console's receiver is current-on-subscribe, so its first value sends the
 // first frame. With no shell, one empty frame.
-func (r *subscriptionResolver) SandboxConsoleWatch(ctx context.Context) (<-chan *model.SandboxConsole, error) {
+func (r *subscriptionResolver) SandboxConsoleStateWatch(ctx context.Context) (<-chan *model.SandboxConsole, error) {
 	frameOf := func(run *bash.ConsoleRun) *model.SandboxConsole {
 		return &model.SandboxConsole{Run: sandboxConsoleRunOf(run)}
 	}
 	if r.Console == nil {
 		none := make(chan *bash.ConsoleRun, 1)
 		none <- nil
-		return mapStream(ctx, none, func() {}, frameOf), nil
+		return mapSubscription(ctx, none, func() {}, frameOf), nil
 	}
-	rx := r.Console.WatchConsole()
-	return mapStream(ctx, rx.Chan(), rx.Close, frameOf), nil
+	rx := r.Console.WatchConsoleState()
+	return mapSubscription(ctx, rx.Chan(), rx.Close, frameOf), nil
 }
 
 // AuthStateWatch is the resolver for the authStateWatch field; the stream is
 // current-on-subscribe, so its first value IS the snapshot.
 func (r *subscriptionResolver) AuthStateWatch(ctx context.Context) (<-chan *connectors.State, error) {
-	states, cancel := r.Auth.Subscribe()
-	return mapStream(ctx, states, cancel, func(s connectors.State) *connectors.State { return &s }), nil
+	states, cancel := r.Auth.WatchState()
+	return mapSubscription(ctx, states, cancel, func(s connectors.State) *connectors.State { return &s }), nil
 }
 
-// ChatGPTConnectionWatch is the resolver for the chatGPTConnectionWatch field.
-func (r *subscriptionResolver) ChatGPTConnectionWatch(ctx context.Context) (<-chan *connectors.State, error) {
-	states, cancel := r.ChatGPT.Subscribe()
-	return mapStream(ctx, states, cancel, func(s connectors.State) *connectors.State { return &s }), nil
+// ChatGPTConnectionStateWatch is the resolver for the chatGPTConnectionStateWatch field.
+func (r *subscriptionResolver) ChatGPTConnectionStateWatch(ctx context.Context) (<-chan *connectors.State, error) {
+	states, cancel := r.ChatGPT.WatchState()
+	return mapSubscription(ctx, states, cancel, func(s connectors.State) *connectors.State { return &s }), nil
 }
 
-// OpenRouterConnectionWatch is the resolver for the openRouterConnectionWatch field.
-func (r *subscriptionResolver) OpenRouterConnectionWatch(ctx context.Context) (<-chan *connectors.State, error) {
-	states, cancel := r.OpenRouter.Subscribe()
-	return mapStream(ctx, states, cancel, func(s connectors.State) *connectors.State { return &s }), nil
+// OpenRouterConnectionStateWatch is the resolver for the openRouterConnectionStateWatch field.
+func (r *subscriptionResolver) OpenRouterConnectionStateWatch(ctx context.Context) (<-chan *connectors.State, error) {
+	states, cancel := r.OpenRouter.WatchState()
+	return mapSubscription(ctx, states, cancel, func(s connectors.State) *connectors.State { return &s }), nil
 }
 
-// GitHubConnectionWatch is the resolver for the gitHubConnectionWatch field.
-func (r *subscriptionResolver) GitHubConnectionWatch(ctx context.Context) (<-chan *connectors.State, error) {
-	states, cancel := r.GitHub.Subscribe()
-	return mapStream(ctx, states, cancel, func(s connectors.State) *connectors.State { return &s }), nil
+// GitHubConnectionStateWatch is the resolver for the gitHubConnectionStateWatch field.
+func (r *subscriptionResolver) GitHubConnectionStateWatch(ctx context.Context) (<-chan *connectors.State, error) {
+	states, cancel := r.GitHub.WatchState()
+	return mapSubscription(ctx, states, cancel, func(s connectors.State) *connectors.State { return &s }), nil
 }
 
-// GoogleConnectionWatch is the resolver for the googleConnectionWatch field.
-func (r *subscriptionResolver) GoogleConnectionWatch(ctx context.Context) (<-chan *connectors.State, error) {
-	states, cancel := r.Google.Subscribe()
-	return mapStream(ctx, states, cancel, func(s connectors.State) *connectors.State { return &s }), nil
+// GoogleConnectionStateWatch is the resolver for the googleConnectionStateWatch field.
+func (r *subscriptionResolver) GoogleConnectionStateWatch(ctx context.Context) (<-chan *connectors.State, error) {
+	states, cancel := r.Google.WatchState()
+	return mapSubscription(ctx, states, cancel, func(s connectors.State) *connectors.State { return &s }), nil
 }
 
-// AWSConnectionWatch is the resolver for the awsConnectionWatch field.
-func (r *subscriptionResolver) AWSConnectionWatch(ctx context.Context) (<-chan *connectors.State, error) {
-	states, cancel := r.AWS.Subscribe()
-	return mapStream(ctx, states, cancel, func(s connectors.State) *connectors.State { return &s }), nil
+// AWSConnectionStateWatch is the resolver for the awsConnectionStateWatch field.
+func (r *subscriptionResolver) AWSConnectionStateWatch(ctx context.Context) (<-chan *connectors.State, error) {
+	states, cancel := r.AWS.WatchState()
+	return mapSubscription(ctx, states, cancel, func(s connectors.State) *connectors.State { return &s }), nil
 }
 
-// ModelsWatch is the resolver for the modelsWatch field.
-func (r *subscriptionResolver) ModelsWatch(ctx context.Context) (<-chan []*model.Model, error) {
-	frames, cancel := r.LLMSvc.Subscribe()
-	return mapStream(ctx, frames, cancel, modelsOf), nil
+// ModelsStateWatch is the resolver for the modelsStateWatch field.
+func (r *subscriptionResolver) ModelsStateWatch(ctx context.Context) (<-chan []*model.Model, error) {
+	frames, cancel := r.LLMSvc.WatchProvidersState()
+	return mapSubscription(ctx, frames, cancel, modelsOf), nil
 }
 
-// ProviderCredentialsWatch is the resolver for the providerCredentialsWatch field.
-func (r *subscriptionResolver) ProviderCredentialsWatch(ctx context.Context) (<-chan []*providercredentials.State, error) {
-	states, cancel := r.ProviderCredentials.Subscribe()
-	return mapStream(ctx, states, cancel, ptrSlice[providercredentials.State]), nil
+// ProviderCredentialsStateWatch is the resolver for the providerCredentialsStateWatch field.
+func (r *subscriptionResolver) ProviderCredentialsStateWatch(ctx context.Context) (<-chan []*providercredentials.State, error) {
+	states, cancel := r.ProviderCredentials.WatchCredentialsState()
+	return mapSubscription(ctx, states, cancel, ptrSlice[providercredentials.State]), nil
 }
 
-// ToolSettingsWatch is the resolver for the toolSettingsWatch field.
-func (r *subscriptionResolver) ToolSettingsWatch(ctx context.Context) (<-chan []*toolsettings.Setting, error) {
-	settings, cancel := r.Resolver.ToolSettings.Subscribe()
-	return mapStream(ctx, settings, cancel, ptrSlice[toolsettings.Setting]), nil
+// ToolSettingsStateWatch is the resolver for the toolSettingsStateWatch field.
+func (r *subscriptionResolver) ToolSettingsStateWatch(ctx context.Context) (<-chan []*toolsettings.Setting, error) {
+	settings, cancel := r.Resolver.ToolSettings.WatchSettingsState()
+	return mapSubscription(ctx, settings, cancel, ptrSlice[toolsettings.Setting]), nil
 }
 
 // Status is the resolver for the status field: null for a call the provider

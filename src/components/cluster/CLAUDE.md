@@ -2,6 +2,8 @@
 
 The context omnibox (in `components/shell/`) and what it opens: the cluster picker, the status popover, the sync panel and the memory popover. Also owns `src/lib/`'s `cluster-health.ts`, `cluster-diagnostics.ts`, `cluster-mutations.ts`, `kube-config.tsx`, `memories.tsx`, `memory-writes.ts` and `unsaved-drafts.ts`. The webview-wide rules, security invariants first, are [`src/CLAUDE.md`](../../CLAUDE.md).
 
+Every subscription here is named for its kind: [`docs/subscriptions.md`](../../../docs/subscriptions.md).
+
 ## The context omnibox
 
 The **context omnibox** (`components/shell/context-omnibox/`, exporting the omnibox alone; `omnibox.tsx`) sits in the app bar's centre: the **`StatusButton`**, one trigger and the **`MemoryButton`**. Hit areas cover the margins and border, so every press lands on a control; narrow, margins go and the TLS badge is an icon. With no context there is no status button; the trigger draws the bare icon. → [ADR: the omnibox is the cluster picker](../../../docs/adr/2026-10-29-the-omnibox-is-the-cluster-picker.md).
@@ -16,7 +18,7 @@ The **context omnibox** (`components/shell/context-omnibox/`, exporting the omni
 The status button is the server icon with the window's cluster's verdict as a dot in its corner. It opens **`ClusterStatusPopover`** (`components/cluster/cluster-status/`, exporting the popover alone; `popover.tsx`), a glance. **Every value is always drawn, a dash for a missing one.** Top to bottom:
 
 - A header with the context and the overall verdict as a pill.
-- Under an `error` connection tone, a destructive `Alert`: `connectionFailureSummary`'s words for the `Connected` reason as its title, then the condition's message and *N attempts · Retrying in D* off the schedule gauge, *Retrying now…* while a probe runs.
+- Under an `error` connection tone, a destructive `Alert`: `connectionFailureSummary`'s words for the `Connected` reason as its title, then the condition's message and *N attempts · Retrying in D* off the schedule, *Retrying now…* while a probe runs.
 - Under an `error` sync tone, one titled by `cacheFailureSummary` (a failed sync's `failure` class, such as *Permission denied*) over `syncReason`'s line.
 - Under a `Stale` sync, an amber one (`Alert` has no amber variant, so it takes `TONE.attention`'s shade), titled by the kinds not receiving updates (up to three by name, else a count), over a line saying the data shown may be out of date and Kstack restarts the watches until updates resume.
 - Three sections. *Kubeconfig*: context, server, user. *Connection*: its verdict, uptime (or downtime while down), download rate and its received-only sparkline, on a square-root scale, whose hovered sample shows its rate and age in a small tooltip centred over the chart. *Cache*: its verdict, with *Syncing (N/M)…* counting the unpaused kinds caught up and *Current · N paused* naming paused kinds, `syncReason`'s one line under any other `attention` tone, populated kinds, objects, last event.
@@ -24,7 +26,7 @@ The status button is the server icon with the window's cluster's verdict as a do
 
 Around it:
 
-- **It shares the Clusters dialog's streams** (`useDataRate`, `useCacheContents`, `useNextCheck`, `src/lib/cluster-diagnostics.ts`), its sync wording (`syncReason`, `countLabel`, `src/lib/cluster-health.ts`) and its components (`RelativeTime`, `Countdown` and `RetryButton` in `primitives/`, `DataRateSparkline` in `cluster/`). The schedule gauge (`useNextCheck`) is read once, in `ClusterStatus`, and handed down. The history stays in the Clusters dialog.
+- **It shares the Clusters dialog's streams** (the hooks in `src/lib/cluster-diagnostics.ts`), its sync wording (`syncReason`, `countLabel`, `src/lib/cluster-health.ts`) and its components (`RelativeTime`, `Countdown` and `RetryButton` in `primitives/`, `DataRateSparkline` in `cluster/`). The schedule state watch (`useClusterScheduleStateWatch`) is read once, in `ClusterStatus`, and handed down. The history stays in the Clusters dialog.
 - **Size.** It hangs from the omnibox, at least 320px wide and as tall as its content. When the window is shorter, the alerts and sections scroll between a fixed header and footer, so a long message never hides the footer's buttons. It neither resizes nor remembers a size.
 - *View details* calls `openDialog('clusters', { clusterId, pane })`. **`clusterDetail` is the one way a dialog opens with state**: `ClusterSyncPanel` (`components/cluster/cluster-sync-panel/`, its one export) reads it once as it mounts, opens that row's pane and scrolls to it, and every other open clears it.
 

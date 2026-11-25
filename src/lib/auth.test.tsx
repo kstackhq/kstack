@@ -16,13 +16,13 @@ import { act, cleanup, render, renderHook, waitFor } from '@testing-library/reac
 import { Provider as UrqlProvider } from 'urql';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { flushWatchesSynchronously, mockTauriCore } from '@/test-utils';
+import { flushSubscriptionsSynchronously, mockTauriCore } from '@/test-utils';
 
 // Mocks ---------------------------------------------------------------
 
 const { invokeMock, channels, liveChannel, factory } = mockTauriCore();
 vi.mock('@tauri-apps/api/core', () => factory());
-flushWatchesSynchronously();
+flushSubscriptionsSynchronously();
 
 const { createGraphqlClient } = await import('@/lib/graphql/client');
 const { AuthProvider, useAuthState } = await import('./auth');

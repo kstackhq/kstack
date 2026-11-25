@@ -22,7 +22,8 @@ import { useMutation } from 'urql';
 
 import { graphql } from '@/gql';
 import type { AuthStateWatchSubscription } from '@/gql/graphql';
-import { perFrame, useWatchSubscription } from '@/lib/graphql/use-watch-subscription';
+import { stateWatchReducer } from '@/lib/graphql/state-watch';
+import { useFoldedSubscription } from '@/lib/graphql/use-folded-subscription';
 
 // Mirrors the sidecar's GraphQL shape; `identity` is non-null only when authenticated.
 export type Identity = {
@@ -38,7 +39,7 @@ export type AuthState = {
 
 const SIGNED_OUT: AuthState = { authenticated: false, identity: null };
 
-const AuthStateWatchSubscription = graphql(`
+const AuthStateWatchDocument = graphql(`
   subscription AuthStateWatch {
     authStateWatch {
       restoring
@@ -83,9 +84,9 @@ function toAuthState(s: AuthStateWatchSubscription['authStateWatch']): AuthState
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Last-value semantics; reverts to "no frame yet" (→ loading) on a transport
   // reconnect until the snapshot replays.
-  const { data } = useWatchSubscription<AuthStateWatchSubscription, AuthStateWatchSubscription>(
-    { query: AuthStateWatchSubscription },
-    perFrame((_prev, next) => next),
+  const { data } = useFoldedSubscription<AuthStateWatchSubscription, AuthStateWatchSubscription>(
+    { query: AuthStateWatchDocument },
+    stateWatchReducer((next) => next),
   );
   const [, runStartLogin] = useMutation(AuthLoginStartMutation);
   const [, runLogout] = useMutation(AuthLogoutMutation);

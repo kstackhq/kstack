@@ -31,13 +31,13 @@ import (
 type Fold[K comparable, T any, F any] struct {
 	key   func(T) K
 	equal func(T, T) bool
-	frame func(apimeta.DeltaFrameType, T) F
+	frame func(apimeta.CollectionWatchFrameType, T) F
 	known map[K]T
 }
 
 // New builds a fold over key, equal and frame.
 func New[K comparable, T any, F any](
-	key func(T) K, equal func(T, T) bool, frame func(apimeta.DeltaFrameType, T) F,
+	key func(T) K, equal func(T, T) bool, frame func(apimeta.CollectionWatchFrameType, T) F,
 ) *Fold[K, T, F] {
 	return &Fold[K, T, F]{key: key, equal: equal, frame: frame, known: map[K]T{}}
 }
@@ -61,12 +61,12 @@ func Send[F any](ctx context.Context, out chan<- F, frame F) bool {
 func (f *Fold[K, T, F]) Snapshot(ctx context.Context, out chan<- F, records []T) bool {
 	for _, r := range records {
 		f.known[f.key(r)] = r
-		if !Send(ctx, out, f.frame(apimeta.DeltaFrameAdded, r)) {
+		if !Send(ctx, out, f.frame(apimeta.CollectionWatchFrameAdded, r)) {
 			return false
 		}
 	}
 	var none T
-	return Send(ctx, out, f.frame(apimeta.DeltaFrameBookmark, none))
+	return Send(ctx, out, f.frame(apimeta.CollectionWatchFrameBookmark, none))
 }
 
 // Diff sends what a re-read changed: a record that appeared is Added, one that
@@ -85,7 +85,7 @@ func (f *Fold[K, T, F]) Diff(ctx context.Context, out chan<- F, records []T) boo
 			continue
 		}
 		delete(f.known, k)
-		if !Send(ctx, out, f.frame(apimeta.DeltaFrameDeleted, r)) {
+		if !Send(ctx, out, f.frame(apimeta.CollectionWatchFrameDeleted, r)) {
 			return false
 		}
 	}
@@ -100,9 +100,9 @@ func (f *Fold[K, T, F]) Upsert(ctx context.Context, out chan<- F, record T) bool
 		return true
 	}
 	f.known[k] = record
-	t := apimeta.DeltaFrameAdded
+	t := apimeta.CollectionWatchFrameAdded
 	if had {
-		t = apimeta.DeltaFrameModified
+		t = apimeta.CollectionWatchFrameModified
 	}
 	return Send(ctx, out, f.frame(t, record))
 }

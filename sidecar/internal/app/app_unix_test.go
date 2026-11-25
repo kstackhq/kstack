@@ -228,7 +228,7 @@ func TestTheSandboxConsoleReadsTheClusterAndChangesNothing(t *testing.T) {
 	raw := graphql(t, e.url, `mutation { folderGrant(path: "`+granted+`", write: false, duration: Always) { always { path } } }`)
 	require.NotContains(t, raw, `"errors"`, raw)
 
-	req, err := http.NewRequest(http.MethodPost, e.url+"/graphql", strings.NewReader(`{"query":"subscription { sandboxConsoleWatch { run { running output } } }"}`))
+	req, err := http.NewRequest(http.MethodPost, e.url+"/graphql", strings.NewReader(`{"query":"subscription { sandboxConsoleStateWatch { run { running output } } }"}`))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
@@ -262,7 +262,7 @@ func TestTheSandboxConsoleReadsTheClusterAndChangesNothing(t *testing.T) {
 						Running bool   `json:"running"`
 						Output  string `json:"output"`
 					} `json:"run"`
-				} `json:"sandboxConsoleWatch"`
+				} `json:"sandboxConsoleStateWatch"`
 			} `json:"data"`
 		}
 		require.NoError(t, json.Unmarshal([]byte(testutil.Recv(t, frames, "a console frame")), &frame))

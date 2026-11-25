@@ -50,7 +50,7 @@ type Config struct {
 type engine interface {
 	State() connectors.State
 	Restored() <-chan struct{}
-	Subscribe() (<-chan connectors.State, func())
+	WatchState() (<-chan connectors.State, func())
 	Start(ctx context.Context, fresh bool) (connectors.Failure, error)
 	Cancel()
 	Disconnect(ctx context.Context) error

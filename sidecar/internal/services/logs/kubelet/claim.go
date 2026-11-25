@@ -89,7 +89,7 @@ func Open(ctx context.Context, svc cluster.Service, id cluster.ClusterID, server
 		return nil, err
 	}
 	watchCtx, stop := context.WithCancel(context.WithoutCancel(ctx))
-	stream, err := svc.Clusters().Watch(watchCtx, id)
+	stream, err := svc.Clusters().WatchCollectionByID(watchCtx, id)
 	if err != nil {
 		stop()
 		c.lease.Release()
@@ -110,16 +110,16 @@ func Open(ctx context.Context, svc cluster.Service, id cluster.ClusterID, server
 // again after retry, its snapshot saying whether the record still stands; one
 // that cannot be opened again, or ends before its snapshot closes, revokes, since
 // a claim nothing watches could outlive the cluster.
-func watchRevoked(ctx context.Context, svc cluster.Service, id cluster.ClusterID, stream *cluster.Stream[cluster.ClusterWatchFrame], retry time.Duration) bool {
+func watchRevoked(ctx context.Context, svc cluster.Service, id cluster.ClusterID, stream *cluster.Stream[cluster.ClusterCollectionWatchFrame], retry time.Duration) bool {
 	for {
 		seen, synced := false, false
 		for f := range stream.Frames {
 			switch {
-			case f.Type == cluster.DeltaFrameDeleted || f.Cluster != nil && !connectable(f.Cluster):
+			case f.Type == cluster.CollectionWatchFrameDeleted || f.Cluster != nil && !connectable(f.Cluster):
 				return true
 			case f.Cluster != nil:
 				seen = true
-			case f.Type == cluster.DeltaFrameBookmark:
+			case f.Type == cluster.CollectionWatchFrameBookmark:
 				if !seen {
 					return true
 				}
@@ -138,7 +138,7 @@ func watchRevoked(ctx context.Context, svc cluster.Service, id cluster.ClusterID
 		case <-time.After(retry):
 		}
 		var err error
-		if stream, err = svc.Clusters().Watch(ctx, id); err != nil {
+		if stream, err = svc.Clusters().WatchCollectionByID(ctx, id); err != nil {
 			return ctx.Err() == nil
 		}
 	}

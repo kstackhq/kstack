@@ -65,7 +65,7 @@ func TestAWatchOverAFailedStoreEndsWithItsReason(t *testing.T) {
 	h := newHarness(t)
 	require.NoError(t, h.db.Close())
 
-	st, err := h.svc.Watch(t.Context(), clusterA)
+	st, err := h.svc.WatchCollectionByCluster(t.Context(), clusterA)
 	require.NoError(t, err)
 	for range st.Frames {
 	}
