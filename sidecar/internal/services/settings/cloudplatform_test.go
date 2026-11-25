@@ -72,25 +72,38 @@ func TestACloudPlatformSwitchReadThatFailsIsAnError(t *testing.T) {
 	t.Parallel()
 	db := appdbtest.Open(t)
 	s := openStore(t, db)
-	exec(t, db, `DROP TABLE sandbox_settings`)
+	exec(t, db, `DROP TABLE settings`)
 
 	_, err := s.CloudPlatformSwitches(t.Context())
 	assert.Error(t, err)
 	assert.Error(t, s.SetCloudPlatformSwitch(t.Context(), permissions.AWS, false))
 }
 
-// The migration writes the one row, so a missing row is a failed read; a
-// write does not put it back, which would turn on the switches that read off.
-func TestAMissingSandboxSettingsRowIsAFailedRead(t *testing.T) {
+// The switches' read takes their four rows through the index, so a run's
+// start reads no other setting.
+func TestTheSwitchesReadTheirRowsAlone(t *testing.T) {
+	t.Parallel()
+	db := appdbtest.Open(t)
+	exec(t, db, `INSERT INTO settings (key, value, created_at, updated_at) VALUES ('sandbox.path', '~/bin:$PATH', 0, 0)`)
+	plan := queryPlan(t, db, statements[stmtSelectCloudPlatformSwitches].Text, cloudPlatformSwitchKeys()...)
+	assert.Contains(t, plan, "USING INDEX settings_scope_key")
+
+	rows, err := db.Read.Query(statements[stmtSelectCloudPlatformSwitches].Text, cloudPlatformSwitchKeys()...)
+	require.NoError(t, err)
+	stored, err := scanSettings[string](rows)
+	require.NoError(t, err)
+	assert.Empty(t, stored, "the PATH is not a switch")
+}
+
+// A switch whose stored value Kstack cannot use is off; the others keep
+// theirs, and a NULL is the default, on.
+func TestASwitchValueKstackCannotUseIsOff(t *testing.T) {
 	t.Parallel()
 	db := appdbtest.Open(t)
 	s := openStore(t, db)
-	exec(t, db, `DELETE FROM sandbox_settings`)
+	exec(t, db, `INSERT INTO settings (key, value, created_at, updated_at) VALUES ('sandbox.aws.enabled', 'yes', 0, 0), ('sandbox.gcp.enabled', NULL, 0, 0)`)
 
-	_, err := s.CloudPlatformSwitches(t.Context())
-	assert.ErrorIs(t, err, ErrNoSandboxSettings)
-	assert.ErrorIs(t, s.SetCloudPlatformSwitch(t.Context(), permissions.AWS, true), ErrNoSandboxSettings)
-	var n int
-	require.NoError(t, db.Read.QueryRow(`SELECT count(*) FROM sandbox_settings`).Scan(&n))
-	assert.Zero(t, n, "the write inserted nothing")
+	sw, err := s.CloudPlatformSwitches(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, CloudPlatformSwitches{GitHub: true, GCP: true, Azure: true}, sw)
 }

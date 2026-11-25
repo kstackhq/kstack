@@ -1607,6 +1607,19 @@ func TestATurnIsNotOfferedAToolTheUserTurnedOff(t *testing.T) {
 	assert.Equal(t, []string{"echo", "other"}, offered(fakeOf(s).LastRequest()))
 }
 
+// A tool whose stored setting Kstack cannot use leaves the offer.
+func TestATurnIsNotOfferedAToolWhoseSettingCannotBeUsed(t *testing.T) {
+	t.Parallel()
+
+	s := startServiceWithTool(t, testTool{name: "echo"}, testTool{name: "other"})
+	_, err := s.db.Write.Exec(`INSERT INTO settings (key, value, created_at, updated_at) VALUES ('tools.echo.enabled', 'yes', 0, 0)`)
+	require.NoError(t, err)
+
+	msg := send(t, s, nil, "1", "hi")
+	awaitSettled(t, s, msg.ChatID, msg.ID)
+	assert.Equal(t, []string{"other"}, offered(fakeOf(s).LastRequest()))
+}
+
 // An always-on tool stays in the offer whatever its stored setting says.
 func TestATurnIsAlwaysOfferedTaskStop(t *testing.T) {
 	t.Parallel()
@@ -1674,7 +1687,7 @@ func TestASendThatCannotReadTheToolSettingsIsRefused(t *testing.T) {
 	t.Parallel()
 
 	s := startServiceWithTool(t, testTool{name: "echo"})
-	_, err := s.db.Write.Exec(`DROP TABLE tool_settings`)
+	_, err := s.db.Write.Exec(`DROP TABLE settings`)
 	require.NoError(t, err)
 
 	_, err = s.Send(t.Context(), nil, ModeChat, "1", false, false, false, "fake", "fake", "high", reqID("1"), "hi", nil)

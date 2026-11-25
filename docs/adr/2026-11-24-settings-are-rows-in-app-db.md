@@ -3,6 +3,7 @@ title: Keep every setting as rows in app.db
 date: 2026-11-24
 scope: sidecar
 status: Accepted
+amended_by: [Keep each single-value setting as a row of one settings table](2026-11-25-a-single-value-setting-is-a-row-of-settings.md)
 ---
 
 # Keep every setting as rows in app.db

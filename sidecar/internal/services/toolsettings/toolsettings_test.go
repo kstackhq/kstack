@@ -66,7 +66,7 @@ func TestSetWritesOneRowPerToolAndKeepsIt(t *testing.T) {
 	require.NoError(t, s.Set(ctx, "Bash", true))
 	assert.Equal(t, []Setting{{bash, true}, {fetch, true}}, list(t, s))
 	var rows, enabled, updated int64
-	require.NoError(t, db.Read.QueryRowContext(ctx, `SELECT count(*), max(enabled), max(updated_at) FROM tool_settings`).Scan(&rows, &enabled, &updated))
+	require.NoError(t, db.Read.QueryRowContext(ctx, `SELECT count(*), max(value), max(updated_at) FROM settings`).Scan(&rows, &enabled, &updated))
 	assert.Equal(t, []int64{1, 1, 1000}, []int64{rows, enabled, updated})
 }
 
@@ -77,12 +77,21 @@ func TestRowsOutsideTheListAreIgnored(t *testing.T) {
 	db := appdbtest.Open(t)
 	for _, q := range []string{
 		`INSERT INTO clusters (id, source, source_key, created_at, updated_at) VALUES ('c1', 'kubeconfig', 'ctx', 0, 0)`,
-		`INSERT INTO tool_settings (tool_name, cluster_id, enabled, updated_at) VALUES ('Gone', NULL, 0, 0), ('WebFetch', 'c1', 0, 0)`,
+		`INSERT INTO settings (key, cluster_id, value, created_at, updated_at) VALUES ('tools.Gone.enabled', NULL, 0, 0, 0), ('tools.WebFetch.enabled', 'c1', 0, 0, 0)`,
 	} {
 		_, err := db.Write.Exec(q)
 		require.NoError(t, err)
 	}
 	assert.Equal(t, []Setting{{bash, true}, {fetch, true}}, list(t, newService(t, db)))
+}
+
+// A row whose value Kstack cannot use turns its tool off.
+func TestARowKstackCannotUseTurnsItsToolOff(t *testing.T) {
+	t.Parallel()
+	db := appdbtest.Open(t)
+	_, err := db.Write.Exec(`INSERT INTO settings (key, value, created_at, updated_at) VALUES ('tools.Bash.enabled', 'yes', 0, 0)`)
+	require.NoError(t, err)
+	assert.Equal(t, []Setting{{bash, false}, {fetch, true}}, list(t, newService(t, db)))
 }
 
 func TestSetRefusesAToolOffTheList(t *testing.T) {
@@ -95,7 +104,7 @@ func TestSetRefusesAToolOffTheList(t *testing.T) {
 func TestAnAlwaysOnToolStaysOn(t *testing.T) {
 	t.Parallel()
 	db := appdbtest.Open(t)
-	_, err := db.Write.Exec(`INSERT INTO tool_settings (tool_name, cluster_id, enabled, updated_at) VALUES ('TaskStop', NULL, 0, 0)`)
+	_, err := db.Write.Exec(`INSERT INTO settings (key, value, created_at, updated_at) VALUES ('tools.TaskStop.enabled', 0, 0, 0)`)
 	require.NoError(t, err)
 	stop := Listing{Name: "TaskStop", Label: "TaskStop", Group: GroupCommands, Description: "Stop a task.", AlwaysOn: true}
 	s, err := New(db, []Listing{bash, stop}, time.Now)
@@ -148,7 +157,7 @@ func TestAClosedServiceReportsItsErrors(t *testing.T) {
 func TestNewFailsWithoutTheTable(t *testing.T) {
 	t.Parallel()
 	db := appdbtest.Open(t)
-	_, err := db.Write.Exec(`DROP TABLE tool_settings`)
+	_, err := db.Write.Exec(`DROP TABLE settings`)
 	require.NoError(t, err)
 	_, err = New(db, nil, time.Now)
 	assert.ErrorContains(t, err, "prepare toolsettings statements")

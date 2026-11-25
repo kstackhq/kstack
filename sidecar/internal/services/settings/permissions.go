@@ -17,6 +17,7 @@ package settings
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 
 	"github.com/amorey/gobus/conflate"
@@ -69,47 +70,68 @@ type FolderGrant struct {
 	Write bool
 }
 
+// modeEntry is the approval mode: the default's row and each cluster's own.
+// Read-only is the strictest: a mode Kstack cannot use refuses every cluster
+// write.
+var modeEntry = Entry[permissions.Mode]{
+	Key:        "permissions.approval_mode",
+	Default:    permissions.Ask,
+	Strictest:  new(permissions.ReadOnly),
+	PerCluster: true,
+	Check:      checkMode,
+}
+
+func checkMode(mode permissions.Mode) error {
+	switch mode {
+	case permissions.ReadOnly, permissions.Ask, permissions.Auto:
+		return nil
+	}
+	return fmt.Errorf("no approval mode is named %q", mode)
+}
+
 // ModeFor is cluster's mode and where it comes from: its own row, else the
 // default row, else Ask. A read that fails is an error, which a decision reads
 // as read-only.
 func (s *Store) ModeFor(ctx context.Context, cluster apimeta.ClusterID) (ClusterModeState, error) {
-	mode, own, err := selectMode(ctx, s.stmts.Stmts(), cluster)
+	mode, scope, err := readSetting(ctx, s.stmts.Stmts(), modeEntry, cluster)
 	if err != nil {
 		return ClusterModeState{}, err
 	}
+	return modeState(cluster, mode, scope), nil
+}
+
+// modeState is cluster's mode, its own (SourceEntry) only when its own row
+// holds it.
+func modeState(cluster apimeta.ClusterID, mode permissions.Mode, scope settingScope) ClusterModeState {
 	st := ClusterModeState{ClusterID: cluster, Mode: mode, Source: SourceDefault}
-	if own {
+	if scope == scopeOwn {
 		st.Source = SourceEntry
 	}
-	return st, nil
+	return st
 }
 
 // ClusterModes is the default mode, Ask when unset, and each of clusters'
 // modes as ModeFor answers it, from one read of the modes, so every cluster
 // that takes the default shows the same one.
 func (s *Store) ClusterModes(ctx context.Context, clusters []apimeta.ClusterID) (permissions.Mode, []ClusterModeState, error) {
-	modes, err := selectModes(ctx, s.stmts.Stmts())
+	stored, err := selectSettingScopes(ctx, s.stmts.Stmts(), modeEntry.Key)
 	if err != nil {
 		return "", nil, err
 	}
-	defaultMode, ok := modes[""]
-	if !ok {
-		defaultMode = permissions.Ask
-	}
+	defaultMode, _ := modeEntry.valueFor(stored, "")
 	states := make([]ClusterModeState, 0, len(clusters))
 	for _, c := range clusters {
-		st := ClusterModeState{ClusterID: c, Mode: defaultMode, Source: SourceDefault}
-		if mode, ok := modes[c]; ok {
-			st.Mode, st.Source = mode, SourceEntry
-		}
-		states = append(states, st)
+		mode, scope := modeEntry.valueFor(stored, c)
+		states = append(states, modeState(c, mode, scope))
 	}
 	return defaultMode, states, nil
 }
 
 // SetDefaultMode sets the default mode.
 func (s *Store) SetDefaultMode(ctx context.Context, mode permissions.Mode) error {
-	return s.write(ctx, appdb.KeyPermissions, func(st stmts) error { return upsertMode(ctx, st, "", mode, s.now().UnixMilli()) })
+	return s.write(ctx, appdb.KeyPermissions, func(st stmts) error {
+		return writeSetting(ctx, st, modeEntry, "", mode, s.now().UnixMilli())
+	})
 }
 
 // SetMode sets cluster's own mode: ErrClusterGone for a cluster that is gone
@@ -119,18 +141,18 @@ func (s *Store) SetMode(ctx context.Context, cluster apimeta.ClusterID, mode per
 		if err := requireKubeContext(ctx, st, cluster); err != nil {
 			return err
 		}
-		return upsertMode(ctx, st, cluster, mode, s.now().UnixMilli())
+		return writeSetting(ctx, st, modeEntry, cluster, mode, s.now().UnixMilli())
 	})
 }
 
-// ClearMode removes cluster's own mode: ErrClusterGone for a cluster that is
-// gone or awaiting deletion.
+// ClearMode puts cluster back on the default mode, writing NULL in its own
+// row: ErrClusterGone for a cluster that is gone or awaiting deletion.
 func (s *Store) ClearMode(ctx context.Context, cluster apimeta.ClusterID) error {
 	return s.write(ctx, appdb.KeyPermissions, func(st stmts) error {
 		if _, err := clusterHasKubeContext(ctx, st, cluster); err != nil {
 			return err
 		}
-		return deleteMode(ctx, st, cluster)
+		return resetSetting(ctx, st, modeEntry, cluster, s.now().UnixMilli())
 	})
 }
 

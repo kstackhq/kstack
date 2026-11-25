@@ -412,7 +412,7 @@ func TestAMonitorRunThatCannotReadTheToolSettingsIsRefused(t *testing.T) {
 
 	s := startMonitorService(t, "card-7", testTool{name: "echo"})
 	setMonitoring(t, s.db, "7", true)
-	_, err := s.db.Write.Exec(`DROP TABLE tool_settings`)
+	_, err := s.db.Write.Exec(`DROP TABLE settings`)
 	require.NoError(t, err)
 
 	_, err = s.RunMonitor(t.Context(), "7", fakeTarget(s), "look at the pods")

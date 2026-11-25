@@ -3035,7 +3035,7 @@ func TestPermissionSettingsFailsWithTheirRead(t *testing.T) {
 		table    string
 		clusters []clusterFixture
 	}{
-		"the modes": {"approval_modes", clusterFixtures()},
+		"the modes": {"settings", clusterFixtures()},
 		"the rules": {"kube_rules", clusterFixtures()},
 	} {
 		db := appdbtest.Open(t)
@@ -3728,7 +3728,7 @@ func TestSandboxCloudAccessSetRefusesWhatHasNoSwitch(t *testing.T) {
 // never a list of switches that are off.
 func TestSandboxCloudAccessAnswersAFailedRead(t *testing.T) {
 	srv, _, db := newCloudServer(t, permissions.AWS)
-	_, err := db.Write.Exec(`DROP TABLE sandbox_settings`)
+	_, err := db.Write.Exec(`DROP TABLE settings`)
 	require.NoError(t, err)
 	for _, q := range []string{`{ sandboxCloudAccess { target on } }`, `mutation { sandboxCloudAccessSet(target: AWS, on: false) { target on } }`} {
 		body, _ := json.Marshal(map[string]string{"query": q})

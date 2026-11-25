@@ -144,58 +144,6 @@ func requireKubeContext(ctx context.Context, st stmts, cluster apimeta.ClusterID
 	return nil
 }
 
-// selectMode is cluster's mode, its own row's or the default's, and whether
-// it is its own; no row at all is Ask. A cluster of "" reads the default.
-func selectMode(ctx context.Context, st stmts, cluster apimeta.ClusterID) (permissions.Mode, bool, error) {
-	var own bool
-	var mode permissions.Mode
-	err := st.QueryRow(ctx, stmtSelectMode, cluster).Scan(&own, &mode)
-	if errors.Is(err, sql.ErrNoRows) {
-		return permissions.Ask, false, nil
-	}
-	if err != nil {
-		return "", false, fmt.Errorf("select mode: %w", err)
-	}
-	return mode, own, nil
-}
-
-// selectModes is every mode row, keyed by its cluster, the default's by "".
-func selectModes(ctx context.Context, st stmts) (map[apimeta.ClusterID]permissions.Mode, error) {
-	rows, err := st.Query(ctx, stmtSelectModes)
-	if err != nil {
-		return nil, fmt.Errorf("select modes: %w", err)
-	}
-	defer rows.Close()
-	modes := map[apimeta.ClusterID]permissions.Mode{}
-	for rows.Next() {
-		var cluster apimeta.ClusterID
-		var mode permissions.Mode
-		if err := rows.Scan(&cluster, &mode); err != nil { // coverage:ignore both columns are STRICT TEXT, cluster_id read through ifnull
-			return nil, fmt.Errorf("scan mode: %w", err)
-		}
-		modes[cluster] = mode
-	}
-	if err := rows.Err(); err != nil { // coverage:ignore an I/O error past the first row, which no test can inject
-		return nil, fmt.Errorf("select modes: %w", err)
-	}
-	return modes, nil
-}
-
-// upsertMode writes cluster's mode. A cluster of "" writes the default.
-func upsertMode(ctx context.Context, st stmts, cluster apimeta.ClusterID, mode permissions.Mode, at int64) error {
-	if _, err := st.Exec(ctx, stmtUpsertMode, cluster, string(mode), at); err != nil {
-		return fmt.Errorf("write mode: %w", err)
-	}
-	return nil
-}
-
-func deleteMode(ctx context.Context, st stmts, cluster apimeta.ClusterID) error {
-	if _, err := st.Exec(ctx, stmtDeleteMode, cluster); err != nil {
-		return fmt.Errorf("delete mode: %w", err)
-	}
-	return nil
-}
-
 // selectKubeRules is the always rules in the order written.
 func selectKubeRules(ctx context.Context, st stmts) ([]permissions.Rule, error) {
 	rows, err := st.Query(ctx, stmtSelectKubeRules)

@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package toolsettings keeps the user's settings of the model's tools, as rows
-// in app.db's tool_settings. A tool is on unless a row turns it off, and a
-// setting only takes a tool out of a turn's offer; it never adds one.
+// Package toolsettings keeps the user's settings of the model's tools, as
+// rows of app.db's settings, a key per tool, spelled by services/settings. A
+// tool is on unless a row turns it off, and a setting only takes a tool out
+// of a turn's offer; it never adds one.
 package toolsettings
 
 import (
@@ -65,8 +66,8 @@ var ErrUnknownTool = errors.New("toolsettings: no listed tool has that name")
 // ErrAlwaysOn is a Set turning off a tool listed AlwaysOn.
 var ErrAlwaysOn = errors.New("toolsettings: that tool cannot be turned off")
 
-// Service owns the tool_settings table. Only the setting for every cluster is
-// read and written.
+// Service owns the tools' rows of settings. Only the setting for every
+// cluster is read and written.
 type Service struct {
 	store    *sqlstmt.Set[stmtID]
 	listings []Listing

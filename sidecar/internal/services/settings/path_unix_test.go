@@ -114,7 +114,7 @@ func TestThePathSettingRoundTrips(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, PathSetting{Value: "$PATH"}, got)
 
-	require.NoError(t, s.SetPath(ctx, "~/bin:$PATH"))
+	require.NoError(t, s.SetPath(ctx, "~/bin:$PATH"), "the first write inserts the row")
 	got, err = pathSetting(ctx, s)
 	require.NoError(t, err)
 	assert.Equal(t, PathSetting{Value: "~/bin:$PATH"}, got)
@@ -131,7 +131,7 @@ func TestARefusedPathSettingIsReadWithItsRefusal(t *testing.T) {
 	t.Parallel()
 	db := appdbtest.Open(t)
 	s := openStore(t, db)
-	exec(t, db, `UPDATE sandbox_settings SET path = 'bin:$PATH'`)
+	exec(t, db, `INSERT INTO settings (key, value, created_at, updated_at) VALUES ('sandbox.path', 'bin:$PATH', 0, 0)`)
 
 	got, err := pathSetting(t.Context(), s)
 	require.NoError(t, err)
@@ -139,20 +139,15 @@ func TestARefusedPathSettingIsReadWithItsRefusal(t *testing.T) {
 	assert.Contains(t, got.Refusal, `"bin" is not a full path`)
 }
 
-// A read that fails is an error, never $PATH, and so is a write over a
-// missing row, which it never inserts.
+// A read that fails is an error, never $PATH, and so is a write.
 func TestAPathSettingReadThatFailsIsAnError(t *testing.T) {
 	t.Parallel()
 	db := appdbtest.Open(t)
 	s := openStore(t, db)
-	exec(t, db, `DELETE FROM sandbox_settings`)
+	exec(t, db, `DROP TABLE settings`)
 	_, err := pathSetting(t.Context(), s)
-	assert.ErrorIs(t, err, ErrNoSandboxSettings)
-	assert.ErrorIs(t, s.SetPath(t.Context(), "$PATH"), ErrNoSandboxSettings)
-
-	exec(t, db, `DROP TABLE sandbox_settings`)
-	_, err = pathSetting(t.Context(), s)
 	assert.Error(t, err)
+	assert.Error(t, s.SetPath(t.Context(), "$PATH"))
 }
 
 // A save pings once it commits; a refused one pings nothing.
@@ -227,13 +222,14 @@ func TestAShellPathWriteThatFailsIsAnError(t *testing.T) {
 	assert.Error(t, err, "a read of the row it replaces")
 }
 
-// The migration writes sandbox_settings' row, so a run over none is a failed
-// read, never $PATH.
-func TestARunPathOverAMissingSettingsRowIsAFailedRead(t *testing.T) {
+// A stored value that is not text is read as an empty value with its
+// refusal, never as $PATH.
+func TestAPathSettingThatIsNotTextIsReadWithItsRefusal(t *testing.T) {
 	t.Parallel()
 	db := appdbtest.Open(t)
 	s := openStore(t, db)
-	exec(t, db, `DELETE FROM sandbox_settings`)
-	_, _, _, err := s.readPath(t.Context())
-	assert.ErrorIs(t, err, ErrNoSandboxSettings)
+	exec(t, db, `INSERT INTO settings (key, value, created_at, updated_at) VALUES ('sandbox.path', 7, 0, 0)`)
+	got, err := pathSetting(t.Context(), s)
+	require.NoError(t, err)
+	assert.Equal(t, PathSetting{Refusal: "The stored PATH is not text."}, got)
 }

@@ -401,7 +401,7 @@ func TestSandboxPathHasNoFoldersWithNoSandbox(t *testing.T) {
 // A refused value is answered with its refusal and no folders.
 func TestARefusedSandboxPathIsAnsweredWithItsRefusal(t *testing.T) {
 	srv, _, db, _ := sandboxPathServer(t, true, nil)
-	_, err := db.Write.Exec(`UPDATE sandbox_settings SET path = 'bin'`)
+	_, err := db.Write.Exec(`INSERT INTO settings (key, value, created_at, updated_at) VALUES ('sandbox.path', 'bin', 0, 0)`)
 	require.NoError(t, err)
 
 	res := post(t, srv, `{ sandboxPath `+sandboxPathFields+` }`)
@@ -425,7 +425,7 @@ func TestASandboxPathReadThatFailsIsAnError(t *testing.T) {
 	assert.Equal(t, "KSTACK_SAVED_UNREAD", res.Errors[0].Extensions["code"])
 	assert.Contains(t, res.Errors[0].Message, "Your PATH was saved")
 	var value string
-	require.NoError(t, db.Read.QueryRow(`SELECT path FROM sandbox_settings`).Scan(&value))
+	require.NoError(t, db.Read.QueryRow(`SELECT value FROM settings WHERE key = 'sandbox.path'`).Scan(&value))
 	assert.Equal(t, "/opt/bin", value)
 }
 

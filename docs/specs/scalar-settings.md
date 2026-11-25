@@ -5,8 +5,8 @@ every setting that fits: the cloud platform switches, the `PATH` setting, the ap
 the tool settings. `sandbox_settings`, `approval_modes` and `tool_settings` are dropped.
 
 **Built on `wip/settings-in-app-db`**, before that branch lands on `main`. The spec merges into
-it. The work is one PR into it, a commit per task, since the migration drops the tables the old
-code reads. The branch's landing PR deletes the spec.
+it. The work is one PR into it, one commit, since the migration drops the tables the old code
+reads. The branch's landing PR deletes the spec.
 
 ## Why
 
@@ -125,10 +125,10 @@ own, and a check of a value:
 A key is names joined by dots, the first its area, and is never reused for another meaning.
 Removing a setting removes its entry; its rows stay, unread.
 
-**`toolsettings` builds the tools' entries**, one per tool it lists, in `toolsettings.New`: the
-list differs by build and machine, and is not known when `settings.Open` runs. It uses the key's
-spelling and the row reader that `services/settings` exports. `<name>` is the tool's `Name()` as
-it is. `scalar.go` holds every other entry.
+**A tool's entry is built from its name** (`services/settings/tools.go`), since the list differs
+by build and machine and is not known when `settings.Open` runs. `tools.go` exports the read, a
+write's arguments and the row reader, which `toolsettings` and `agent/chat` use. `<name>` is the
+tool's `Name()` as it is. `scalar.go` and each setting's own file hold every other entry.
 
 **A JSON setting has a Go type.** The write encodes it and the read decodes it, refusing an
 unknown field, so the rest of the code never holds JSON. Its check bounds its size. On the wire it
@@ -142,7 +142,8 @@ wire and its control. It needs no migration and no statement.
 
 **Four statements serve every setting:**
 
-- every setting for every cluster: `SELECT key, value FROM settings WHERE cluster_id IS NULL`;
+- the four switches for every cluster, by their keys and the index:
+  `SELECT key, value FROM settings WHERE ifnull(cluster_id, '') = '' AND key IN (?, ?, ?, ?)`;
 - one key for one cluster and for every cluster, by the index, as `stmtSelectMode` reads today:
   `SELECT ifnull(cluster_id, ''), value FROM settings WHERE ifnull(cluster_id, '') IN (?, '')
   AND key = ?`;
@@ -157,7 +158,9 @@ transaction.
 in its own row falls through.
 
 **A write runs the check first.** A value the check refuses is a `SettingRefusal`, which names
-the key and the reason, and writes nothing. A setting whose own error the wire already maps
+the key and the reason, and writes nothing; so is a JSON value that encodes as `null`, since a
+NULL is the reset. A write or reset for a cluster of a setting no cluster has its own of is
+refused too, and writes no row. A setting whose own error the wire already maps
 (`CheckPath`'s) keeps it.
 
 **A reset writes NULL**, through the same upsert.
@@ -254,57 +257,23 @@ callers. The wire does not change.
 
 ## Tasks
 
-All tasks start Planned, and are built in order. Each is a commit of the one PR. Only the last
-commit builds, since the first drops the tables the old code reads, so the PR merges as a squash.
+All tasks start Planned, and are built in order, as one commit: the first drops the tables the old
+code reads.
 The [verification commands](README.md#verification-commands) apply.
 
 | # | Task | Status |
 | --- | --- | --- |
-| 1 | `appdb`: migration `0010`, its checksum line and its test, which builds the schema before it, seeds each earlier table (a tool off, one on and one for a cluster alone, a default mode and a cluster's, a switch off, a changed `PATH`), migrates, and checks that every other seed survives, each carried row with its key, scope, value and times, no row for a switch that was on or for the cluster's tool setting, the three tables gone, the unique index, each `CHECK` (an empty key, a real, a blob), that a NULL value is taken, that an integer reads back as an integer, and that a cluster's row goes with its cluster. A second test: a default `PATH` and every switch on carry no row. | Planned |
-| 2 | `services/settings`: `scalar.go` and its statements. Tests, over the test's own entries: no row reads the default; a write round-trips; a second write keeps `created_at` and moves `updated_at`; a reset writes NULL, keeps the row and reads the default; a value equal to the default is stored as a value; a cluster's row wins, and its NULL and its absence fall through; the read for one cluster uses the index; a write the check refuses is a `SettingRefusal` and writes nothing; a JSON value round-trips through its Go type; a row of the wrong kind, a row of JSON that does not decode and a row the check refuses read the strictest value, or the default for an entry with none; a row with no entry is ignored and kept; a failed query is an error. | Planned |
-| 3 | The switches. `TestEachCloudPlatformStartsOn` (no row), `TestSetCloudPlatformSwitchWritesOneSwitch`, `TestACloudPlatformSwitchReadThatFailsIsAnError`, and `TestASwitchValueKstackCannotUseIsOff` in place of `TestAMissingSandboxSettingsRowIsAFailedRead`. Every reader's failed-read test stays. | Planned |
-| 4 | The `PATH` setting. No row reads `$PATH`; `SetPath` writes the first row; `TestARefusedPathSettingIsReadWithItsRefusal` stays, with a value that is not text beside it, read as an empty value and its refusal; the read with `shell_path` is one transaction. | Planned |
-| 5 | The approval modes. `TestAClusterWithNoModeOfItsOwnTakesTheDefault` stays; a cleared mode keeps its row as NULL and takes the default; a mode Kstack cannot use is read-only, in a cluster's row and in the default's; a failed read is read-only. | Planned |
-| 6 | The tool settings, in `services/toolsettings` and `agent/chat`. `TestSetWritesOneRowPerToolAndKeepsIt`, `TestRowsOutsideTheListAreIgnored` and `TestAnAlwaysOnToolStaysOn` stay; a row Kstack cannot use turns its tool off, in `List` and in a turn's offer; the chat's read uses the index. | Planned |
+| 1 | `appdb`: migration `0010`, its checksum line and its test, which builds the schema before it, seeds each earlier table (a tool off, one on and one for a cluster alone, a default mode and a cluster's, a switch off, a changed `PATH`), migrates, and checks that every other seed survives, each carried row with its key, scope, value and times, no row for a switch that was on or for the cluster's tool setting, the three tables gone, the unique index, each `CHECK` (an empty key, a real, a blob), that a NULL value is taken, that an integer reads back as an integer, and that a cluster's row goes with its cluster. A second test: a default `PATH` and every switch on carry no row. | Done |
+| 2 | `services/settings`: `scalar.go` and its statements. Tests, over the test's own entries: no row reads the default; a write round-trips; a second write keeps `created_at` and moves `updated_at`; a reset writes NULL, keeps the row and reads the default; a value equal to the default is stored as a value; a cluster's row wins, and its NULL and its absence fall through; the read for one cluster uses the index; a write the check refuses is a `SettingRefusal` and writes nothing; a JSON value round-trips through its Go type; a row of the wrong kind, a row of JSON that does not decode and a row the check refuses read the strictest value, or the default for an entry with none; a row with no entry is ignored and kept; a failed query is an error. | Done |
+| 3 | The switches. `TestEachCloudPlatformStartsOn` (no row), `TestSetCloudPlatformSwitchWritesOneSwitch`, `TestACloudPlatformSwitchReadThatFailsIsAnError`, and `TestASwitchValueKstackCannotUseIsOff` in place of `TestAMissingSandboxSettingsRowIsAFailedRead`. Every reader's failed-read test stays. | Done |
+| 4 | The `PATH` setting. No row reads `$PATH`; `SetPath` writes the first row; `TestARefusedPathSettingIsReadWithItsRefusal` stays, with a value that is not text beside it, read as an empty value and its refusal; the read with `shell_path` is one transaction. | Done |
+| 5 | The approval modes. `TestAClusterWithNoModeOfItsOwnTakesTheDefault` stays; a cleared mode keeps its row as NULL and takes the default; a mode Kstack cannot use is read-only, in a cluster's row and in the default's; a failed read is read-only. | Done |
+| 6 | The tool settings, in `services/toolsettings` and `agent/chat`. `TestSetWritesOneRowPerToolAndKeepsIt`, `TestRowsOutsideTheListAreIgnored` and `TestAnAlwaysOnToolStaysOn` stay; a row Kstack cannot use turns its tool off, in `List` and in a turn's offer; the chat's read uses the index. | Done |
 
 ## When it lands
 
-- A new ADR: a single-value setting is a row in `settings`, with the three rules, *What this
-  gives up*, and typed tables per setting as the alternative. It amends
-  [settings are rows in app.db](../adr/2026-11-24-settings-are-rows-in-app-db.md), which stays
-  Accepted and gains an `amended_by` pointer to it. A `CLAUDE.md` that links the older ADR keeps
-  the link and adds the new one beside it. The new ADR gets its index row in
-  [`docs/adr/README.md`](../adr/README.md). For this table it replaces three of the older ADR's
-  statements:
-  - "Every setting is a typed row": a single-value setting is a row of `settings`.
-  - "Each value has its own typed column … There is no JSON column": `value` is `ANY`, one
-    column for every kind, and may hold JSON that SQL never reads inside.
-  - "A row Kstack cannot use is refused … Settings lists it with its reason, and the user
-    removes it there": a value Kstack cannot use reads as its strictest value or its default,
-    unlisted, and the next write replaces it. The `PATH` setting is still listed.
-
-  It says plainly why a table per setting, decided a week earlier, did not hold: what each new
-  single value cost, as *Why* lists. It also records that a JSON value written by a newer build,
-  with a field an older build does not know, reads there as the default and is lost at that
-  build's next write.
-- The same ADR amends
-  [tool settings are rows in app.db](../adr/2026-11-21-tool-settings-are-rows-in-app-db.md) and
-  [a setting with scopes is rows](../adr/2026-11-20-a-setting-with-scopes-is-rows.md) where they
-  name a table this spec drops, each with its `amended_by`.
-- [`security-model.md`](../security-model.md): every row that names `sandbox_settings`,
-  `approval_modes` or `tool_settings` names `settings` and the key. The switches' row swaps
-  `TestAMissingSandboxSettingsRowIsAFailedRead` for `TestASwitchValueKstackCannotUseIsOff`, and
-  its last sentence becomes "Settings draws no switch yet, so off is a `sandbox.<platform>.enabled`
-  row with value 0, inserted into `app.db`'s `settings`"; and
-  the modes' and the tools' rows gain their test of a value Kstack cannot use.
-- A dated record under [`docs/security/`](../security/): the store of the switches, the modes,
-  the tool settings and the `PATH` changed, with *What this gives up*.
-- [`persisted-data.md`](../persisted-data.md): one row for `settings`, durable, with
-  `TestMigration0010MovesTheSingleValueSettings` and the store's tests. The *Tool settings*,
-  *Approval modes* and *Sandbox settings* rows go; their tests that stay move to the new row.
-- `sidecar/internal/services/settings/CLAUDE.md`: the three rules, how to add a setting, and the
-  paragraphs of each moved setting. The package holds more than the table, so the guide says
-  "the `settings` table" wherever it means the table. Its opening sentences ("Every setting is a
-  typed row … refused and listed with its reason") are reworded to cover the table too.
-- `sidecar/CLAUDE.md`: the guide table's row for this package lists `settings`.
-- `appdb.go`: `KeyPermissions`' comment names `settings`, not `approval_modes`.
+Nothing is left for the landing. The ADR
+([keep each single-value setting as a row of one settings table](../adr/2026-11-25-a-single-value-setting-is-a-row-of-settings.md)),
+its `amended_by` pointers, the
+[security record](../security/2026-11-25-single-value-settings.md), `security-model.md`,
+`persisted-data.md` and the guides changed with the work.

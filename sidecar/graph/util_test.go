@@ -16,6 +16,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logline"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/refusal"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 )
@@ -100,6 +101,17 @@ func TestEnvVarErrNamesTheRefusal(t *testing.T) {
 
 	require.ErrorAs(t, envVarErr(envvars.ErrClusterGone), &e)
 	assert.Equal(t, "KSTACK_RECORD_NOT_FOUND", e.Extensions["code"])
+}
+
+// A setting's refusal is a validation error in the user's words, the way
+// every other permission refusal is.
+func TestPermissionsAfterNamesASettingRefusal(t *testing.T) {
+	refusal := settings.SettingRefusal{Key: "permissions.approval_mode", Reason: errors.New(`no approval mode is named "sometimes"`)}
+	_, err := (&Resolver{}).permissionsAfter(context.Background(), refusal)
+	var e *gqlerror.Error
+	require.ErrorAs(t, err, &e)
+	assert.Equal(t, "KSTACK_VALIDATION_ERROR", e.Extensions["code"])
+	assert.Equal(t, `no approval mode is named "sometimes"`, e.Message, "the reason alone, never the key")
 }
 
 // A failure that is no refusal stays opaque through the executable, variable and

@@ -79,7 +79,7 @@ const (
 	stmtSelectClusterMonitoring
 	stmtSelectLiveClusterIDs
 
-	stmtSelectDisabledTools
+	stmtSelectToolSettings
 
 	stmtSelectChatKubeRules
 	stmtInsertChatKubeRule
@@ -325,10 +325,10 @@ var statements = []sqlstmt.Statement{
 	// The clusters a monitor may be kept under: the sweeper ends every other.
 	stmtSelectLiveClusterIDs: sqlstmt.OnReader(`SELECT id FROM clusters WHERE delete_requested_at IS NULL`),
 
-	// The tools the user turned off for every cluster (services/toolsettings
-	// owns the table). OnBoth, since a send reads them in the transaction that
-	// reserves its turn.
-	stmtSelectDisabledTools: sqlstmt.OnBoth(`SELECT tool_name FROM tool_settings WHERE cluster_id IS NULL AND enabled = 0`),
+	// Every tool's setting for every cluster (services/toolsettings writes
+	// them). OnBoth, since a send reads them in the transaction that reserves
+	// its turn.
+	stmtSelectToolSettings: sqlstmt.OnBoth(settings.SelectToolSettings),
 
 	// OnBoth, since a rule's write reads the chat's rules in its transaction.
 	stmtSelectChatKubeRules: sqlstmt.OnBoth(`SELECT ` + settings.KubeRuleColumns + ` FROM kube_rules WHERE chat_id = ? ORDER BY created_at, id`),

@@ -16,7 +16,6 @@ package settings
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 
@@ -26,10 +25,6 @@ import (
 // ErrNoCloudPlatformSwitch is a switch asked of a target that has none: the
 // cluster.
 var ErrNoCloudPlatformSwitch = errors.New("settings: no switch for this target")
-
-// ErrNoSandboxSettings is sandbox_settings with no row. The migration writes
-// it, so a read that finds none failed.
-var ErrNoSandboxSettings = errors.New("settings: sandbox_settings has no row")
 
 // CloudPlatformSwitches is each cloud platform's switch: on, a sandboxed
 // command reaches it as the user.
@@ -52,36 +47,52 @@ func (sw CloudPlatformSwitches) On(target permissions.Target) bool {
 	return false
 }
 
-// CloudPlatformSwitches reads every switch from sandbox_settings' one row.
-func (s *Store) CloudPlatformSwitches(ctx context.Context) (CloudPlatformSwitches, error) {
-	var sw CloudPlatformSwitches
-	err := s.stmts.Stmts().QueryRow(ctx, stmtSelectCloudPlatformSwitches).Scan(&sw.AWS, &sw.GitHub, &sw.GCP, &sw.Azure)
-	if errors.Is(err, sql.ErrNoRows) {
-		return CloudPlatformSwitches{}, ErrNoSandboxSettings
+// cloudPlatformSwitches is each cloud platform's switch, on until the user
+// turns it off. Off is the strictest: a value Kstack cannot use reaches no
+// platform.
+var cloudPlatformSwitches = map[permissions.Target]Entry[bool]{
+	permissions.AWS:    {Key: "sandbox.aws.enabled", Default: true, Strictest: new(false)},
+	permissions.GitHub: {Key: "sandbox.github.enabled", Default: true, Strictest: new(false)},
+	permissions.GCP:    {Key: "sandbox.gcp.enabled", Default: true, Strictest: new(false)},
+	permissions.Azure:  {Key: "sandbox.azure.enabled", Default: true, Strictest: new(false)},
+}
+
+// cloudPlatformSwitchKeys is the switches' keys, the arguments of their read.
+func cloudPlatformSwitchKeys() []any {
+	keys := make([]any, 0, len(cloudPlatformSwitches))
+	for _, e := range cloudPlatformSwitches {
+		keys = append(keys, e.Key)
 	}
+	return keys
+}
+
+// CloudPlatformSwitches reads every switch in one read, so no read fails
+// partway.
+func (s *Store) CloudPlatformSwitches(ctx context.Context) (CloudPlatformSwitches, error) {
+	rows, err := s.stmts.Stmts().Query(ctx, stmtSelectCloudPlatformSwitches, cloudPlatformSwitchKeys()...)
 	if err != nil {
 		return CloudPlatformSwitches{}, fmt.Errorf("select cloud platform switches: %w", err)
 	}
-	return sw, nil
+	stored, err := scanSettings[string](rows)
+	if err != nil { // coverage:ignore scanSettings fails only on a scan or an I/O error, each exempt there
+		return CloudPlatformSwitches{}, err
+	}
+	on := func(target permissions.Target) bool { return cloudPlatformSwitches[target].valueIn(stored) }
+	return CloudPlatformSwitches{
+		AWS:    on(permissions.AWS),
+		GitHub: on(permissions.GitHub),
+		GCP:    on(permissions.GCP),
+		Azure:  on(permissions.Azure),
+	}, nil
 }
 
-// switchUpdates is each cloud platform's statement writing its switch: a
-// prepared statement cannot take a column as a parameter.
-var switchUpdates = map[permissions.Target]stmtID{
-	permissions.AWS:    stmtUpdateAWSSwitch,
-	permissions.GitHub: stmtUpdateGitHubSwitch,
-	permissions.GCP:    stmtUpdateGCPSwitch,
-	permissions.Azure:  stmtUpdateAzureSwitch,
-}
-
-// SetCloudPlatformSwitch turns target's switch on or off. It updates the one
-// row and never inserts it: an insert would write the other switches on.
+// SetCloudPlatformSwitch turns target's switch on or off.
 func (s *Store) SetCloudPlatformSwitch(ctx context.Context, target permissions.Target, on bool) error {
-	stmt, ok := switchUpdates[target]
+	e, ok := cloudPlatformSwitches[target]
 	if !ok {
 		return ErrNoCloudPlatformSwitch
 	}
-	if err := execOne(ctx, s.stmts.Stmts(), stmt, ErrNoSandboxSettings, on, s.now().UnixMilli()); err != nil {
+	if err := writeSetting(ctx, s.stmts.Stmts(), e, "", on, s.now().UnixMilli()); err != nil {
 		return fmt.Errorf("write cloud platform switch: %w", err)
 	}
 	return nil
