@@ -311,6 +311,24 @@ describe('AppLayout', () => {
     expect(pageOf(container)).toHaveClass('min-h-0', 'flex-1', 'overflow-hidden');
   });
 
+  // The bar's colour shows in the 8px around the box, so bar and gutter read as one surface,
+  // and the box's corners clip the sidebars and the page.
+  it('insets the content row in a rounded, bordered box on the bar’s colour', async () => {
+    const { container } = await renderWithRouter(buildTree(), '/');
+    expect(contentRowOf(container).parentElement).toHaveClass('bg-app-bar');
+    expect(contentRowOf(container)).toHaveClass(
+      'mx-2',
+      'mb-2',
+      'relative',
+      '@container',
+      'rounded-xl',
+      'border',
+      'border-border',
+      'overflow-clip',
+      'shadow-[0_1px_1px_rgb(0_0_0/0.1),0_1px_1.5px_rgb(0_0_0/0.1)]',
+    );
+  });
+
   it('puts the right sidebar after the page, flush to the window', async () => {
     const { container } = await renderWithRouter(buildTree(), '/');
     // Closed until asked for, and then after the page — the page keeps the middle,

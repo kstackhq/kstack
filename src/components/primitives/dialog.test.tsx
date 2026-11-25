@@ -40,10 +40,10 @@ function renderDialog() {
 const backdrop = () => document.querySelector('[data-slot="dialog-overlay"]')!;
 
 describe('Dialog', () => {
-  it('lays its drag band over the 40px app bar', async () => {
+  it('lays its drag band over the 56px app bar', async () => {
     renderDialog();
     await screen.findByRole('dialog');
-    expect(screen.getByTestId('dialog-window-drag-region')).toHaveClass('fixed', 'top-0', 'h-10');
+    expect(screen.getByTestId('dialog-window-drag-region')).toHaveClass('fixed', 'top-0', 'h-14');
   });
 
   it('stays open when the window is dragged by the band over the backdrop', async () => {

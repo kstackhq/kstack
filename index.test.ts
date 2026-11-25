@@ -19,8 +19,8 @@ import { describe, expect, it } from 'vitest';
 const html = readFileSync('index.html', 'utf8');
 
 describe('index.html boot mark', () => {
-  it('drags the window from a strip as tall as the 40px app bar', () => {
-    expect(html).toMatch(/\.boot-drag \{[^}]*height: 40px;/);
+  it('drags the window from a strip as tall as the 56px app bar', () => {
+    expect(html).toMatch(/\.boot-drag \{[^}]*height: 56px;/);
   });
 
   // The <img> attributes size the mark on frames the <style> has not reached.

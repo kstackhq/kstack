@@ -64,7 +64,7 @@ export function AppBar() {
   }, []);
   const columns = `${endColumn(ends.start, ends.end)} minmax(0, 352px) ${endColumn(ends.end, ends.start)}`;
   return (
-    // 40px tall; `window_manager.rs` mirrors the number to center the traffic lights
+    // 56px tall; `window_manager.rs` mirrors the number to center the traffic lights
     // in it. No padding of its own: the close button has to reach the window's
     // corner, and the gutter supplies the macOS inset.
     //
@@ -88,7 +88,7 @@ export function AppBar() {
       data-testid="app-bar"
       data-tauri-drag-region="deep"
       onPointerDown={dismissPopupsOnWindowDrag}
-      className="grid h-10 shrink-0 transform-gpu bg-app-bar"
+      className="grid h-14 shrink-0 transform-gpu bg-app-bar"
       style={{ gridTemplateColumns: columns }}
     >
       <div ref={startRef} data-testid="app-bar-start" className="flex items-stretch gap-1.5 justify-self-start">

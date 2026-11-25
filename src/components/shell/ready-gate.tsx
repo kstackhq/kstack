@@ -76,8 +76,8 @@ export function ReadyGate({ children }: { children: React.ReactNode }) {
       aria-busy={state.status === 'pending'}
       className="relative flex min-h-(--app-min-h) flex-col items-center justify-center gap-3 bg-background p-6 text-sm"
     >
-      {/* The app bar's 40px, so the macOS traffic lights sit in it */}
-      <div data-testid="drag-strip" data-tauri-drag-region="deep" className="absolute inset-x-0 top-0 h-10" />
+      {/* The app bar's 56px, so the macOS traffic lights sit in it */}
+      <div data-testid="drag-strip" data-tauri-drag-region="deep" className="absolute inset-x-0 top-0 h-14" />
       <AppMark size={48} />
       {state.status === 'pending' ? (
         <span className="sr-only">Starting…</span>
