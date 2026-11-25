@@ -2,6 +2,8 @@
 
 The context omnibox (in `components/shell/`) and what it opens: the cluster picker, the status popover, the sync panel and the memory popover. Also owns `src/lib/`'s `cluster-health.ts`, `cluster-diagnostics.ts`, `cluster-mutations.ts`, `kube-config.tsx`, `memories.tsx`, `memory-writes.ts` and `unsaved-drafts.ts`. The webview-wide rules, security invariants first, are [`src/CLAUDE.md`](../../CLAUDE.md).
 
+Every subscription here is named for its kind: [`docs/subscriptions.md`](../../../docs/subscriptions.md).
+
 ## The context omnibox
 
 The **context omnibox** (`components/shell/context-omnibox/`, exporting the omnibox alone; `omnibox.tsx`) sits in the app bar's centre: the **`StatusButton`**, one trigger and the **`MemoryButton`**. Hit areas cover the margins and border, so every press lands on a control; narrow, margins go and the TLS badge is an icon. With no context there is no status button; the trigger draws the bare icon. → [ADR: the omnibox is the cluster picker](../../../docs/adr/2026-10-29-the-omnibox-is-the-cluster-picker.md).

@@ -2,6 +2,8 @@
 
 The chat panes, composer, transcript and list. Also owns `src/lib/`'s `chats.tsx`, `chat-outbox.tsx`, `models.tsx`, `chat-switch.tsx`, `chat-grants.tsx`, `sandbox.tsx`, `held-still.ts` and `visible-text.ts`. The webview-wide rules, security invariants first, are [`src/CLAUDE.md`](../../CLAUDE.md). Memory is in the cluster guide ([`../cluster/CLAUDE.md`](../cluster/CLAUDE.md)); where a log card's view goes is in the logs guide ([`../logs/CLAUDE.md`](../logs/CLAUDE.md)).
 
+Every subscription here is named for its kind: [`docs/subscriptions.md`](../../../docs/subscriptions.md).
+
 ## Panes
 
 The chat's panes are top-level files in `components/chat/`: `chat-pane.tsx`, `chat-nav.tsx`, `dashboard-chat.tsx` and `centered-column.tsx`, the column chat mode's new-chat page centres its pane in. The transcript is `components/chat/chat-transcript/`, exporting `ChatTranscript`; `components/primitives/markdown/` exports `Markdown`. `chat-pane.tsx` holds `ChatPane` (one chat: a transcript whose scroller is the whole pane, its bar at the pane's edge, with the composer as its `footer`, held at the bottom of what shows as the messages scroll under it; the transcript centres its own column by mode) and `NewChatPane` (a chat not yet started: its `empty` slot over a composer, or with `centered` the two as one group in the middle of the pane, as chat mode's page draws it). Chat mode's page and the dashboard's right sidebar mount them. Neither navigates: they report `onCreated(id)` / `onGone()`, and the home decides — `chat.tsx` goes to `/chat/$chatId` with `replace: true`, `chat-id.tsx` back to `/chat`, `DashboardChat` writes or clears its `chat` param. → [ADR: the answer is a record](../../../docs/adr/2026-09-10-the-answer-is-a-record.md).

@@ -6,6 +6,8 @@ Each package directly under `tools/` is one tool; `box.go`, `tool.go`, `save.go`
 confines a run (sandbox, permissions, proxy, session) is `internal/run/CLAUDE.md`; who calls a tool
 and files its rows is `internal/agent/CLAUDE.md`.
 
+Every subscription here is named for its kind: [`docs/subscriptions.md`](../../../docs/subscriptions.md).
+
 ## The box
 
 Every tool the model can call. **A tool's kind is the interfaces it implements** (`tool.go`):

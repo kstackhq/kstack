@@ -6,6 +6,8 @@ request: the engine is an unexported field, and the provider has no API base.
 → [ADR](../../../../../docs/adr/2026-11-19-the-kstack-sign-in-is-a-connector-on-the-oauth-engine.md),
 [security record](../../../../../docs/security/2026-11-19-the-kstack-sign-in-on-the-engine.md).
 
+Every subscription here is named for its kind: [`docs/subscriptions.md`](../../../../../docs/subscriptions.md).
+
 - **A goroutine deletes `auth-token` once the engine has restored**, whose read opened the
   keyring, and only if `oskeyring.Opened` answers nil: a dismissed prompt is not raised again.
   That entry is `desktop/v0.0.1`'s whole token, never read. A failure is logged at `Info`; the next

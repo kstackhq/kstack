@@ -300,6 +300,24 @@ cd sidecar && go tool gqlgen generate
 
 Implement the panicking stubs it appends to `schema.resolvers.go`. **Never hand-edit `generated.go`/`models_gen.go`.** Re-run the frontend `pnpm codegen`. Renaming a schema file is a two-pass regen: delete the old `*.resolvers.go` between passes and check no body came through as `panic("not implemented")`.
 
+## Subscriptions
+
+An API that keeps delivering after the call returns is one of eight kinds, and is named for it. Choose the kind first; [`docs/subscriptions.md`](../docs/subscriptions.md) states each one's delivery and the subscriber's job.
+
+| Kind | Go method | GraphQL field |
+| --- | --- | --- |
+| Collection watch | `Watch<Noun>Collection` | `<noun>CollectionWatch` |
+| State, keyed state watch | `Watch<Noun>State`, `…KeyedState` | `<noun>StateWatch`, `…KeyedStateWatch` |
+| Event, time series feed | `Subscribe<Noun>EventFeed`, `…TimeSeriesFeed` | `<noun>EventFeed`, `…TimeSeriesFeed` |
+| Cursor tail | `Tail<Noun>FromCursor` | `<noun>Tail` |
+| Change, broadcast notification | `ListenFor<Noun>Changes`, `…Notifications` | none: they stay in the sidecar |
+
+- A method drops a noun its receiver names (`Caches().WatchCollectionByCluster`); a scope is a `By<Scope>` suffix in Go and an argument in GraphQL.
+- `Watch`, `Subscribe`, `Tail` and `Listen` are reserved for these. A poller or file watcher takes another verb.
+- A state watch sends its value on subscribe. A change notification sends nothing until a change, so listen before the first read.
+- A Watch, Feed or Tail that can fail returns `*Stream[T]`; its resolver goes through `subscriptionStream`, which turns `Err()` into the `subscriptionFailed` frame. Every one ends with its `ctx`.
+- A field's description opens with its kind.
+
 ## Patterns
 
 - A type's methods live in the type's file; a helper belongs to whoever calls it, and only what more than one needs goes on the service.
@@ -307,7 +325,6 @@ Implement the panicking stubs it appends to `schema.resolvers.go`. **Never hand-
 - Fan-in from producers that come and go → `gochan` `mpsc` with `WithKeepOpen`, a sender per producer; without the option the hub closes for good once no sender is open.
 - **Every outgoing request names the app** (`version.UserAgent()`, `kstack-desktop/<version> (<GOOS>/<GOARCH>)`) ahead of its own: a new `http.Client` takes `version.Transport`, a proxy calls `version.Prefix`. Exception: the AWS SDK appends the bare token.
 - Work to do is a queue, not a bus: `internal/lib/workqueue`, one `Queue` per job. `Done` is owed for every key taken.
-- Subscription resolvers emit the current snapshot first, then deltas (`mapSubscription`), and honor `ctx.Done()`.
 - Unexported functional options for test seams; exported `New` takes production knobs only.
 - **Production code reaches the API server through `kubeconn.Connection`'s `Dynamic` client or raw requests on its `HTTPClient`.** Never import `k8s.io/api/...`, `client-go/discovery` or the typed clientset (`client-go/kubernetes`): `kubernetes/scheme` links every API group, about 16 MB. Tests may use them. `make vet-go` and CI fail on them (`scripts/check-sidecar-deps.sh`).
 

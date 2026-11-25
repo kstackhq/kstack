@@ -6,6 +6,8 @@ turn gets is `internal/agent/catalog` (`internal/agent/CLAUDE.md`).
 → [ADR: the llm package wires itself](../../../docs/adr/2026-09-21-llm-is-one-package.md),
 [ADR: the catalog is its own package](../../../docs/adr/2026-09-24-the-catalog-is-its-own-package.md).
 
+Every subscription here is named for its kind: [`docs/subscriptions.md`](../../../docs/subscriptions.md).
+
 ```
 internal/llm/
   dialect.go service.go      Dialect; Service, New, Target (Stream: the switch on Dialect)
